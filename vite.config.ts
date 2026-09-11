@@ -8,6 +8,7 @@ import companiesHouseRouter from './server/routes/companiesHouse.mjs';
 import authRouter from './server/routes/auth.mjs';
 import practiceDataRouter from './server/routes/practiceData.mjs';
 import { healthPayload } from './server/lib/health.mjs';
+import { securityHeaders } from './server/lib/securityHeaders.mjs';
 
 /**
  * Mounts the exact same Express routers the production server uses, so
@@ -24,20 +25,30 @@ import { healthPayload } from './server/lib/health.mjs';
  * database is configured. Without a matching /health here, that request
  * falls through to Vite's SPA fallback (which returns index.html, not
  * JSON) and the check silently fails to short-circuit.
+ *
+ * The production security headers ride along too, so the e2e suite (which
+ * runs against `vite preview`) exercises the same Content-Security-Policy
+ * the deployed app serves. Dev mode is the one exception: Vite and the
+ * React plugin inject inline scripts for HMR, which that policy forbids,
+ * so dev gets every header except the CSP.
  */
 function apiMiddleware(): Plugin {
-  const app = express();
-  app.get('/health', (_req, res) => res.json(healthPayload()));
-  app.use('/api/companies-house', companiesHouseRouter);
-  app.use('/api/auth', authRouter);
-  app.use('/api/practice-data', practiceDataRouter);
+  const build = (options: { csp: boolean }) => {
+    const app = express();
+    app.use(securityHeaders(options));
+    app.get('/health', (_req, res) => res.json(healthPayload()));
+    app.use('/api/companies-house', companiesHouseRouter);
+    app.use('/api/auth', authRouter);
+    app.use('/api/practice-data', practiceDataRouter);
+    return app;
+  };
   return {
     name: 'api-middleware',
     configureServer(server) {
-      server.middlewares.use(app);
+      server.middlewares.use(build({ csp: false }));
     },
     configurePreviewServer(server) {
-      server.middlewares.use(app);
+      server.middlewares.use(build({ csp: true }));
     },
   };
 }

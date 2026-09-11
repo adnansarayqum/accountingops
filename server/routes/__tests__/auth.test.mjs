@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import express from 'express';
-import authRouter from '../auth.mjs';
+import authRouter, { resetLoginLimits } from '../auth.mjs';
 import practiceDataRouter from '../practiceData.mjs';
+import companiesHouseRouter from '../companiesHouse.mjs';
 import { isDatabaseConfigured, query } from '../../lib/db.mjs';
 import { hashPassword } from '../../lib/passwords.mjs';
 
@@ -15,9 +16,30 @@ import { hashPassword } from '../../lib/passwords.mjs';
 const RUN = isDatabaseConfigured();
 process.env.ADNAN_TEMP_PASSWORD = process.env.ADNAN_TEMP_PASSWORD ?? 'TestTemp1234';
 
+const EVERY_COLLECTION = [
+  'users', 'clients', 'contacts', 'identifiers', 'people', 'personRoles', 'subscriptions', 'obligations', 'jobs',
+  'requestItems', 'documents', 'communications', 'reminderSequences', 'approvals', 'filings', 'activities',
+  'auditEvents', 'inboxItems', 'notifications', 'onboardingCases', 'mtdReadiness',
+];
+
+/** A structurally valid PracticeData snapshot, the way the client sends one. */
+function snapshot(overrides = {}) {
+  const data = { practice: { id: 'prac_main', name: 'Test Practice' } };
+  for (const key of EVERY_COLLECTION) data[key] = [];
+  return { ...data, ...overrides };
+}
+
 function extractCookie(res) {
   const setCookie = res.headers.get('set-cookie');
   return setCookie ? setCookie.split(';')[0] : null;
+}
+
+function postLogin(baseUrl, username, password) {
+  return fetch(`${baseUrl}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
 }
 
 describe.skipIf(!RUN)('auth + practice-data routers', () => {
@@ -28,9 +50,11 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     await query('delete from practice_sessions');
     await query('delete from practice_users');
     await query('delete from practice_snapshots');
+    resetLoginLimits();
     const app = express();
     app.use('/api/auth', authRouter);
     app.use('/api/practice-data', practiceDataRouter);
+    app.use('/api/companies-house', companiesHouseRouter);
     server = app.listen(0);
     await new Promise((resolve) => server.once('listening', resolve));
     baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -45,20 +69,12 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
       expect(meBefore.status).toBe(401);
 
       // Wrong password is rejected without creating a session.
-      const wrongLogin = await fetch(`${baseUrl}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: 'adnan', password: 'nope' }),
-      });
+      const wrongLogin = await postLogin(baseUrl, 'adnan', 'nope');
       expect(wrongLogin.status).toBe(401);
       expect(extractCookie(wrongLogin)).toBeNull();
 
       // Correct (seeded) temporary password logs in and starts a session.
-      const login = await fetch(`${baseUrl}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: 'adnan', password: 'TestTemp1234' }),
-      });
+      const login = await postLogin(baseUrl, 'adnan', 'TestTemp1234');
       expect(login.status).toBe(200);
       const cookie = extractCookie(login);
       expect(cookie).toBeTruthy();
@@ -105,17 +121,9 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
       expect(meAfterLogout.status).toBe(401);
 
       // The old password no longer works; the new one does.
-      const loginOldPassword = await fetch(`${baseUrl}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: 'adnan', password: 'TestTemp1234' }),
-      });
+      const loginOldPassword = await postLogin(baseUrl, 'adnan', 'TestTemp1234');
       expect(loginOldPassword.status).toBe(401);
-      const loginNewPassword = await fetch(`${baseUrl}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: 'adnan', password: 'BrandNewPass1' }),
-      });
+      const loginNewPassword = await postLogin(baseUrl, 'adnan', 'BrandNewPass1');
       expect(loginNewPassword.status).toBe(200);
     });
 
@@ -123,27 +131,63 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
       const { rows } = await query("select username from practice_users where username in ('adnan','farhan','rayhan') order by username");
       expect(rows.map((r) => r.username)).toEqual(['adnan', 'farhan', 'rayhan']);
     });
+
+    it('answers a login for an unknown username exactly like a wrong password', async () => {
+      const res = await postLogin(baseUrl, 'nobody-here', 'whatever');
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: 'invalid_credentials' });
+      expect(extractCookie(res)).toBeNull();
+    });
+
+    it('locks a username out after ten attempts in a window, regardless of the address', async () => {
+      resetLoginLimits();
+      for (let i = 0; i < 10; i += 1) {
+        expect((await postLogin(baseUrl, 'farhan', `wrong-${i}`)).status).toBe(401);
+      }
+      const eleventh = await postLogin(baseUrl, 'farhan', 'wrong-10');
+      expect(eleventh.status).toBe(429);
+      expect(await eleventh.json()).toEqual({ error: 'too_many_attempts' });
+      expect(eleventh.headers.get('retry-after')).toMatch(/^\d+$/);
+      // Case and whitespace don't buy extra attempts.
+      expect((await postLogin(baseUrl, '  Farhan ', 'wrong-11')).status).toBe(429);
+      // ...and other accounts are unaffected.
+      expect((await postLogin(baseUrl, 'adnan', 'BrandNewPass1')).status).toBe(200);
+      resetLoginLimits();
+    });
   });
 
   describe('practice data', () => {
     let cookie;
 
     beforeAll(async () => {
-      const { hash, salt } = hashPassword('FixtureUserPass1');
+      const { hash, salt } = await hashPassword('FixtureUserPass1');
       await query(
         'insert into practice_users (id, username, name, role, password_hash, password_salt, must_change_password) values ($1,$2,$3,$4,$5,$6,false)',
         ['u_practice_data_test', 'practice_data_test', 'Test User', 'owner', hash, salt],
       );
-      const login = await fetch(`${baseUrl}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: 'practice_data_test', password: 'FixtureUserPass1' }),
-      });
+      const login = await postLogin(baseUrl, 'practice_data_test', 'FixtureUserPass1');
       cookie = extractCookie(login);
     });
 
+    function put(body, headers = {}) {
+      return fetch(`${baseUrl}/api/practice-data`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie, ...headers },
+        body: typeof body === 'string' ? body : JSON.stringify(body),
+      });
+    }
+
     it('rejects an unauthenticated request', async () => {
       const res = await fetch(`${baseUrl}/api/practice-data`);
+      expect(res.status).toBe(401);
+    });
+
+    it('rejects an unauthenticated PUT before reading its body', async () => {
+      const res = await fetch(`${baseUrl}/api/practice-data`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: snapshot() }),
+      });
       expect(res.status).toBe(401);
     });
 
@@ -153,13 +197,9 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     });
 
     it('saves and reloads a practice data snapshot', async () => {
-      const data = { practice: { id: 'prac_main', name: 'Test Practice' }, clients: [{ id: 'cl_1', name: 'Example Ltd' }] };
-      const put = await fetch(`${baseUrl}/api/practice-data`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Cookie: cookie },
-        body: JSON.stringify({ data }),
-      });
-      expect(put.status).toBe(200);
+      const data = snapshot({ clients: [{ id: 'cl_1', name: 'Example Ltd' }] });
+      const res = await put({ data });
+      expect(res.status).toBe(200);
 
       const get = await fetch(`${baseUrl}/api/practice-data`, { headers: { Cookie: cookie } });
       expect(get.status).toBe(200);
@@ -167,23 +207,66 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     });
 
     it('overwrites the previous snapshot on a second save', async () => {
-      const updated = { practice: { id: 'prac_main', name: 'Test Practice' }, clients: [] };
-      await fetch(`${baseUrl}/api/practice-data`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Cookie: cookie },
-        body: JSON.stringify({ data: updated }),
-      });
+      await put({ data: snapshot() });
       const get = await fetch(`${baseUrl}/api/practice-data`, { headers: { Cookie: cookie } });
       expect((await get.json()).data.clients).toEqual([]);
     });
 
-    it('rejects a body that is not a plain object', async () => {
-      const res = await fetch(`${baseUrl}/api/practice-data`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Cookie: cookie },
-        body: JSON.stringify({ data: ['not', 'an', 'object'] }),
-      });
+    it('refuses to overwrite the snapshot with something that is not one', async () => {
+      const before = await (await fetch(`${baseUrl}/api/practice-data`, { headers: { Cookie: cookie } })).json();
+      for (const body of [{ data: ['not', 'an', 'object'] }, { data: {} }, {}, { data: null }, { data: snapshot({ clients: 'not-an-array' }) }]) {
+        const res = await put(body);
+        expect(res.status).toBe(400);
+        expect((await res.json()).error).toBe('invalid_shape');
+      }
+      const after = await (await fetch(`${baseUrl}/api/practice-data`, { headers: { Cookie: cookie } })).json();
+      expect(after).toEqual(before);
+    });
+
+    it('reports malformed JSON as a 400, not a server error', async () => {
+      const res = await put('{"data": ');
       expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: 'invalid_json' });
+    });
+
+    it('refuses a body over the size limit with 413', async () => {
+      const data = snapshot({ notifications: [{ id: 'n_1', padding: 'x'.repeat(2 * 1024 * 1024 + 1024) }] });
+      const res = await put({ data });
+      expect(res.status).toBe(413);
+      expect(await res.json()).toEqual({ error: 'payload_too_large' });
+    });
+  });
+
+  describe('companies house proxy with logins configured', () => {
+    it('refuses lookups without a session, but still answers /status', async () => {
+      const status = await fetch(`${baseUrl}/api/companies-house/status`);
+      expect(status.status).toBe(200);
+      for (const path of ['/search?q=harbour', '/company/14829301', '/company/14829301/people']) {
+        const res = await fetch(`${baseUrl}/api/companies-house${path}`);
+        expect(res.status).toBe(401);
+        expect(await res.json()).toEqual({ error: 'not_authenticated' });
+      }
+    });
+
+    it('lets a signed-in user look companies up', async () => {
+      const login = await postLogin(baseUrl, 'practice_data_test', 'FixtureUserPass1');
+      const cookie = extractCookie(login);
+      process.env.COMPANIES_HOUSE_API_KEY = 'test-key';
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
+      try {
+        // The stubbed fetch must not intercept our own request to the test server.
+        const http = await import('node:http');
+        const status = await new Promise((resolve, reject) => {
+          http.get(`${baseUrl}/api/companies-house/search?q=harbour`, { headers: { Cookie: cookie } }, (res) => {
+            res.resume();
+            res.on('end', () => resolve(res.statusCode));
+          }).on('error', reject);
+        });
+        expect(status).toBe(200);
+      } finally {
+        vi.unstubAllGlobals();
+        delete process.env.COMPANIES_HOUSE_API_KEY;
+      }
     });
   });
 });

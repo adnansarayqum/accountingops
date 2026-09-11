@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import http from 'node:http';
-import router from '../companiesHouse.mjs';
+import router, { lookupLimiter } from '../companiesHouse.mjs';
 
 /**
  * The router is exercised over a real local HTTP server rather than by
@@ -17,6 +17,7 @@ import router from '../companiesHouse.mjs';
 let server;
 let baseUrl;
 const originalKey = process.env.COMPANIES_HOUSE_API_KEY;
+const originalDatabaseUrl = process.env.DATABASE_URL;
 
 function localGet(path) {
   return new Promise((resolve, reject) => {
@@ -31,6 +32,11 @@ function localGet(path) {
 }
 
 beforeAll(async () => {
+  // These tests cover the browser-only mode, where there are no accounts
+  // and therefore no login gate on lookups. The signed-in gate is covered
+  // in auth.test.mjs alongside the rest of the database-backed behaviour.
+  delete process.env.DATABASE_URL;
+  lookupLimiter.reset();
   const app = express();
   app.use('/api/companies-house', router);
   server = app.listen(0);
@@ -44,7 +50,10 @@ afterEach(() => {
   else process.env.COMPANIES_HOUSE_API_KEY = originalKey;
 });
 
-afterAll(() => new Promise((resolve) => server.close(resolve)));
+afterAll(async () => {
+  if (originalDatabaseUrl !== undefined) process.env.DATABASE_URL = originalDatabaseUrl;
+  await new Promise((resolve) => server.close(resolve));
+});
 
 describe('GET /status', () => {
   it('reports not configured when no key is set', async () => {
@@ -103,6 +112,65 @@ describe('GET /search', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 429 })));
     const res = await localGet('/api/companies-house/search?q=harbour');
     expect(res.status).toBe(429);
+  });
+
+  it('rejects an over-long query before touching the network', async () => {
+    process.env.COMPANIES_HOUSE_API_KEY = 'test-key';
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const res = await localGet(`/api/companies-house/search?q=${'a'.repeat(101)}`);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'query_too_long' });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('reports an unexpected failure generically rather than echoing its message', async () => {
+    process.env.COMPANIES_HOUSE_API_KEY = 'test-key';
+    // A body that isn't JSON makes res.json() throw a parser error whose
+    // message describes our internals — the browser must only see a code.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>oops</html>', { status: 200 })));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await localGet('/api/companies-house/search?q=harbour');
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'unknown_error' });
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it('throttles a single caller past the per-minute allowance', async () => {
+    process.env.COMPANIES_HOUSE_API_KEY = 'test-key';
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
+    lookupLimiter.reset();
+    let last;
+    for (let i = 0; i < 61; i += 1) last = await localGet('/api/companies-house/search?q=harbour');
+    expect(last.status).toBe(429);
+    expect(await last.json()).toEqual({ error: 'rate_limited' });
+    lookupLimiter.reset();
+  });
+});
+
+describe('company number validation', () => {
+  it('rejects a number that could not be a Companies House number before touching the network', async () => {
+    process.env.COMPANIES_HOUSE_API_KEY = 'test-key';
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    for (const bad of ['1234567890123', 'ab cd', "1';drop", '14829301.json']) {
+      const res = await localGet(`/api/companies-house/company/${encodeURIComponent(bad)}`);
+      expect(res.status, bad).toBe(400);
+      expect(await res.json()).toEqual({ error: 'invalid_company_number' });
+      const people = await localGet(`/api/companies-house/company/${encodeURIComponent(bad)}/people`);
+      expect(people.status, bad).toBe(400);
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('accepts real-looking numbers, including prefixed ones', async () => {
+    process.env.COMPANIES_HOUSE_API_KEY = 'test-key';
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ company_number: 'SC123456', company_name: 'X' }), { status: 200 })));
+    for (const good of ['14829301', 'SC123456', 'NI000123']) {
+      const res = await localGet(`/api/companies-house/company/${good}`);
+      expect(res.status, good).toBe(200);
+    }
   });
 });
 

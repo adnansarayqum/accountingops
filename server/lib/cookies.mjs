@@ -14,12 +14,22 @@ export function parseCookies(header) {
   return out;
 }
 
+/**
+ * Secure when we're in production OR the request actually arrived over TLS —
+ * so a deployment that forgets NODE_ENV still gets the flag behind Railway's
+ * TLS edge, and localhost dev never sets a cookie the browser would then
+ * refuse to send back over http.
+ */
+function secureFlag(res) {
+  const req = res.req;
+  const overTls = req?.secure === true || req?.headers?.['x-forwarded-proto'] === 'https';
+  return process.env.NODE_ENV === 'production' || overTls ? '; Secure' : '';
+}
+
 export function setSessionCookie(res, token, expiresAt) {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Expires=${expiresAt.toUTCString()}${secure}`);
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Expires=${expiresAt.toUTCString()}${secureFlag(res)}`);
 }
 
 export function clearSessionCookie(res) {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureFlag(res)}`);
 }

@@ -1,26 +1,30 @@
-/**
- * Password hashing. scrypt is built into Node — no extra dependency, no
- * external service, and it's a memory-hard KDF (meaningfully harder to
- * brute-force offline than a plain salted hash).
- */
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
 
+const scryptAsync = promisify(scrypt);
 const KEY_LENGTH = 64;
 
-export function hashPassword(password) {
+/**
+ * Async on purpose: the synchronous variant blocks the event loop for the
+ * whole derivation (~50–100 ms), so a burst of login attempts would stall
+ * every other request the server was handling. The cost parameters are
+ * Node's defaults; raising them is a stored-format change (parameters must
+ * be kept per hash so existing passwords still verify) and is tracked
+ * separately.
+ */
+export async function hashPassword(password) {
   const salt = randomBytes(16).toString('hex');
-  const hash = scryptSync(password, salt, KEY_LENGTH).toString('hex');
-  return { hash, salt };
+  const derived = await scryptAsync(password, salt, KEY_LENGTH);
+  return { hash: derived.toString('hex'), salt };
 }
 
-export function verifyPassword(password, hash, salt) {
-  const candidate = scryptSync(password, salt, KEY_LENGTH);
+export async function verifyPassword(password, hash, salt) {
+  const candidate = await scryptAsync(password, salt, KEY_LENGTH);
   const expected = Buffer.from(hash, 'hex');
   if (candidate.length !== expected.length) return false;
   return timingSafeEqual(candidate, expected);
 }
 
-/** Human-typeable random password for accounts with no configured temp password. */
 export function generateTempPassword() {
   return randomBytes(9).toString('base64').replace(/[+/=]/g, '').slice(0, 10);
 }

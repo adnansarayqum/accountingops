@@ -35,6 +35,20 @@ describe('setSessionCookie / clearSessionCookie', () => {
     expect(value).toContain('Expires=');
   });
 
+  it('marks the cookie Secure when the request arrived over TLS, even without NODE_ENV=production', () => {
+    const plain = { setHeader: vi.fn(), req: { headers: {} } };
+    setSessionCookie(plain, 't', new Date());
+    expect(plain.setHeader.mock.calls[0][1]).not.toContain('Secure');
+
+    const forwarded = { setHeader: vi.fn(), req: { headers: { 'x-forwarded-proto': 'https' } } };
+    setSessionCookie(forwarded, 't', new Date());
+    expect(forwarded.setHeader.mock.calls[0][1]).toContain('; Secure');
+
+    const direct = { setHeader: vi.fn(), req: { secure: true, headers: {} } };
+    clearSessionCookie(direct);
+    expect(direct.setHeader.mock.calls[0][1]).toContain('; Secure');
+  });
+
   it('clears the cookie with Max-Age=0', () => {
     const res = { setHeader: vi.fn() };
     clearSessionCookie(res);
