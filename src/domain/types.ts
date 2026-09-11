@@ -67,6 +67,8 @@ export interface Client {
   registeredOffice?: RegisteredAddress;
   companiesHouseStatus?: string;
   sicCodes?: string[];
+  /** Names this company has previously traded under, most recent first. */
+  previousNames?: string[];
 }
 
 /** A UK registered office address, as returned by Companies House. */
@@ -128,6 +130,8 @@ export interface PersonRole {
   identityVerification: IdentityVerificationStatus;
   personalCodeCaptured: boolean;
   evidenceStatus: 'none' | 'requested' | 'received' | 'checked';
+  /** How control is held — only ever populated for a 'psc' role, from Companies House. */
+  naturesOfControl?: string[];
 }
 
 // ---------------------------------------------------------------------------

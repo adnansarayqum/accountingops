@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapCompanyProfile, mapSearchResponse } from '../companiesHouseMappers.mjs';
+import { mapCompanyProfile, mapOfficers, mapPscs, mapSearchResponse } from '../companiesHouseMappers.mjs';
 
 describe('mapSearchResponse', () => {
   it('maps Companies House search items to the slim shape', () => {
@@ -46,6 +46,7 @@ describe('mapCompanyProfile', () => {
         next_accounts: { due_on: '2025-11-14', period_end_on: '2025-02-28' },
       },
       confirmation_statement: { next_due: '2025-03-14' },
+      previous_company_names: [{ name: 'OLD HARBOUR CYCLES LTD', ceased_on: '2023-01-01', effective_from: '2020-01-01' }],
     };
     const mapped = mapCompanyProfile(raw);
     expect(mapped.companyNumber).toBe('14829301');
@@ -53,13 +54,86 @@ describe('mapCompanyProfile', () => {
     expect(mapped.accountingReferenceDate).toEqual({ day: '28', month: '02' });
     expect(mapped.nextAccountsDueOn).toBe('2025-11-14');
     expect(mapped.nextConfirmationStatementDueOn).toBe('2025-03-14');
+    expect(mapped.previousNames).toEqual(['OLD HARBOUR CYCLES LTD']);
     expect(mapped.source).toBe('companies_house');
   });
 
-  it('tolerates a profile with no registered office or accounts data', () => {
+  it('tolerates a profile with no registered office, accounts data, or previous names', () => {
     const mapped = mapCompanyProfile({ company_number: '00000001', company_name: 'BARE LTD' });
     expect(mapped.registeredOfficeAddress).toBeUndefined();
     expect(mapped.accountingReferenceDate).toBeNull();
     expect(mapped.sicCodes).toEqual([]);
+    expect(mapped.previousNames).toEqual([]);
+  });
+});
+
+describe('mapOfficers', () => {
+  it('keeps only active directors', () => {
+    const raw = {
+      items: [
+        { name: 'SMITH, Jane', officer_role: 'director', appointed_on: '2020-01-01', date_of_birth: { month: 5, year: 1980 }, nationality: 'British', occupation: 'Director' },
+        { name: 'JONES, John', officer_role: 'director', appointed_on: '2018-01-01', resigned_on: '2022-01-01' },
+        { name: 'DOE, Jane', officer_role: 'secretary', appointed_on: '2019-01-01' },
+      ],
+    };
+    const mapped = mapOfficers(raw);
+    expect(mapped).toHaveLength(1);
+    expect(mapped[0]).toEqual({
+      name: 'SMITH, Jane',
+      role: 'director',
+      appointedOn: '2020-01-01',
+      dateOfBirth: { month: 5, year: 1980 },
+      nationality: 'British',
+      occupation: 'Director',
+      naturesOfControl: [],
+    });
+  });
+
+  it('handles an empty officers list', () => {
+    expect(mapOfficers({ items: [] })).toEqual([]);
+    expect(mapOfficers({})).toEqual([]);
+  });
+});
+
+describe('mapPscs', () => {
+  it('keeps only active individual PSCs, excluding corporate/legal-person PSCs and ceased ones', () => {
+    const raw = {
+      items: [
+        { name: 'SMITH, Jane', kind: 'individual-person-with-significant-control', notified_on: '2020-01-01', date_of_birth: { month: 5, year: 1980 }, nationality: 'British' },
+        { name: 'CEASED, Person', kind: 'individual-person-with-significant-control', notified_on: '2018-01-01', ceased_on: '2021-01-01' },
+        { name: 'Some Holding Co Ltd', kind: 'corporate-entity-person-with-significant-control', notified_on: '2019-01-01' },
+      ],
+    };
+    const mapped = mapPscs(raw);
+    expect(mapped).toHaveLength(1);
+    expect(mapped[0]).toEqual({
+      name: 'SMITH, Jane',
+      role: 'psc',
+      appointedOn: '2020-01-01',
+      dateOfBirth: { month: 5, year: 1980 },
+      nationality: 'British',
+      occupation: null,
+      naturesOfControl: [],
+    });
+  });
+
+  it('handles an empty PSC list', () => {
+    expect(mapPscs({ items: [] })).toEqual([]);
+    expect(mapPscs({})).toEqual([]);
+  });
+
+  it('humanizes nature-of-control codes, including trust/firm suffixes and unrecognised codes', () => {
+    const raw = {
+      items: [
+        {
+          name: 'SMITH, Jane',
+          kind: 'individual-person-with-significant-control',
+          notified_on: '2020-01-01',
+          natures_of_control: ['ownership-of-shares-75-to-100-percent', 'voting-rights-75-to-100-percent-as-trust', 'some-new-unmapped-code'],
+        },
+      ],
+    };
+    const mapped = mapPscs(raw);
+    expect(mapped[0].naturesOfControl).toEqual(['Owns 75-100% of shares', 'Holds 75-100% of voting rights', 'Some new unmapped code']);
   });
 });

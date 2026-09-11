@@ -4,7 +4,7 @@
  * of the box without a live API key — clearly labelled `source: 'sample'`
  * so the UI never presents it as a live lookup.
  */
-import type { CompanyProfile, CompanySearchResponse, CompanySearchResult } from './companiesHouseTypes';
+import type { CompanyPeopleResponse, CompanyProfile, CompanySearchResponse, CompanySearchResult } from './companiesHouseTypes';
 
 interface MockCompany {
   companyNumber: string;
@@ -55,6 +55,7 @@ export function mockCompanyProfile(companyNumber: string): CompanyProfile | null
     companyType: c.companyType,
     dateOfCreation: c.dateOfCreation,
     sicCodes: c.sicCodes,
+    previousNames: [],
     registeredOfficeAddress: { premises: a.premises, addressLine1: a.addressLine1, locality: a.locality, region: a.region, postalCode: a.postalCode, country: a.country, formatted },
     accountingReferenceDate: c.accountingReferenceDate,
     nextAccountsDueOn: null,
@@ -62,4 +63,13 @@ export function mockCompanyProfile(companyNumber: string): CompanyProfile | null
     nextConfirmationStatementDueOn: null,
     source: 'sample',
   };
+}
+
+/**
+ * No fabricated sample directors/PSCs — unlike a company profile, a person's
+ * name and date of birth are real identity data, not something worth making
+ * up just to fill a demo. Sample mode simply has no people to show.
+ */
+export function mockCompanyPeople(): CompanyPeopleResponse {
+  return { directors: [], pscs: [], source: 'sample' };
 }

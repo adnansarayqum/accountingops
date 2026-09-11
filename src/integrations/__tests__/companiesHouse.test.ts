@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { formatAccountingReferenceDate, getCompanyProfile, searchCompanies } from '../companiesHouse';
+import { formatAccountingReferenceDate, getCompanyPeople, getCompanyProfile, searchCompanies } from '../companiesHouse';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -41,6 +41,31 @@ describe('getCompanyProfile', () => {
     const profile = await getCompanyProfile('14829301');
     expect(profile?.source).toBe('sample');
     expect(profile?.companyName).toBe('HARBOUR CYCLES LTD');
+  });
+});
+
+describe('getCompanyPeople', () => {
+  it('falls back to empty sample people when not configured', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'not_configured' }), { status: 503 })));
+    const people = await getCompanyPeople('14829301');
+    expect(people).toEqual({ directors: [], pscs: [], source: 'sample' });
+  });
+
+  it('falls back to empty sample people when the network call throws', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
+    const people = await getCompanyPeople('14829301');
+    expect(people.source).toBe('sample');
+  });
+
+  it('passes through a live response unchanged', async () => {
+    const live = {
+      directors: [{ name: 'SMITH, Jane', role: 'director' as const, appointedOn: '2020-01-01', dateOfBirth: { month: '5', year: '1980' }, nationality: 'British', occupation: 'Director', naturesOfControl: [] }],
+      pscs: [],
+      source: 'companies_house' as const,
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(live), { status: 200 })));
+    const people = await getCompanyPeople('14829301');
+    expect(people).toEqual(live);
   });
 });
 

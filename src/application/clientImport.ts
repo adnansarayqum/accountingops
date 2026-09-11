@@ -2,8 +2,8 @@ import { addDays, addMonths, daysBetween, nowIso } from '../domain/dates';
 import { SERVICES } from '../domain/catalog';
 import { jobNameFor, periodKeyFor } from '../domain/rules';
 import { newId } from './ids';
-import type { Client, ClientIdentifier, Contact, IdentifierKind, InformationRequestItem, IsoDate, Job, Obligation, RegisteredAddress, ServiceSubscription } from '../domain/types';
-import type { CompanyProfile } from '../integrations/companiesHouseTypes';
+import type { Client, ClientIdentifier, Contact, IdentifierKind, InformationRequestItem, IsoDate, Job, Obligation, Person, PersonRole, PersonRoleKind, RegisteredAddress, ServiceSubscription } from '../domain/types';
+import type { CompanyPeopleResponse, CompanyPerson, CompanyProfile } from '../integrations/companiesHouseTypes';
 
 /**
  * One row of an existing client roster (e.g. imported from a practice's own
@@ -33,6 +33,10 @@ export interface ClientRosterRow {
   companiesHouseStatus?: string;
   sicCodes?: string[];
   incorporatedOn?: IsoDate;
+  previousNames?: string[];
+  /** Populated by a Companies House officers/PSC lookup (see mergeCompanyPeople) — not from the spreadsheet itself. */
+  directors?: CompanyPerson[];
+  pscs?: CompanyPerson[];
 }
 
 /**
@@ -49,10 +53,20 @@ export function mergeCompanyProfile(row: ClientRosterRow, profile: CompanyProfil
     companiesHouseStatus: profile.companyStatus ?? row.companiesHouseStatus,
     sicCodes: profile.sicCodes.length > 0 ? profile.sicCodes : row.sicCodes,
     incorporatedOn: profile.dateOfCreation ?? row.incorporatedOn,
+    previousNames: profile.previousNames && profile.previousNames.length > 0 ? profile.previousNames : row.previousNames,
     accountsPeriodEnd: profile.nextAccountsPeriodEndOn ?? row.accountsPeriodEnd,
     accountsDue: profile.nextAccountsDueOn ?? row.accountsDue,
     confirmationStatementDue: profile.nextConfirmationStatementDueOn ?? row.confirmationStatementDue,
   };
+}
+
+/**
+ * Merges Companies House officers/PSC data into a roster row. Unlike
+ * mergeCompanyProfile, there's no spreadsheet-provided fallback here — a
+ * roster like this never lists directors, so this is purely additive.
+ */
+export function mergeCompanyPeople(row: ClientRosterRow, people: CompanyPeopleResponse): ClientRosterRow {
+  return { ...row, directors: people.directors, pscs: people.pscs };
 }
 
 export interface BuiltClientImport {
@@ -63,6 +77,8 @@ export interface BuiltClientImport {
   obligations: Obligation[];
   jobs: Job[];
   requestItems: InformationRequestItem[];
+  people: Person[];
+  personRoles: PersonRole[];
 }
 
 const CS_DUE_OFFSET_DAYS = 14;
@@ -82,6 +98,8 @@ export function buildImportedClientRecords(rows: ClientRosterRow[], practiceId: 
   const obligations: Obligation[] = [];
   const jobs: Job[] = [];
   const requestItems: InformationRequestItem[] = [];
+  const people: Person[] = [];
+  const personRoles: PersonRole[] = [];
 
   for (const row of rows) {
     const clientId = newId('cl');
@@ -102,6 +120,7 @@ export function buildImportedClientRecords(rows: ClientRosterRow[], practiceId: 
       companiesHouseStatus: row.companiesHouseStatus,
       sicCodes: row.sicCodes,
       incorporatedOn: row.incorporatedOn,
+      previousNames: row.previousNames,
     });
 
     contacts.push({
@@ -137,9 +156,46 @@ export function buildImportedClientRecords(rows: ClientRosterRow[], practiceId: 
         { subscriptions, obligations, jobs, requestItems, today },
       );
     }
+
+    addPeopleForRow(row, practiceId, clientId, people, personRoles);
   }
 
-  return { clients, contacts, identifiers, subscriptions, obligations, jobs, requestItems };
+  return { clients, contacts, identifiers, subscriptions, obligations, jobs, requestItems, people, personRoles };
+}
+
+/**
+ * Turns a row's Companies House directors/PSCs into Person + PersonRole
+ * records. The same individual can appear as both a director and a PSC
+ * (common for a sole director-shareholder) — matched by name within this
+ * one company, they share a single Person but get one PersonRole per kind,
+ * same as this app's own demo data models it.
+ */
+function addPeopleForRow(row: ClientRosterRow, practiceId: string, clientId: string, people: Person[], personRoles: PersonRole[]): void {
+  const entries: { name: string; kind: PersonRoleKind; naturesOfControl?: string[] }[] = [
+    ...(row.directors ?? []).map((d) => ({ name: d.name, kind: 'director' as const })),
+    ...(row.pscs ?? []).map((p) => ({ name: p.name, kind: 'psc' as const, naturesOfControl: p.naturesOfControl })),
+  ];
+  const personIdByName = new Map<string, string>();
+  for (const entry of entries) {
+    const key = entry.name.trim().toUpperCase();
+    let personId = personIdByName.get(key);
+    if (!personId) {
+      personId = newId('p');
+      personIdByName.set(key, personId);
+      people.push({ id: personId, practiceId, fullName: entry.name });
+    }
+    personRoles.push({
+      id: newId('pr'),
+      practiceId,
+      naturesOfControl: entry.naturesOfControl,
+      personId,
+      clientId,
+      kind: entry.kind,
+      identityVerification: 'not_started',
+      personalCodeCaptured: false,
+      evidenceStatus: 'none',
+    });
+  }
 }
 
 function addObligationAndJob(

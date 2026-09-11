@@ -10,7 +10,7 @@
  * router runs unchanged in development and in production.
  */
 import express from 'express';
-import { mapCompanyProfile, mapSearchResponse } from '../lib/companiesHouseMappers.mjs';
+import { mapCompanyProfile, mapOfficers, mapPscs, mapSearchResponse } from '../lib/companiesHouseMappers.mjs';
 
 const BASE_URL = 'https://api.company-information.service.gov.uk';
 
@@ -64,6 +64,25 @@ router.get('/company/:number', async (req, res) => {
   try {
     const data = await companiesHouseFetch(`/company/${encodeURIComponent(number)}`);
     res.json(mapCompanyProfile(data));
+  } catch (err) {
+    res.status(err.status ?? 500).json({ error: err.message ?? 'unknown_error' });
+  }
+});
+
+router.get('/company/:number/people', async (req, res) => {
+  const number = String(req.params.number ?? '').trim();
+  if (!number) return res.status(400).json({ error: 'company_number_required' });
+  try {
+    const [officers, pscs] = await Promise.all([
+      companiesHouseFetch(`/company/${encodeURIComponent(number)}/officers`),
+      // Not every company has PSC data (older companies, or genuinely none) —
+      // a 404 here just means no PSCs, not a failure of the whole lookup.
+      companiesHouseFetch(`/company/${encodeURIComponent(number)}/persons-with-significant-control`).catch((err) => {
+        if (err.status === 404) return { items: [] };
+        throw err;
+      }),
+    ]);
+    res.json({ directors: mapOfficers(officers), pscs: mapPscs(pscs), source: 'companies_house' });
   } catch (err) {
     res.status(err.status ?? 500).json({ error: err.message ?? 'unknown_error' });
   }

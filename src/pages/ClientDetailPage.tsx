@@ -282,6 +282,12 @@ export function ClientDetailPage() {
                       <p>{client.sicCodes.join(', ')}</p>
                     </div>
                   )}
+                  {client.previousNames && client.previousNames.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-slate-500">Previously traded as</p>
+                      <p>{client.previousNames.join(', ')}</p>
+                    </div>
+                  )}
                 </CardBody>
               </Card>
             )}
@@ -347,6 +353,7 @@ export function ClientDetailPage() {
                           <div className="min-w-0 flex-1">
                             <p className="text-[13px] font-medium text-slate-900">{person?.fullName}</p>
                             <p className="text-xs text-slate-500 capitalize">{r.kind === 'psc' ? 'PSC' : r.kind}</p>
+                            {r.naturesOfControl && r.naturesOfControl.length > 0 && <p className="text-xs text-slate-400">{r.naturesOfControl.join(', ')}</p>}
                           </div>
                           <Badge tone={r.identityVerification === 'verified' ? 'green' : r.identityVerification === 'in_progress' ? 'amber' : 'red'}>{r.identityVerification.replace(/_/g, ' ')}</Badge>
                         </li>

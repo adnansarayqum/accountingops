@@ -94,6 +94,72 @@ test.describe('import clients', () => {
     await expect(page.getByText('42 Harbour Row, London, E1 6AN')).toBeVisible();
   });
 
+  test('populates directors and PSCs from Companies House on import', async ({ page }) => {
+    await page.route('**/api/companies-house/status', (route) => route.fulfill({ json: { configured: true } }));
+    await page.route('**/api/companies-house/company/10101010', (route) =>
+      route.fulfill({
+        json: {
+          companyNumber: '10101010',
+          companyName: 'Harbourline Consulting Ltd',
+          companyStatus: 'active',
+          companyType: 'ltd',
+          dateOfCreation: '2016-03-14',
+          sicCodes: ['70229'],
+          registeredOfficeAddress: { formatted: '42 Harbour Row, London, E1 6AN' },
+          accountingReferenceDate: { day: '30', month: '06' },
+          nextAccountsDueOn: '2027-12-31',
+          nextAccountsPeriodEndOn: '2027-06-30',
+          nextConfirmationStatementDueOn: '2027-01-15',
+          previousNames: ['OLD HARBOURLINE LTD'],
+          source: 'companies_house',
+        },
+      }),
+    );
+    await page.route('**/api/companies-house/company/10101010/people', (route) =>
+      route.fulfill({
+        json: {
+          directors: [{ name: 'Jane Harbour', role: 'director', appointedOn: '2016-03-14', dateOfBirth: { month: '5', year: '1980' }, nationality: 'British', occupation: 'Consultant', naturesOfControl: [] }],
+          pscs: [
+            {
+              name: 'Jane Harbour',
+              role: 'psc',
+              appointedOn: '2016-03-14',
+              dateOfBirth: { month: '5', year: '1980' },
+              nationality: 'British',
+              occupation: null,
+              naturesOfControl: ['Owns 75-100% of shares'],
+            },
+          ],
+          source: 'companies_house',
+        },
+      }),
+    );
+    await page.route('**/api/companies-house/company/20202020', (route) => route.fulfill({ status: 404, json: { error: 'not_found' } }));
+    await page.route('**/api/companies-house/company/20202020/people', (route) => route.fulfill({ json: { directors: [], pscs: [], source: 'companies_house' } }));
+
+    const file = buildRosterFile();
+    await page.goto('/clients/import');
+    await page.setInputFiles('input[type="file"]', file);
+
+    await expect(page.getByText('2 clients ready to import')).toBeVisible();
+    const harbourRow = page.locator('tr', { hasText: 'Harbourline Consulting Ltd' });
+    await expect(harbourRow.getByText('1 director, 1 PSC')).toBeVisible();
+    const noDatesRow = page.locator('tr', { hasText: 'No Dates Trading Ltd' });
+    await expect(noDatesRow.locator('td').nth(3)).toHaveText('—');
+
+    await page.getByTestId('confirm-import').click();
+    await expect(page).toHaveURL(/\/clients$/);
+    await page.getByRole('link', { name: 'Harbourline Consulting Ltd' }).first().click();
+    await expect(page.getByText('Directors & PSCs')).toBeVisible();
+    // Jane Harbour holds both roles for this company, so she appears twice — once per role.
+    await expect(page.getByText('Jane Harbour')).toHaveCount(2);
+    await expect(page.getByText('director', { exact: true })).toBeVisible();
+    await expect(page.getByText('PSC', { exact: true })).toBeVisible();
+    await expect(page.getByText('Owns 75-100% of shares')).toBeVisible();
+    await expect(page.getByText('Previously traded as')).toBeVisible();
+    await expect(page.getByText('OLD HARBOURLINE LTD')).toBeVisible();
+  });
+
   test('shows a warning and still allows import when no Companies House key is configured', async ({ page }) => {
     await page.route('**/api/companies-house/status', (route) => route.fulfill({ json: { configured: false } }));
 
