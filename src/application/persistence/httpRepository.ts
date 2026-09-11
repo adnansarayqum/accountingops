@@ -4,7 +4,7 @@ import type { PracticeRepository } from './repository';
 /**
  * Server-backed persistence used once a signed-in session exists (see
  * src/App.tsx) — every mutation is saved to the shared database instead of
- * the browser's own localStorage, so Adnan, Farhan and Rayhan see the same
+ * the browser's own localStorage, so Adnan, Farhan and Raihan see the same
  * practice data from their own devices.
  */
 export class HttpRepository implements PracticeRepository {

@@ -116,6 +116,29 @@ describe('application store — primary workflow', () => {
     expect(useAppStore.getState().data.clients.length).toBe(before + 1);
   });
 
+  describe('renameUser', () => {
+    it("updates a team member's display name", () => {
+      useAppStore.getState().renameUser('u_sarah', 'Sarah Raihan Mitchell');
+      const user = useAppStore.getState().data.users.find((u) => u.id === 'u_sarah')!;
+      expect(user.name).toBe('Sarah Raihan Mitchell');
+      expect(useAppStore.getState().data.activities[0].message).toBe('Sarah Mitchell renamed to Sarah Raihan Mitchell.');
+    });
+
+    it('trims whitespace and ignores a blank name', () => {
+      useAppStore.getState().renameUser('u_sarah', '  Trimmed Name  ');
+      expect(useAppStore.getState().data.users.find((u) => u.id === 'u_sarah')!.name).toBe('Trimmed Name');
+
+      useAppStore.getState().renameUser('u_sarah', '   ');
+      expect(useAppStore.getState().data.users.find((u) => u.id === 'u_sarah')!.name).toBe('Trimmed Name');
+    });
+
+    it('is a no-op for an unknown user id', () => {
+      const before = useAppStore.getState().data.users.length;
+      useAppStore.getState().renameUser('u_does_not_exist', 'Nobody');
+      expect(useAppStore.getState().data.users.length).toBe(before);
+    });
+  });
+
   it('records an audit event when an identifier is revealed', () => {
     useAppStore.getState().recordIdentifierReveal('cl_abc', 'utr');
     expect(useAppStore.getState().data.auditEvents[0].action).toBe('identifier.reveal');

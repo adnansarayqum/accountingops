@@ -13,7 +13,7 @@ export const RAYHAN_USER_ID = 'u_rayhan';
 const TEAM: User[] = [
   { id: OWNER_USER_ID, practiceId: PRACTICE_ID, name: 'Adnan Sarayqum', initials: 'AS', role: 'owner', weeklyCapacityHours: 40, colour: 'blue' },
   { id: FARHAN_USER_ID, practiceId: PRACTICE_ID, name: 'Farhan', initials: 'F', role: 'owner', weeklyCapacityHours: 40, colour: 'violet' },
-  { id: RAYHAN_USER_ID, practiceId: PRACTICE_ID, name: 'Rayhan', initials: 'R', role: 'owner', weeklyCapacityHours: 40, colour: 'emerald' },
+  { id: RAYHAN_USER_ID, practiceId: PRACTICE_ID, name: 'Raihan', initials: 'R', role: 'owner', weeklyCapacityHours: 40, colour: 'emerald' },
 ];
 
 /**

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { KeyRound, LogOut, ShieldCheck, Users } from 'lucide-react';
+import { Check, KeyRound, LogOut, Pencil, ShieldCheck, Users, X } from 'lucide-react';
 import { PageHeader } from '../ui/components/PageHeader';
 import { Card, CardBody, CardHeader } from '../ui/components/Card';
 import { Button } from '../ui/components/Button';
@@ -14,6 +14,18 @@ export function SettingsPage() {
   const currentUserId = useAppStore((s) => s.currentUserId);
   const authMode = useAppStore((s) => s.authMode);
   const authUser = useAppStore((s) => s.authUser);
+  const renameUser = useAppStore((s) => s.renameUser);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState('');
+
+  const startEditing = (userId: string, currentName: string) => {
+    setEditingUserId(userId);
+    setNameDraft(currentName);
+  };
+  const saveEditing = () => {
+    if (editingUserId) renameUser(editingUserId, nameDraft);
+    setEditingUserId(null);
+  };
 
   return (
     <div className="animate-in max-w-3xl space-y-5">
@@ -37,7 +49,7 @@ export function SettingsPage() {
                 {authMode === 'server' && authUser ? (
                   <span className="mt-1 inline-flex items-center gap-2 text-[13px] text-slate-900">
                     <Avatar user={data.users.find((u) => u.id === currentUserId)} size="sm" />
-                    {authUser.name} <span className="text-slate-400">({authUser.username})</span>
+                    {data.users.find((u) => u.id === currentUserId)?.name ?? authUser.name} <span className="text-slate-400">({authUser.username})</span>
                   </span>
                 ) : (
                   <Select value={currentUserId} onChange={(e) => useAppStore.setState({ currentUserId: e.target.value })} aria-label="Signed in as" className="mt-1 max-w-xs">
@@ -54,10 +66,27 @@ export function SettingsPage() {
           <p className="text-xs font-medium text-slate-500 mt-4 mb-2">Team</p>
           <ul className="grid gap-2 sm:grid-cols-2">
             {data.users.map((u) => (
-              <li key={u.id} className="flex items-center gap-2.5 rounded-lg border border-slate-100 px-3 py-2">
+              <li key={u.id} className="flex items-center gap-2.5 rounded-lg border border-slate-100 px-3 py-2" data-testid={`team-member-${u.id}`}>
                 <Avatar user={u} />
-                <div>
-                  <p className="text-[13px] font-medium text-slate-900">{u.name}</p>
+                <div className="min-w-0 flex-1">
+                  {editingUserId === u.id ? (
+                    <div className="flex items-center gap-1.5">
+                      <Input value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} autoFocus className="h-7 text-[13px]" aria-label={`Name for ${u.name}`} />
+                      <button type="button" onClick={saveEditing} className="text-emerald-600 hover:text-emerald-700" aria-label="Save name">
+                        <Check className="h-4 w-4" />
+                      </button>
+                      <button type="button" onClick={() => setEditingUserId(null)} className="text-slate-400 hover:text-slate-600" aria-label="Cancel">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-[13px] font-medium text-slate-900 flex items-center gap-1.5">
+                      {u.name}
+                      <button type="button" onClick={() => startEditing(u.id, u.name)} className="text-slate-300 hover:text-slate-600" aria-label={`Edit name for ${u.name}`}>
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    </p>
+                  )}
                   <p className="text-xs text-slate-500 capitalize">
                     {u.role} · {u.weeklyCapacityHours}h / week
                   </p>
