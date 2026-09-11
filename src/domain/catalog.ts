@@ -133,6 +133,9 @@ export const IDENTIFIER_LABELS: Record<IdentifierKind, string> = {
   vat_number: 'VAT number',
   paye_reference: 'PAYE reference',
   accounts_office_ref: 'Accounts Office reference',
+  ch_auth_code: 'Companies House authentication code',
+  personal_code: 'Personal code',
+  gateway_credentials: 'Government Gateway credentials',
 };
 
 export const CHANNEL_LABELS: Record<Channel, string> = {

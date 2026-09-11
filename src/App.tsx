@@ -8,6 +8,7 @@ import { AttentionPage } from './pages/AttentionPage';
 import { ClientsPage } from './pages/ClientsPage';
 import { ClientDetailPage } from './pages/ClientDetailPage';
 import { NewClientPage } from './pages/NewClientPage';
+import { ImportClientsPage } from './pages/ImportClientsPage';
 import { JobsPage } from './pages/JobsPage';
 import { JobDetailPage } from './pages/JobDetailPage';
 import { ChasingPage } from './pages/ChasingPage';
@@ -40,6 +41,7 @@ export default function App() {
           <Route path="inbox" element={<InboxPage />} />
           <Route path="clients" element={<ClientsPage />} />
           <Route path="clients/new" element={<NewClientPage />} />
+          <Route path="clients/import" element={<ImportClientsPage />} />
           <Route path="clients/:clientId" element={<ClientDetailPage />} />
           <Route path="jobs" element={<JobsPage />} />
           <Route path="jobs/:jobId" element={<JobDetailPage />} />

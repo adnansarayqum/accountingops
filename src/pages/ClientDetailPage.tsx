@@ -20,7 +20,7 @@ import { formatAgo, formatDate, formatDateTime } from '../domain/dates';
 import type { Channel, IdentifierKind, Job } from '../domain/types';
 import { cn } from '../ui/cn';
 
-const ID_ORDER: IdentifierKind[] = ['utr', 'nino', 'company_number', 'vat_number', 'paye_reference', 'accounts_office_ref'];
+const ID_ORDER: IdentifierKind[] = ['utr', 'nino', 'company_number', 'vat_number', 'paye_reference', 'accounts_office_ref', 'ch_auth_code', 'personal_code', 'gateway_credentials'];
 
 export function ClientDetailPage() {
   const { clientId } = useParams();
@@ -58,7 +58,10 @@ export function ClientDetailPage() {
   const blocked = openViews.filter((v) => v.job.waitingOn === 'client');
   const missingAll = openViews.flatMap((v) => v.completeness.missing.map((m) => `${m.label} (${v.job.name})`));
   const nextAction = openViews.find((v) => v.attention)?.attention?.recommendedAction.label ?? openViews[0]?.nextAction.label ?? 'Nothing outstanding';
-  const applicableIds: IdentifierKind[] = client.type === 'limited_company' ? ['utr', 'company_number', 'vat_number', 'paye_reference', 'accounts_office_ref'] : ['utr', 'nino', 'vat_number', 'paye_reference'];
+  const applicableIds: IdentifierKind[] =
+    client.type === 'limited_company'
+      ? ['utr', 'company_number', 'vat_number', 'paye_reference', 'accounts_office_ref', 'ch_auth_code', 'personal_code', 'gateway_credentials']
+      : ['utr', 'nino', 'vat_number', 'paye_reference', 'personal_code', 'gateway_credentials'];
 
   const ChannelIcon = { email: Mail, whatsapp: MessageCircle, sms: MessageSquare, phone: Phone, portal: Globe };
 

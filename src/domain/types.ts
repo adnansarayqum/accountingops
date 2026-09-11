@@ -94,7 +94,7 @@ export interface Contact {
   isPrimary: boolean;
 }
 
-export type IdentifierKind = 'utr' | 'nino' | 'company_number' | 'vat_number' | 'paye_reference' | 'accounts_office_ref';
+export type IdentifierKind = 'utr' | 'nino' | 'company_number' | 'vat_number' | 'paye_reference' | 'accounts_office_ref' | 'ch_auth_code' | 'personal_code' | 'gateway_credentials';
 
 export interface ClientIdentifier {
   id: Id;
