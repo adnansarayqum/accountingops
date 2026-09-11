@@ -3,10 +3,10 @@
  * application's own /api/companies-house proxy, never to Companies House
  * directly (so the API key never reaches the browser).
  *
- * Falls back to a clearly-labelled synthetic dataset (source: 'demo') when
+ * Falls back to a clearly-labelled synthetic dataset (source: 'sample') when
  * the proxy reports it has no API key configured, or when the network call
  * fails outright — so onboarding never breaks, and the UI can always tell
- * the difference between a live lookup and a demo one.
+ * the difference between a live lookup and a sample one.
  */
 import { mockCompanyProfile, mockSearchCompanies } from './companiesHouseMock';
 import type { CompanyProfile, CompanySearchResponse } from './companiesHouseTypes';
@@ -23,7 +23,7 @@ async function safeJson<T>(res: Response): Promise<T | null> {
 
 export async function searchCompanies(query: string): Promise<CompanySearchResponse> {
   const q = query.trim();
-  if (q.length < 2) return { results: [], totalResults: 0, source: 'demo' };
+  if (q.length < 2) return { results: [], totalResults: 0, source: 'sample' };
   try {
     const res = await fetch(`/api/companies-house/search?q=${encodeURIComponent(q)}`);
     if (NOT_CONFIGURED_STATUSES.has(res.status)) return mockSearchCompanies(q);

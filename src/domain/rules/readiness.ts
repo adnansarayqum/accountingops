@@ -8,7 +8,7 @@ export interface MtdEvaluation {
 
 /**
  * MTD for Income Tax: mandation is phased by qualifying income. Bands map to
- * demo start years; the rule is transparent and easy to replace with HMRC's
+ * illustrative start years; the rule is transparent and easy to replace with HMRC's
  * actual thresholds.
  */
 export function evaluateMtd(r: MtdReadiness): MtdEvaluation {

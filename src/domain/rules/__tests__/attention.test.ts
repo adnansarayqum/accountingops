@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { evaluateAttention, type AttentionContext } from '../attention';
-import { buildDemoData } from '../../../demo/seed';
+import { buildFixtureData } from '../../../testing/fixtures';
 
 const today = '2026-09-11';
 
 function ctx(overrides: Partial<AttentionContext> = {}): AttentionContext {
-  const d = buildDemoData(today);
+  const d = buildFixtureData(today);
   return { jobs: d.jobs, clients: d.clients, items: d.requestItems, comms: d.communications, approvals: d.approvals, personRoles: d.personRoles, sequences: d.reminderSequences, users: d.users, today, ...overrides };
 }
 
-describe('attention rules on the demo dataset', () => {
+describe('attention rules against the fixture dataset', () => {
   const items = evaluateAttention(ctx());
   const byJob = new Map(items.map((i) => [i.jobId, i]));
 
@@ -26,7 +26,7 @@ describe('attention rules on the demo dataset', () => {
     expect(oak?.reasons[0]).toContain('40%');
   });
 
-  it('flags the showcase client (ignored reminders, due in 12 days) with a reminder action', () => {
+  it('flags ABC Construction (ignored reminders, due in 12 days) with a reminder action', () => {
     const abc = byJob.get('job_abc_accounts');
     expect(abc).toBeDefined();
     expect(abc?.recommendedAction.kind).toBe('send_reminder');
@@ -57,7 +57,7 @@ describe('attention rules on the demo dataset', () => {
     expect(lastRed).toBeLessThan(firstAmber === -1 ? Infinity : firstAmber);
   });
 
-  it('drops the showcase flag once documents are complete', () => {
+  it('drops the attention flag once documents are complete', () => {
     const c = ctx();
     c.items = c.items.map((i) => (i.jobId === 'job_abc_accounts' ? { ...i, status: 'received' } : i));
     c.jobs = c.jobs.map((j) => (j.id === 'job_abc_accounts' ? { ...j, status: 'ready_to_start', waitingOn: 'accountant', statusChangedAt: `${today}T09:00:00Z` } : j));

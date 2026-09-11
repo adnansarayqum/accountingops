@@ -410,7 +410,7 @@ export function ClientDetailPage() {
 
       {tab === 'comms' && (
         <Card>
-          <CardHeader title="Communications" description="Email, WhatsApp and SMS history. Demo sends are simulated and logged here." />
+          <CardHeader title="Communications" description="Email, WhatsApp and SMS history. Sending is simulated and logged here." />
           <CardBody className="pt-0">
             {comms.length === 0 ? (
               <p className="text-sm text-slate-500 py-3">No communications recorded yet.</p>

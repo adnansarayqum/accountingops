@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildDemoData } from '../../demo/seed';
+import { buildFixtureData } from '../../testing/fixtures';
 import { computeDerived } from '../selectors';
 import { routeQuestion } from '../assistant/router';
 
 const today = '2026-09-11';
-const data = buildDemoData(today);
+const data = buildFixtureData(today);
 const ctx = { data, derived: computeDerived(data, today), today };
 
 describe('ask the practice', () => {

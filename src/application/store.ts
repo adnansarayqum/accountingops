@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { buildDemoData } from '../demo/seed';
+import { buildEmptyPracticeData, OWNER_USER_ID } from './emptyState';
 import { nowIso, todayIso } from '../domain/dates';
 import { CHANNEL_LABELS, JOB_STATUS_LABELS, SERVICES, FILING_DESTINATION } from '../domain/catalog';
 import {
@@ -49,11 +49,9 @@ export interface AppState {
   ready: boolean;
   currentUserId: string;
   toasts: Toast[];
-  lastResetAt?: string;
 
   // lifecycle
   init(): Promise<void>;
-  resetDemo(): Promise<void>;
 
   // feedback
   toast(t: Omit<Toast, 'id'>): void;
@@ -147,7 +145,7 @@ export const useAppStore = create<AppState>((set, get) => {
   /** Apply a data mutation, persist, and return the new data. */
   const mutate = (fn: (d: PracticeData, ctx: MutationContext) => PracticeData | void): void => {
     const state = get();
-    const ctx = new MutationContext(state.currentUserId);
+    const ctx = new MutationContext(state.currentUserId, state.data.practice.id);
     const draft = structuredClone(state.data);
     const result = fn(draft, ctx) ?? draft;
     result.activities = [...ctx.activities, ...result.activities];
@@ -157,13 +155,11 @@ export const useAppStore = create<AppState>((set, get) => {
     persist(get);
   };
 
-  const emptyData = buildDemoData(todayIso());
-
   return {
-    data: emptyData,
+    data: buildEmptyPracticeData(),
     today: todayIso(),
     ready: false,
-    currentUserId: 'u_adnan',
+    currentUserId: OWNER_USER_ID,
     toasts: [],
 
     async init() {
@@ -172,19 +168,10 @@ export const useAppStore = create<AppState>((set, get) => {
       if (loaded) {
         set({ data: loaded, today, ready: true });
       } else {
-        const data = buildDemoData(today);
+        const data = buildEmptyPracticeData();
         await repository.save(data);
-        set({ data, today, ready: true, lastResetAt: nowIso() });
+        set({ data, today, ready: true });
       }
-    },
-
-    async resetDemo() {
-      const today = todayIso();
-      const data = buildDemoData(today);
-      await repository.clear();
-      await repository.save(data);
-      set({ data, today, lastResetAt: nowIso() });
-      get().toast({ title: 'Demo data reset', description: 'The showcase scenario has been restored.', tone: 'success' });
     },
 
     toast(t) {
@@ -703,12 +690,15 @@ class MutationContext {
   audits: AuditEvent[] = [];
   notifications: Notification[] = [];
   readonly correlationId = newId('corr');
-  constructor(readonly actorUserId: string) {}
+  constructor(
+    readonly actorUserId: string,
+    readonly practiceId: string,
+  ) {}
 
   activity(kind: ActivityKind, message: string, job?: Job, clientId?: string): void {
     this.activities.unshift({
       id: newId('act'),
-      practiceId: job?.practiceId ?? 'prac_demo',
+      practiceId: job?.practiceId ?? this.practiceId,
       kind,
       message,
       clientId: clientId ?? job?.clientId,
@@ -721,7 +711,7 @@ class MutationContext {
   audit(action: string, entityType: string, entityId: string, before?: unknown, after?: unknown): void {
     this.audits.unshift({
       id: newId('aud'),
-      practiceId: 'prac_demo',
+      practiceId: this.practiceId,
       actorUserId: this.actorUserId,
       action,
       entityType,
@@ -737,7 +727,7 @@ class MutationContext {
   notify(kind: Notification['kind'], title: string, body: string, job?: Job, userId?: string): void {
     this.notifications.unshift({
       id: newId('ntf'),
-      practiceId: 'prac_demo',
+      practiceId: this.practiceId,
       userId,
       title,
       body,

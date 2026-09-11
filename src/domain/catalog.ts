@@ -1,9 +1,11 @@
 import type {
   Channel,
   ClientType,
+  Id,
   IdentifierKind,
   JobStatus,
   OnboardingStage,
+  ReminderSequence,
   ResponsivenessBand,
   Service,
   ServiceCode,
@@ -167,3 +169,64 @@ export const FILING_DESTINATION: Partial<Record<ServiceCode, 'HMRC' | 'Companies
   confirmation_statement: 'Companies House',
   mtd_income_tax: 'HMRC',
 };
+
+/**
+ * Standard chasing-sequence templates, one per service family. Every
+ * practice starts with these — they are reference configuration, not
+ * client- or practice-specific data, so a brand-new (empty) practice gets
+ * a working Chasing screen from day one.
+ */
+export function buildReminderSequences(practiceId: Id): ReminderSequence[] {
+  return [
+    {
+      id: 'seq_accounts',
+      practiceId,
+      name: 'Annual Accounts Standard Sequence',
+      steps: [
+        { daysBeforeDue: 90, channels: ['email'], tone: 'friendly', label: 'Friendly email (90 days)' },
+        { daysBeforeDue: 30, channels: ['email'], tone: 'standard', label: 'Email (30 days)' },
+        { daysBeforeDue: 14, channels: ['email', 'whatsapp'], tone: 'firm', label: 'Email + WhatsApp (14 days)' },
+        { daysBeforeDue: 3, channels: ['whatsapp', 'sms'], tone: 'urgent', label: 'Urgent reminder (3 days)' },
+      ],
+    },
+    {
+      id: 'seq_vat',
+      practiceId,
+      name: 'Quarterly Return Sequence',
+      steps: [
+        { daysBeforeDue: 21, channels: ['email'], tone: 'friendly', label: 'Friendly email (21 days)' },
+        { daysBeforeDue: 10, channels: ['email', 'whatsapp'], tone: 'standard', label: 'Email + WhatsApp (10 days)' },
+        { daysBeforeDue: 3, channels: ['whatsapp', 'sms'], tone: 'urgent', label: 'Urgent reminder (3 days)' },
+      ],
+    },
+    {
+      id: 'seq_payroll',
+      practiceId,
+      name: 'Monthly Sequence',
+      steps: [
+        { daysBeforeDue: 7, channels: ['email'], tone: 'friendly', label: 'Email (7 days)' },
+        { daysBeforeDue: 2, channels: ['whatsapp', 'sms'], tone: 'urgent', label: 'Urgent reminder (2 days)' },
+      ],
+    },
+    {
+      id: 'seq_sa',
+      practiceId,
+      name: 'Self Assessment Sequence',
+      steps: [
+        { daysBeforeDue: 120, channels: ['email'], tone: 'friendly', label: 'Friendly email (120 days)' },
+        { daysBeforeDue: 60, channels: ['email'], tone: 'standard', label: 'Email (60 days)' },
+        { daysBeforeDue: 21, channels: ['email', 'whatsapp'], tone: 'firm', label: 'Email + WhatsApp (21 days)' },
+        { daysBeforeDue: 5, channels: ['whatsapp', 'sms'], tone: 'urgent', label: 'Urgent reminder (5 days)' },
+      ],
+    },
+    {
+      id: 'seq_cs',
+      practiceId,
+      name: 'Confirmation Statement Sequence',
+      steps: [
+        { daysBeforeDue: 30, channels: ['email'], tone: 'friendly', label: 'Email (30 days)' },
+        { daysBeforeDue: 7, channels: ['email', 'whatsapp'], tone: 'firm', label: 'Email + WhatsApp (7 days)' },
+      ],
+    },
+  ];
+}

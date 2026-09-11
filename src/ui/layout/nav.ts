@@ -42,4 +42,4 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-export const SETTINGS_NAV: NavItem = { to: '/settings', label: 'Settings & demo', icon: Settings };
+export const SETTINGS_NAV: NavItem = { to: '/settings', label: 'Settings', icon: Settings };

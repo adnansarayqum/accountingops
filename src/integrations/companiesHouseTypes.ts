@@ -12,7 +12,7 @@ export interface CompanySearchResult {
 export interface CompanySearchResponse {
   results: CompanySearchResult[];
   totalResults: number;
-  source: 'companies_house' | 'demo';
+  source: 'companies_house' | 'sample';
 }
 
 export interface CompanyProfileAddress {
@@ -38,5 +38,5 @@ export interface CompanyProfile {
   nextAccountsDueOn: string | null;
   nextAccountsPeriodEndOn: string | null;
   nextConfirmationStatementDueOn: string | null;
-  source: 'companies_house' | 'demo';
+  source: 'companies_house' | 'sample';
 }

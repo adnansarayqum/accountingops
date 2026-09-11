@@ -43,7 +43,6 @@ export function AppShell() {
       </a>
       <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
       <div className="lg:pl-64 flex flex-col min-h-screen">
-        <DemoBanner />
         <header className="sticky top-0 z-20 h-14 bg-surface/90 backdrop-blur border-b border-slate-200 flex items-center gap-2 px-4 sm:px-6">
           <button type="button" onClick={() => setNavOpen(true)} className="lg:hidden rounded-lg p-2 text-slate-600 hover:bg-slate-100 shrink-0" aria-label="Open navigation">
             <Menu className="h-5 w-5" />
@@ -72,17 +71,6 @@ export function AppShell() {
       </div>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <Toaster />
-    </div>
-  );
-}
-
-function DemoBanner() {
-  return (
-    <div className="bg-amber-50 dark:bg-amber-500/10 border-b border-amber-200 dark:border-amber-500/30 text-amber-900 dark:text-amber-300 text-xs sm:text-[13px] px-4 sm:px-6 py-1.5 flex items-center gap-2" role="note">
-      <span className="inline-flex h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
-      <span>
-        <strong className="font-semibold">Demo environment</strong> — synthetic client data. No messages or filings leave this application.
-      </span>
     </div>
   );
 }

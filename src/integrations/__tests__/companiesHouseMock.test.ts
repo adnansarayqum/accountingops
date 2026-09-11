@@ -4,7 +4,7 @@ import { mockCompanyProfile, mockSearchCompanies } from '../companiesHouseMock';
 describe('mockSearchCompanies', () => {
   it('matches case-insensitively on company name', () => {
     const res = mockSearchCompanies('harbour');
-    expect(res.source).toBe('demo');
+    expect(res.source).toBe('sample');
     expect(res.results).toHaveLength(1);
     expect(res.results[0].title).toBe('HARBOUR CYCLES LTD');
   });
@@ -23,7 +23,7 @@ describe('mockCompanyProfile', () => {
     const profile = mockCompanyProfile('14829301');
     expect(profile).not.toBeNull();
     expect(profile?.companyName).toBe('HARBOUR CYCLES LTD');
-    expect(profile?.source).toBe('demo');
+    expect(profile?.source).toBe('sample');
     expect(profile?.registeredOfficeAddress?.formatted).toContain('Bristol');
     expect(profile?.accountingReferenceDate).toEqual({ day: '28', month: '02' });
   });

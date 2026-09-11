@@ -19,7 +19,8 @@ const CHANNELS: { value: Channel; icon: typeof Mail }[] = [
 
 /**
  * One-click reminder: pre-drafts a specific, human message referencing the
- * actual outstanding documents. Sends are simulated in demo mode.
+ * actual outstanding documents. Sending is simulated — no messaging
+ * integration is connected yet.
  */
 export function ReminderComposer({ job, open, onClose, initialChannel }: { job: Job; open: boolean; onClose: () => void; initialChannel?: Channel }) {
   const data = useData();
@@ -69,7 +70,7 @@ export function ReminderComposer({ job, open, onClose, initialChannel }: { job: 
       description={`${client.name} · ${job.name}`}
       footer={
         <>
-          <span className="mr-auto text-xs text-slate-500">Demo: sending is simulated and logged. Nothing leaves this application.</span>
+          <span className="mr-auto text-xs text-slate-500">Sending is simulated and logged. Nothing leaves this application.</span>
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>

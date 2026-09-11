@@ -1,21 +1,17 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { seedFixture, STORAGE_KEY } from './fixtures';
 
 /**
- * The exact demo journey from docs/DEMO_SCRIPT.md, end to end.
+ * The same rich scenario the fixture dataset tells, end to end, seeded
+ * directly into storage rather than via any in-app feature (a real
+ * practice has no built-in "load sample data" button — see
+ * docs/TEST_SCENARIOS.md for the scenario this walks through).
  * Runs against the production build. Fonts are blocked so it is fast and
  * deterministic offline.
  */
-async function resetDemo(page: Page) {
-  await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
-  await page.goto('/');
-  await page.evaluate(() => localStorage.clear());
-  await page.reload();
-  await expect(page.getByRole('heading', { name: 'Practice Today' })).toBeVisible();
-}
-
-test.describe('primary demo journey', () => {
+test.describe('primary scenario journey', () => {
   test.beforeEach(async ({ page }) => {
-    await resetDemo(page);
+    await seedFixture(page);
   });
 
   test('dashboard → attention → client → job → reminder → inbox → ready → dashboard', async ({ page }) => {
@@ -98,10 +94,10 @@ test.describe('primary demo journey', () => {
     await page.goto('/clients/cl_khan');
     await expect(page.getByRole('link', { name: 'VAT Return 2026 Q4' }).filter({ visible: true }).first()).toBeVisible();
     // Exactly one next-period job exists for the obligation, even after a reload.
-    const generated = await page.evaluate(() => {
-      const env = JSON.parse(localStorage.getItem('practiceops.demo') ?? '{}');
+    const generated = await page.evaluate((key) => {
+      const env = JSON.parse(localStorage.getItem(key) ?? '{}');
       return env.data.jobs.filter((j: { obligationId?: string; periodKey: string }) => j.obligationId === 'ob_khan_vat' && j.periodKey === '2026-Q4').length;
-    });
+    }, STORAGE_KEY);
     expect(generated).toBe(1);
   });
 
@@ -119,16 +115,5 @@ test.describe('primary demo journey', () => {
     await expect(page.getByRole('option').filter({ hasText: 'Khan Consulting Ltd' }).first()).toBeVisible();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('heading', { name: 'Khan Consulting Ltd' })).toBeVisible();
-  });
-
-  test('demo reset restores the showcase scenario', async ({ page }) => {
-    await page.goto('/inbox');
-    await page.getByTestId('confirm-inb_abc_loan').click();
-    await page.goto('/settings');
-    await page.getByTestId('reset-demo').click();
-    await page.getByTestId('reset-demo-confirm').click();
-    await expect(page.getByText('Demo data reset', { exact: true })).toBeVisible();
-    await page.goto('/inbox');
-    await expect(page.getByTestId('inbox-inb_abc_loan')).toBeVisible();
   });
 });

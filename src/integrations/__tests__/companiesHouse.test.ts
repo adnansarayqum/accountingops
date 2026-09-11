@@ -6,17 +6,17 @@ afterEach(() => {
 });
 
 describe('searchCompanies', () => {
-  it('falls back to the demo dataset when the proxy reports not configured (503)', async () => {
+  it('falls back to the sample dataset when the proxy reports not configured (503)', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'not_configured' }), { status: 503 })));
     const res = await searchCompanies('harbour');
-    expect(res.source).toBe('demo');
+    expect(res.source).toBe('sample');
     expect(res.results[0].title).toBe('HARBOUR CYCLES LTD');
   });
 
-  it('falls back to the demo dataset when the network call throws', async () => {
+  it('falls back to the sample dataset when the network call throws', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
     const res = await searchCompanies('harbour');
-    expect(res.source).toBe('demo');
+    expect(res.source).toBe('sample');
   });
 
   it('passes through a live response unchanged', async () => {
@@ -36,10 +36,10 @@ describe('searchCompanies', () => {
 });
 
 describe('getCompanyProfile', () => {
-  it('falls back to the demo profile when not configured', async () => {
+  it('falls back to the sample profile when not configured', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'not_configured' }), { status: 503 })));
     const profile = await getCompanyProfile('14829301');
-    expect(profile?.source).toBe('demo');
+    expect(profile?.source).toBe('sample');
     expect(profile?.companyName).toBe('HARBOUR CYCLES LTD');
   });
 });

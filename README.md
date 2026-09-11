@@ -37,9 +37,11 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
-The app boots into **demo mode**: a synthetic dataset for one practice is
-generated relative to today's date and stored in `localStorage`. Reset it from
-**Settings & demo → Reset demo data**.
+A brand-new practice starts empty — one signed-in owner, zero clients — and
+everything is stored in `localStorage`. Add your first client from **Clients
+→ New client** to see the workflow in action. (There's also a rich
+[test scenario](docs/TEST_SCENARIOS.md) used by the test suite, if you want
+to see the product with realistic data without hand-entering it.)
 
 ## Scripts
 
@@ -59,7 +61,7 @@ For Playwright in environments with a pre-installed browser, set
 
 ## Environment variables
 
-See [`.env.example`](.env.example). The demo build needs none. Railway injects
+See [`.env.example`](.env.example). This build needs none to run. Railway injects
 `PORT`. `DATABASE_URL`, object storage and messaging provider keys are
 reserved for the server-side persistence and integration layers.
 
@@ -68,13 +70,13 @@ reserved for the server-side persistence and integration layers.
 ```
 src/
   domain/          types, catalogue, dates, and rules/ (pure, tested business rules)
-  application/     store (all mutations), selectors (derived views), persistence/, assistant/
-  demo/            synthetic dataset builder (demo-relative dates)
+  application/     store (all mutations), selectors (derived views), persistence/, assistant/, emptyState.ts
+  testing/         fixture dataset builder used by tests only (fixture-relative dates)
   ui/              layout (shell, sidebar, palette) and reusable components
   pages/           one file per screen
 server/            Express web server for Railway
 db/schema.sql      PostgreSQL schema with tenant isolation
-docs/              architecture, domain model, product decisions, demo script
+docs/              architecture, domain model, product decisions, test scenario walkthrough
 e2e/               Playwright specs
 ```
 
@@ -83,11 +85,13 @@ e2e/               Playwright specs
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — layers, persistence boundary, background automation, Railway, security.
 - [docs/DOMAIN_MODEL.md](docs/DOMAIN_MODEL.md) — Practice, Client, Service, Obligation, Job, Request, Document, Communication, Blocker, Approval.
 - [docs/PRODUCT_DECISIONS.md](docs/PRODUCT_DECISIONS.md) — the important decisions and why.
-- [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) — the ten-scene demo, step by step.
+- [docs/TEST_SCENARIOS.md](docs/TEST_SCENARIOS.md) — the fixture dataset's story, scene by scene.
 - [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) — Companies House (live), HMRC and accounting software (why they're not).
 
-## Demo safety
+## What's simulated
 
-Everything is synthetic. No message, filing or document leaves the
-application. Display masking of identifiers is a UX convenience, not a security
-control — see the security section in `docs/ARCHITECTURE.md`.
+There is no live messaging or filing integration yet: sending a reminder and
+marking a job as filed are both simulated and clearly labelled as such —
+nothing leaves the application. Display masking of identifiers is a UX
+convenience, not a security control — see the security section in
+`docs/ARCHITECTURE.md`.

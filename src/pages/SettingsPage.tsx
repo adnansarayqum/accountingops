@@ -1,33 +1,18 @@
-import { useState } from 'react';
-import { RotateCcw, Database, ShieldCheck, Users } from 'lucide-react';
+import { ShieldCheck, Users } from 'lucide-react';
 import { PageHeader } from '../ui/components/PageHeader';
 import { Card, CardBody, CardHeader } from '../ui/components/Card';
-import { Button } from '../ui/components/Button';
-import { Modal } from '../ui/components/Modal';
 import { Select } from '../ui/components/Form';
 import { Avatar } from '../ui/components/Avatar';
 import { useAppStore } from '../application/store';
 import { useData } from '../application/selectors';
-import { formatDateTime } from '../domain/dates';
 
 export function SettingsPage() {
   const data = useData();
-  const reset = useAppStore((s) => s.resetDemo);
-  const lastResetAt = useAppStore((s) => s.lastResetAt);
   const currentUserId = useAppStore((s) => s.currentUserId);
-  const [confirm, setConfirm] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  const doReset = async () => {
-    setBusy(true);
-    await reset();
-    setBusy(false);
-    setConfirm(false);
-  };
 
   return (
     <div className="animate-in max-w-3xl space-y-5">
-      <PageHeader title="Settings & demo" description="Practice configuration and demo controls." />
+      <PageHeader title="Settings" description="Practice configuration." />
 
       <Card>
         <CardHeader title="Practice" icon={<Users />} />
@@ -72,43 +57,13 @@ export function SettingsPage() {
       </Card>
 
       <Card>
-        <CardHeader title="Security posture" icon={<ShieldCheck />} description="What the demo does and does not do." />
+        <CardHeader title="Security posture" icon={<ShieldCheck />} />
         <CardBody className="pt-0 text-[13px] text-slate-700 space-y-1.5">
           <p>• Identifiers are masked on screen and every reveal is written to the audit log. This is a UX convenience — production enforces field-level authorisation server-side.</p>
-          <p>• All client data is synthetic. No messages, filings or documents leave this application.</p>
+          <p>• Sending and filing are simulated — no message or filing integration is connected yet, so nothing leaves this application.</p>
           <p>• Every record carries a practice id so server-side persistence can enforce tenant isolation from day one.</p>
         </CardBody>
       </Card>
-
-      <Card className="border-amber-200">
-        <CardHeader title="Demo data" icon={<Database />} description="Restore the showcase scenario. This discards every change made in this browser." />
-        <CardBody className="pt-0">
-          <p className="text-xs text-slate-500 mb-3">{lastResetAt ? `Last reset ${formatDateTime(lastResetAt)}.` : 'Data is stored locally in this browser.'}</p>
-          <Button variant="secondary" icon={<RotateCcw />} onClick={() => setConfirm(true)} data-testid="reset-demo">
-            Reset demo data
-          </Button>
-        </CardBody>
-      </Card>
-
-      <Modal
-        open={confirm}
-        onClose={() => setConfirm(false)}
-        title="Reset demo data?"
-        description="All changes made in this browser will be replaced with the original showcase scenario."
-        size="sm"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setConfirm(false)} disabled={busy}>
-              Cancel
-            </Button>
-            <Button variant="danger" onClick={doReset} disabled={busy} data-testid="reset-demo-confirm">
-              {busy ? 'Resetting…' : 'Yes, reset'}
-            </Button>
-          </>
-        }
-      >
-        <p className="text-sm text-slate-700">ABC Construction will be back to two missing documents, the Smart Inbox will have six items waiting, and every reminder you sent will be cleared.</p>
-      </Modal>
     </div>
   );
 }

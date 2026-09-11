@@ -68,7 +68,8 @@ Metadata for a received file (bytes go to object storage). Linked to client
 and optionally job; referenced by the request item it satisfied.
 
 ## Communication
-Outbound (email/WhatsApp/SMS — simulated in demo) or inbound message. Stores
+Outbound (email/WhatsApp/SMS — simulated, no live integration) or inbound
+message. Stores
 channel, recipient, body, reminder stage, documents requested, response
 status. Reminder attempts are the scheduled/automated view of the same thing.
 
@@ -88,7 +89,8 @@ store, never by editing status directly in the UI.
 
 ## FilingRecord
 When, by whom, submission reference, destination (HMRC / Companies House),
-evidence status. Always `simulated: true` in the demo and labelled as such.
+evidence status. Always `simulated: true` — there is no live filing
+integration yet — and labelled as such in the UI.
 
 ## Activity vs AuditEvent
 `Activity` — human feed. `AuditEvent` — append-only record with before/after

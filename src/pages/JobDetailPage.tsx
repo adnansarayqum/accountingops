@@ -170,7 +170,7 @@ export function JobDetailPage() {
           </Card>
 
           <Card>
-            <CardHeader title="Approvals & filing" description="Explicit checkpoints. Filing is simulated in this demo." />
+            <CardHeader title="Approvals & filing" description="Explicit checkpoints. Filing is simulated — no submission is sent to HMRC or Companies House." />
             <CardBody className="pt-0">
               <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Checkpoint label="Internal approval" done={approvals.some((a) => a.kind === 'internal' && a.status === 'approved')} pending={job.status === 'internal_review'} detail={approvalDetail(approvals.find((a) => a.kind === 'internal'))} icon={<ClipboardCheck />} />

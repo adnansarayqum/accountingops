@@ -1,10 +1,18 @@
-# Demo script — "Open app → see what needs attention → act → everything updates"
+# Test scenario walkthrough — "Open app → see what needs attention → act → everything updates"
 
-Before you start: **Settings & demo → Reset demo data**. Takes two seconds
-and restores every scene below. Today's date is used for every deadline, so
-the numbers are always current.
+This is the scenario behind `src/testing/fixtures.ts`, the shared fixture
+dataset unit tests and `e2e/scenario-journey.spec.ts` run against. It is not
+loaded by the app itself — a real practice always starts empty (see
+`src/application/emptyState.ts`) — but it's a useful walkthrough when you
+want to see the product's behaviour end to end, e.g. for a live
+demonstration: seed it by pasting the output of
+`buildFixtureData(new Date().toISOString().slice(0, 10))` (from
+`src/testing/fixtures.ts`) into `localStorage['practiceops.data']`
+(wrapped as `{ version: SCHEMA_VERSION, savedAt, data }`) and reloading, or
+just read along — every deadline below is relative to whatever date the
+fixture is built with, so the story stays current.
 
-The showcase client is **ABC Construction Ltd** (Dave Thompson, slow
+The central client is **ABC Construction Ltd** (Dave Thompson, slow
 responder, prefers WhatsApp). Annual Accounts due in 12 days, 4 of 6
 documents received, two reminders ignored.
 
@@ -104,6 +112,3 @@ Try also: *What is ABC Construction's UTR?* (masked, with a link to reveal) and
 - **Search** — ⌘K and type a company number: the client is found without the
   number appearing in results.
 - **Mobile** — resize the window; everything works as cards with a drawer.
-
-### Reset
-**Settings & demo → Reset demo data → Yes, reset.**

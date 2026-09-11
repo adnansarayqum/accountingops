@@ -4,13 +4,13 @@ import userEvent from '@testing-library/user-event';
 import { CompanyLookup } from '../CompanyLookup';
 import type { CompanyProfile } from '../../../integrations/companiesHouseTypes';
 
-// Force the demo fallback deterministically, regardless of whether a real
-// Companies House key happens to be configured in the environment running
-// this test.
+// Force the sample-data fallback deterministically, regardless of whether a
+// real Companies House key happens to be configured in the environment
+// running this test.
 vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'not_configured' }), { status: 503 })));
 
 describe('CompanyLookup', () => {
-  it('searches, shows the demo-data badge, and hands back the picked profile', async () => {
+  it('searches, shows the sample-data badge, and hands back the picked profile', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn<(profile: CompanyProfile) => void>();
     render(<CompanyLookup onSelect={onSelect} />);
@@ -19,7 +19,7 @@ describe('CompanyLookup', () => {
 
     const result = await screen.findByTestId('company-result-14829301', {}, { timeout: 2000 });
     expect(result).toHaveTextContent('HARBOUR CYCLES LTD');
-    expect(screen.getByText('Demo data — not a live lookup')).toBeInTheDocument();
+    expect(screen.getByText('Sample data — not a live lookup')).toBeInTheDocument();
 
     await user.click(result);
 

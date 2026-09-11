@@ -1,6 +1,6 @@
 import type { Client, Communication, ResponsivenessBand } from '../types';
 
-/** Transparent demo banding based on average response time in days. */
+/** Transparent banding based on average response time in days. */
 export function responsivenessBand(averageResponseDays: number, remindersIgnored = 0): ResponsivenessBand {
   if (remindersIgnored >= 3) return 'chronic';
   if (averageResponseDays <= 2) return 'fast';

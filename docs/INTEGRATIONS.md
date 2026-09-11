@@ -35,7 +35,7 @@ here is read-only.
 
 **Without a key configured**, the same UI keeps working against a small
 synthetic dataset (`src/integrations/companiesHouseMock.ts`), so onboarding
-is never blocked. Every result is labelled "Demo data — not a live lookup"
+is never blocked. Every result is labelled "Sample data — not a live lookup"
 so nobody mistakes it for a real company.
 
 **Architecture.** The browser never talks to Companies House directly and
@@ -75,8 +75,8 @@ the Companies House integration:
 - VAT, Income Tax (ITSA) and Corporation Tax are **separate API products**
   with separate scopes and separate testing requirements.
 
-None of that can be faked into a working demo without misrepresenting what
-the product does. What exists instead:
+None of that can be faked into a working integration without misrepresenting
+what the product does. What exists instead:
 
 - `WaitingOn = 'hmrc'` and `FILING_DESTINATION` already model HMRC as a
   destination in the domain layer (`src/domain/catalog.ts`).

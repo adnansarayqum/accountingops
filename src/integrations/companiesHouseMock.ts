@@ -1,8 +1,8 @@
 /**
  * Synthetic Companies House fallback. Used automatically when
  * COMPANIES_HOUSE_API_KEY is not configured, so onboarding still works out
- * of the box in demo mode — clearly labelled `source: 'demo'` so the UI
- * never presents it as a live lookup.
+ * of the box without a live API key — clearly labelled `source: 'sample'`
+ * so the UI never presents it as a live lookup.
  */
 import type { CompanyProfile, CompanySearchResponse, CompanySearchResult } from './companiesHouseTypes';
 
@@ -40,7 +40,7 @@ function toSearchResult(c: MockCompany): CompanySearchResult {
 export function mockSearchCompanies(query: string): CompanySearchResponse {
   const q = query.trim().toLowerCase();
   const results = q.length < 2 ? [] : MOCK_COMPANIES.filter((c) => c.title.toLowerCase().includes(q)).map(toSearchResult);
-  return { results, totalResults: results.length, source: 'demo' };
+  return { results, totalResults: results.length, source: 'sample' };
 }
 
 export function mockCompanyProfile(companyNumber: string): CompanyProfile | null {
@@ -60,6 +60,6 @@ export function mockCompanyProfile(companyNumber: string): CompanyProfile | null
     nextAccountsDueOn: null,
     nextAccountsPeriodEndOn: null,
     nextConfirmationStatementDueOn: null,
-    source: 'demo',
+    source: 'sample',
   };
 }

@@ -2,11 +2,14 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { configureRepository, useAppStore } from '../store';
 import { MemoryRepository } from '../persistence/memoryRepository';
 import { computeDerived } from '../selectors';
+import { buildFixtureData } from '../../testing/fixtures';
+
+const today = '2026-09-11';
 
 describe('application store — primary workflow', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     configureRepository(new MemoryRepository());
-    await useAppStore.getState().resetDemo();
+    useAppStore.setState({ data: buildFixtureData(today), today, ready: true, currentUserId: 'u_adnan' });
   });
 
   const items = (jobId: string) => useAppStore.getState().data.requestItems.filter((i) => i.jobId === jobId);

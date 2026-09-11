@@ -8,7 +8,7 @@ interface Envelope {
 }
 
 export class LocalStorageRepository implements PracticeRepository {
-  constructor(private readonly key = 'practiceops.demo') {}
+  constructor(private readonly key = 'practiceops.data') {}
 
   async load(): Promise<PracticeData | null> {
     try {
@@ -27,7 +27,7 @@ export class LocalStorageRepository implements PracticeRepository {
       const env: Envelope = { version: SCHEMA_VERSION, savedAt: new Date().toISOString(), data };
       globalThis.localStorage?.setItem(this.key, JSON.stringify(env));
     } catch (err) {
-      console.warn('Could not persist demo data', err);
+      console.warn('Could not persist practice data', err);
     }
   }
 

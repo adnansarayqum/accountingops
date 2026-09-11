@@ -1,7 +1,7 @@
 /**
  * Domain model for the Accountancy Operations Command Centre.
  *
- * Every tenant-owned record carries `practiceId`. The demo runs a single
+ * Every tenant-owned record carries `practiceId`. This build runs a single
  * practice, but the shape is multi-tenant from day one so that server-side
  * persistence can scope every query by tenant.
  *
@@ -60,7 +60,7 @@ export interface Client {
   incorporatedOn?: IsoDate;
   sector?: string;
   notes?: string;
-  /** Demo-transparent behaviour stats used by the responsiveness rule. */
+  /** Behaviour stat used by the responsiveness rule. */
   averageResponseDays: number;
   createdAt: IsoDateTime;
   /** Populated when the client was looked up via the Companies House integration. */

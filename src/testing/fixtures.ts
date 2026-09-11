@@ -1,12 +1,16 @@
 /**
- * Synthetic demo dataset. Every record is fictional. Dates are generated
- * relative to `today` so the demo never goes stale.
+ * Test-fixture dataset used by unit tests and e2e scenarios. Every record
+ * is fictional. This is NOT loaded by the app itself — a real practice
+ * always starts empty (see `src/application/emptyState.ts`) — it exists
+ * purely so tests have a rich, realistic, deterministic dataset to run
+ * against without repeating the same fixture-building logic everywhere.
  *
+ * Dates are generated relative to `today` so the fixture never goes stale.
  * The dataset is built as *stories*, not random rows: each client exists to
- * demonstrate a specific operational condition (see docs/DEMO_SCRIPT.md).
+ * demonstrate a specific operational condition (see docs/TEST_SCENARIOS.md).
  */
 import { addDays, addMonths, isoDateTimeDaysAgo } from '../domain/dates';
-import { SERVICES } from '../domain/catalog';
+import { buildReminderSequences, SERVICES } from '../domain/catalog';
 import type {
   Activity,
   Approval,
@@ -32,74 +36,22 @@ import type {
   Person,
   PersonRole,
   PracticeData,
-  ReminderSequence,
   ServiceCode,
   ServiceSubscription,
   User,
   WaitingOn,
 } from '../domain/types';
 
-export const PRACTICE_ID = 'prac_demo';
+export const FIXTURE_PRACTICE_ID = 'prac_fixture';
 
-export const DEMO_USERS: User[] = [
-  { id: 'u_adnan', practiceId: PRACTICE_ID, name: 'Adnan Sarayqum', initials: 'AS', role: 'owner', weeklyCapacityHours: 32, colour: 'blue' },
-  { id: 'u_sarah', practiceId: PRACTICE_ID, name: 'Sarah Mitchell', initials: 'SM', role: 'manager', weeklyCapacityHours: 36, colour: 'violet' },
-  { id: 'u_michael', practiceId: PRACTICE_ID, name: 'Michael Okafor', initials: 'MO', role: 'accountant', weeklyCapacityHours: 36, colour: 'emerald' },
-  { id: 'u_priya', practiceId: PRACTICE_ID, name: 'Priya Shah', initials: 'PS', role: 'accountant', weeklyCapacityHours: 16, colour: 'amber' },
+export const FIXTURE_USERS: User[] = [
+  { id: 'u_adnan', practiceId: FIXTURE_PRACTICE_ID, name: 'Adnan Sarayqum', initials: 'AS', role: 'owner', weeklyCapacityHours: 32, colour: 'blue' },
+  { id: 'u_sarah', practiceId: FIXTURE_PRACTICE_ID, name: 'Sarah Mitchell', initials: 'SM', role: 'manager', weeklyCapacityHours: 36, colour: 'violet' },
+  { id: 'u_michael', practiceId: FIXTURE_PRACTICE_ID, name: 'Michael Okafor', initials: 'MO', role: 'accountant', weeklyCapacityHours: 36, colour: 'emerald' },
+  { id: 'u_priya', practiceId: FIXTURE_PRACTICE_ID, name: 'Priya Shah', initials: 'PS', role: 'accountant', weeklyCapacityHours: 16, colour: 'amber' },
 ];
 
-export const REMINDER_SEQUENCES: ReminderSequence[] = [
-  {
-    id: 'seq_accounts',
-    practiceId: PRACTICE_ID,
-    name: 'Annual Accounts Standard Sequence',
-    steps: [
-      { daysBeforeDue: 90, channels: ['email'], tone: 'friendly', label: 'Friendly email (90 days)' },
-      { daysBeforeDue: 30, channels: ['email'], tone: 'standard', label: 'Email (30 days)' },
-      { daysBeforeDue: 14, channels: ['email', 'whatsapp'], tone: 'firm', label: 'Email + WhatsApp (14 days)' },
-      { daysBeforeDue: 3, channels: ['whatsapp', 'sms'], tone: 'urgent', label: 'Urgent reminder (3 days)' },
-    ],
-  },
-  {
-    id: 'seq_vat',
-    practiceId: PRACTICE_ID,
-    name: 'Quarterly Return Sequence',
-    steps: [
-      { daysBeforeDue: 21, channels: ['email'], tone: 'friendly', label: 'Friendly email (21 days)' },
-      { daysBeforeDue: 10, channels: ['email', 'whatsapp'], tone: 'standard', label: 'Email + WhatsApp (10 days)' },
-      { daysBeforeDue: 3, channels: ['whatsapp', 'sms'], tone: 'urgent', label: 'Urgent reminder (3 days)' },
-    ],
-  },
-  {
-    id: 'seq_payroll',
-    practiceId: PRACTICE_ID,
-    name: 'Monthly Sequence',
-    steps: [
-      { daysBeforeDue: 7, channels: ['email'], tone: 'friendly', label: 'Email (7 days)' },
-      { daysBeforeDue: 2, channels: ['whatsapp', 'sms'], tone: 'urgent', label: 'Urgent reminder (2 days)' },
-    ],
-  },
-  {
-    id: 'seq_sa',
-    practiceId: PRACTICE_ID,
-    name: 'Self Assessment Sequence',
-    steps: [
-      { daysBeforeDue: 120, channels: ['email'], tone: 'friendly', label: 'Friendly email (120 days)' },
-      { daysBeforeDue: 60, channels: ['email'], tone: 'standard', label: 'Email (60 days)' },
-      { daysBeforeDue: 21, channels: ['email', 'whatsapp'], tone: 'firm', label: 'Email + WhatsApp (21 days)' },
-      { daysBeforeDue: 5, channels: ['whatsapp', 'sms'], tone: 'urgent', label: 'Urgent reminder (5 days)' },
-    ],
-  },
-  {
-    id: 'seq_cs',
-    practiceId: PRACTICE_ID,
-    name: 'Confirmation Statement Sequence',
-    steps: [
-      { daysBeforeDue: 30, channels: ['email'], tone: 'friendly', label: 'Email (30 days)' },
-      { daysBeforeDue: 7, channels: ['email', 'whatsapp'], tone: 'firm', label: 'Email + WhatsApp (7 days)' },
-    ],
-  },
-];
+const FIXTURE_REMINDER_SEQUENCES = buildReminderSequences(FIXTURE_PRACTICE_ID);
 
 // ---------------------------------------------------------------------------
 // Builder
@@ -146,7 +98,7 @@ interface JobSpec {
   periodEndIn?: number;
 }
 
-export function buildDemoData(today: IsoDate): PracticeData {
+export function buildFixtureData(today: IsoDate): PracticeData {
   const ago = (days: number, hour = 9, minute = 0) => isoDateTimeDaysAgo(today, days, hour, minute);
   const inDays = (n: number) => addDays(today, n);
 
@@ -436,7 +388,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
     const primaryId = `ct_${s.id.slice(3)}_1`;
     clients.push({
       id: s.id,
-      practiceId: PRACTICE_ID,
+      practiceId: FIXTURE_PRACTICE_ID,
       name: s.name,
       type: s.type,
       lifecycle: s.lifecycle ?? 'active',
@@ -452,7 +404,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
     });
     contacts.push({
       id: primaryId,
-      practiceId: PRACTICE_ID,
+      practiceId: FIXTURE_PRACTICE_ID,
       clientId: s.id,
       name: s.contact.name,
       role: s.contact.role,
@@ -462,13 +414,13 @@ export function buildDemoData(today: IsoDate): PracticeData {
       isPrimary: true,
     });
     s.extraContacts?.forEach((c, i) => {
-      contacts.push({ id: `ct_${s.id.slice(3)}_${i + 2}`, practiceId: PRACTICE_ID, clientId: s.id, name: c.name, role: c.role, email: c.email, phone: c.phone, isPrimary: false });
+      contacts.push({ id: `ct_${s.id.slice(3)}_${i + 2}`, practiceId: FIXTURE_PRACTICE_ID, clientId: s.id, name: c.name, role: c.role, email: c.email, phone: c.phone, isPrimary: false });
     });
     for (const [kind, value] of Object.entries(s.identifiers) as [IdentifierKind, string][]) {
-      identifiers.push({ id: `idf_${s.id.slice(3)}_${kind}`, practiceId: PRACTICE_ID, clientId: s.id, kind, value, sensitive: kind !== 'company_number' });
+      identifiers.push({ id: `idf_${s.id.slice(3)}_${kind}`, practiceId: FIXTURE_PRACTICE_ID, clientId: s.id, kind, value, sensitive: kind !== 'company_number' });
     }
     for (const code of s.services) {
-      subscriptions.push({ id: `sub_${s.id.slice(3)}_${code}`, practiceId: PRACTICE_ID, clientId: s.id, serviceCode: code, startedOn: inDays(-s.createdDaysAgo), active: true });
+      subscriptions.push({ id: `sub_${s.id.slice(3)}_${code}`, practiceId: FIXTURE_PRACTICE_ID, clientId: s.id, serviceCode: code, startedOn: inDays(-s.createdDaysAgo), active: true });
     }
   }
 
@@ -629,7 +581,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
     const waitingOn: WaitingOn = j.waitingOn ?? defaultWaiting(j.status);
     jobs.push({
       id: j.id,
-      practiceId: PRACTICE_ID,
+      practiceId: FIXTURE_PRACTICE_ID,
       clientId: j.client,
       obligationId,
       serviceCode: j.service,
@@ -656,7 +608,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
         documentId = `doc_${j.id.slice(4)}_${i}`;
         documents.push({
           id: documentId,
-          practiceId: PRACTICE_ID,
+          practiceId: FIXTURE_PRACTICE_ID,
           clientId: j.client,
           jobId: j.id,
           fileName: `${slug(clientSpecs.find((c) => c.id === j.client)!.name)}-${slug(d.label)}.pdf`,
@@ -668,7 +620,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
       }
       requestItems.push({
         id: itemId,
-        practiceId: PRACTICE_ID,
+        practiceId: FIXTURE_PRACTICE_ID,
         jobId: j.id,
         clientId: j.client,
         label: d.label,
@@ -685,7 +637,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
     if (!existing) {
       obligations.push({
         id: obligationId,
-        practiceId: PRACTICE_ID,
+        practiceId: FIXTURE_PRACTICE_ID,
         clientId: j.client,
         serviceCode: j.service,
         name: service.frequency === 'quarterly' ? `Quarterly ${service.name}` : service.frequency === 'monthly' ? `Monthly ${service.name}` : `Annual ${service.name}`,
@@ -704,7 +656,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
   // -------------------------------------------------------------------------
   const communications: Communication[] = [];
   const comm = (c: Omit<Communication, 'id' | 'practiceId' | 'simulated'> & { id: string }) => {
-    communications.push({ ...c, practiceId: PRACTICE_ID, simulated: true });
+    communications.push({ ...c, practiceId: FIXTURE_PRACTICE_ID, simulated: true });
   };
 
   comm({
@@ -901,20 +853,20 @@ export function buildDemoData(today: IsoDate): PracticeData {
   // Approvals & filings
   // -------------------------------------------------------------------------
   const approvals: Approval[] = [
-    { id: 'ap_brown_internal', practiceId: PRACTICE_ID, jobId: 'job_brown_accounts', kind: 'internal', status: 'approved', requestedAt: ago(13), decidedAt: ago(12), reviewerName: 'Adnan Sarayqum', note: 'Reviewed — depreciation policy consistent with prior year.' },
-    { id: 'ap_brown_client', practiceId: PRACTICE_ID, jobId: 'job_brown_accounts', kind: 'client', status: 'pending', requestedAt: ago(11) },
-    { id: 'ap_khan_internal', practiceId: PRACTICE_ID, jobId: 'job_khan_vat', kind: 'internal', status: 'approved', requestedAt: ago(2), decidedAt: ago(1), reviewerName: 'Adnan Sarayqum' },
-    { id: 'ap_khan_client', practiceId: PRACTICE_ID, jobId: 'job_khan_vat', kind: 'client', status: 'approved', requestedAt: ago(1), decidedAt: ago(1, 16), reviewerName: 'Amira Khan', note: 'Approved by email.' },
-    { id: 'ap_ashby_internal', practiceId: PRACTICE_ID, jobId: 'job_ashby_sa', kind: 'internal', status: 'approved', requestedAt: ago(4), decidedAt: ago(3), reviewerName: 'Adnan Sarayqum' },
-    { id: 'ap_ashby_client', practiceId: PRACTICE_ID, jobId: 'job_ashby_sa', kind: 'client', status: 'approved', requestedAt: ago(3), decidedAt: ago(2), reviewerName: 'Anne Ashby' },
-    { id: 'ap_hartley_internal', practiceId: PRACTICE_ID, jobId: 'job_hartley_accounts', kind: 'internal', status: 'pending', requestedAt: ago(8) },
+    { id: 'ap_brown_internal', practiceId: FIXTURE_PRACTICE_ID, jobId: 'job_brown_accounts', kind: 'internal', status: 'approved', requestedAt: ago(13), decidedAt: ago(12), reviewerName: 'Adnan Sarayqum', note: 'Reviewed — depreciation policy consistent with prior year.' },
+    { id: 'ap_brown_client', practiceId: FIXTURE_PRACTICE_ID, jobId: 'job_brown_accounts', kind: 'client', status: 'pending', requestedAt: ago(11) },
+    { id: 'ap_khan_internal', practiceId: FIXTURE_PRACTICE_ID, jobId: 'job_khan_vat', kind: 'internal', status: 'approved', requestedAt: ago(2), decidedAt: ago(1), reviewerName: 'Adnan Sarayqum' },
+    { id: 'ap_khan_client', practiceId: FIXTURE_PRACTICE_ID, jobId: 'job_khan_vat', kind: 'client', status: 'approved', requestedAt: ago(1), decidedAt: ago(1, 16), reviewerName: 'Amira Khan', note: 'Approved by email.' },
+    { id: 'ap_ashby_internal', practiceId: FIXTURE_PRACTICE_ID, jobId: 'job_ashby_sa', kind: 'internal', status: 'approved', requestedAt: ago(4), decidedAt: ago(3), reviewerName: 'Adnan Sarayqum' },
+    { id: 'ap_ashby_client', practiceId: FIXTURE_PRACTICE_ID, jobId: 'job_ashby_sa', kind: 'client', status: 'approved', requestedAt: ago(3), decidedAt: ago(2), reviewerName: 'Anne Ashby' },
+    { id: 'ap_hartley_internal', practiceId: FIXTURE_PRACTICE_ID, jobId: 'job_hartley_accounts', kind: 'internal', status: 'pending', requestedAt: ago(8) },
   ];
 
   const filings: FilingRecord[] = jobs
     .filter((j) => j.status === 'filed' && j.filedAt)
     .map((j, i) => ({
       id: `fil_${j.id.slice(4)}`,
-      practiceId: PRACTICE_ID,
+      practiceId: FIXTURE_PRACTICE_ID,
       jobId: j.id,
       filedAt: j.filedAt!,
       filedByUserId: j.assigneeUserId ?? 'u_adnan',
@@ -928,26 +880,26 @@ export function buildDemoData(today: IsoDate): PracticeData {
   // People (directors / PSCs)
   // -------------------------------------------------------------------------
   const people: Person[] = [
-    { id: 'p_dave', practiceId: PRACTICE_ID, fullName: 'Dave Thompson', dateOfBirth: '1978-04-12' },
-    { id: 'p_lisa', practiceId: PRACTICE_ID, fullName: 'Lisa Thompson', dateOfBirth: '1980-09-03' },
-    { id: 'p_amira', practiceId: PRACTICE_ID, fullName: 'Amira Khan', dateOfBirth: '1985-01-22' },
-    { id: 'p_gareth', practiceId: PRACTICE_ID, fullName: 'Gareth Brown', dateOfBirth: '1969-11-30' },
-    { id: 'p_tom', practiceId: PRACTICE_ID, fullName: 'Tom Greenfield', dateOfBirth: '1987-06-14' },
-    { id: 'p_olivia', practiceId: PRACTICE_ID, fullName: 'Olivia Greenfield', dateOfBirth: '1989-02-27' },
-    { id: 'p_helen', practiceId: PRACTICE_ID, fullName: 'Helen Fraser', dateOfBirth: '1975-08-08' },
-    { id: 'p_robert', practiceId: PRACTICE_ID, fullName: 'Robert Fraser', dateOfBirth: '1971-03-19' },
-    { id: 'p_steve', practiceId: PRACTICE_ID, fullName: 'Steve Oakes', dateOfBirth: '1982-12-01' },
-    { id: 'p_jo', practiceId: PRACTICE_ID, fullName: 'Jo Hartley', dateOfBirth: '1990-05-25' },
-    { id: 'p_chloe', practiceId: PRACTICE_ID, fullName: 'Chloe Adams', dateOfBirth: '1992-10-10' },
-    { id: 'p_alan', practiceId: PRACTICE_ID, fullName: 'Dr Alan Reid', dateOfBirth: '1968-07-16' },
-    { id: 'p_yusuf', practiceId: PRACTICE_ID, fullName: 'Yusuf Demir', dateOfBirth: '1984-04-04' },
-    { id: 'p_rachel', practiceId: PRACTICE_ID, fullName: 'Rachel Moore', dateOfBirth: '1986-01-15' },
-    { id: 'p_ben', practiceId: PRACTICE_ID, fullName: 'Ben Carver', dateOfBirth: '1991-09-09' },
+    { id: 'p_dave', practiceId: FIXTURE_PRACTICE_ID, fullName: 'Dave Thompson', dateOfBirth: '1978-04-12' },
+    { id: 'p_lisa', practiceId: FIXTURE_PRACTICE_ID, fullName: 'Lisa Thompson', dateOfBirth: '1980-09-03' },
+    { id: 'p_amira', practiceId: FIXTURE_PRACTICE_ID, fullName: 'Amira Khan', dateOfBirth: '1985-01-22' },
+    { id: 'p_gareth', practiceId: FIXTURE_PRACTICE_ID, fullName: 'Gareth Brown', dateOfBirth: '1969-11-30' },
+    { id: 'p_tom', practiceId: FIXTURE_PRACTICE_ID, fullName: 'Tom Greenfield', dateOfBirth: '1987-06-14' },
+    { id: 'p_olivia', practiceId: FIXTURE_PRACTICE_ID, fullName: 'Olivia Greenfield', dateOfBirth: '1989-02-27' },
+    { id: 'p_helen', practiceId: FIXTURE_PRACTICE_ID, fullName: 'Helen Fraser', dateOfBirth: '1975-08-08' },
+    { id: 'p_robert', practiceId: FIXTURE_PRACTICE_ID, fullName: 'Robert Fraser', dateOfBirth: '1971-03-19' },
+    { id: 'p_steve', practiceId: FIXTURE_PRACTICE_ID, fullName: 'Steve Oakes', dateOfBirth: '1982-12-01' },
+    { id: 'p_jo', practiceId: FIXTURE_PRACTICE_ID, fullName: 'Jo Hartley', dateOfBirth: '1990-05-25' },
+    { id: 'p_chloe', practiceId: FIXTURE_PRACTICE_ID, fullName: 'Chloe Adams', dateOfBirth: '1992-10-10' },
+    { id: 'p_alan', practiceId: FIXTURE_PRACTICE_ID, fullName: 'Dr Alan Reid', dateOfBirth: '1968-07-16' },
+    { id: 'p_yusuf', practiceId: FIXTURE_PRACTICE_ID, fullName: 'Yusuf Demir', dateOfBirth: '1984-04-04' },
+    { id: 'p_rachel', practiceId: FIXTURE_PRACTICE_ID, fullName: 'Rachel Moore', dateOfBirth: '1986-01-15' },
+    { id: 'p_ben', practiceId: FIXTURE_PRACTICE_ID, fullName: 'Ben Carver', dateOfBirth: '1991-09-09' },
   ];
 
   const role = (id: string, personId: string, clientId: string, kind: PersonRole['kind'], verification: PersonRole['identityVerification'], code: boolean, evidence: PersonRole['evidenceStatus']): PersonRole => ({
     id,
-    practiceId: PRACTICE_ID,
+    practiceId: FIXTURE_PRACTICE_ID,
     personId,
     clientId,
     kind,
@@ -983,12 +935,12 @@ export function buildDemoData(today: IsoDate): PracticeData {
   // MTD readiness
   // -------------------------------------------------------------------------
   const mtdReadiness: MtdReadiness[] = [
-    { id: 'mtd_malik', practiceId: PRACTICE_ID, clientId: 'cl_malik', incomeBand: '30k_50k', startYear: '2027/28', signedUp: false, softwareReady: false, agentAuthorised: true, accountingBasis: 'cash', nextQuarterlyDue: inDays(56) },
-    { id: 'mtd_whitfield', practiceId: PRACTICE_ID, clientId: 'cl_whitfield', incomeBand: 'over_50k', startYear: '2026/27', signedUp: true, softwareReady: true, agentAuthorised: true, accountingBasis: 'cash', nextQuarterlyDue: inDays(56) },
-    { id: 'mtd_fenwick', practiceId: PRACTICE_ID, clientId: 'cl_fenwick', incomeBand: 'over_50k', startYear: '2026/27', signedUp: true, softwareReady: true, agentAuthorised: true, accountingBasis: 'accruals', nextQuarterlyDue: inDays(56) },
-    { id: 'mtd_carter', practiceId: PRACTICE_ID, clientId: 'cl_carter', incomeBand: '20k_30k', startYear: '2028/29', signedUp: false, softwareReady: true, agentAuthorised: true, accountingBasis: 'cash' },
-    { id: 'mtd_ashby', practiceId: PRACTICE_ID, clientId: 'cl_ashby', incomeBand: 'under_20k', startYear: '—', signedUp: false, softwareReady: false, agentAuthorised: true, accountingBasis: 'cash' },
-    { id: 'mtd_patel', practiceId: PRACTICE_ID, clientId: 'cl_patel', incomeBand: 'over_50k', startYear: '2026/27', signedUp: false, softwareReady: true, agentAuthorised: false, accountingBasis: 'accruals', nextQuarterlyDue: inDays(56) },
+    { id: 'mtd_malik', practiceId: FIXTURE_PRACTICE_ID, clientId: 'cl_malik', incomeBand: '30k_50k', startYear: '2027/28', signedUp: false, softwareReady: false, agentAuthorised: true, accountingBasis: 'cash', nextQuarterlyDue: inDays(56) },
+    { id: 'mtd_whitfield', practiceId: FIXTURE_PRACTICE_ID, clientId: 'cl_whitfield', incomeBand: 'over_50k', startYear: '2026/27', signedUp: true, softwareReady: true, agentAuthorised: true, accountingBasis: 'cash', nextQuarterlyDue: inDays(56) },
+    { id: 'mtd_fenwick', practiceId: FIXTURE_PRACTICE_ID, clientId: 'cl_fenwick', incomeBand: 'over_50k', startYear: '2026/27', signedUp: true, softwareReady: true, agentAuthorised: true, accountingBasis: 'accruals', nextQuarterlyDue: inDays(56) },
+    { id: 'mtd_carter', practiceId: FIXTURE_PRACTICE_ID, clientId: 'cl_carter', incomeBand: '20k_30k', startYear: '2028/29', signedUp: false, softwareReady: true, agentAuthorised: true, accountingBasis: 'cash' },
+    { id: 'mtd_ashby', practiceId: FIXTURE_PRACTICE_ID, clientId: 'cl_ashby', incomeBand: 'under_20k', startYear: '—', signedUp: false, softwareReady: false, agentAuthorised: true, accountingBasis: 'cash' },
+    { id: 'mtd_patel', practiceId: FIXTURE_PRACTICE_ID, clientId: 'cl_patel', incomeBand: 'over_50k', startYear: '2026/27', signedUp: false, softwareReady: true, agentAuthorised: false, accountingBasis: 'accruals', nextQuarterlyDue: inDays(56) },
   ];
 
   // -------------------------------------------------------------------------
@@ -1014,8 +966,8 @@ export function buildDemoData(today: IsoDate): PracticeData {
   };
 
   const onboardingCases: OnboardingCase[] = [
-    { id: 'ob_bluebell', practiceId: PRACTICE_ID, clientId: 'cl_bluebell', stage: 'identity_aml', startedAt: ago(9), checklist: checklist(['contact', 'company_number', 'year_end', 'services', 'id_docs']) },
-    { id: 'ob_summit', practiceId: PRACTICE_ID, clientId: 'cl_summit', stage: 'engagement', startedAt: ago(24), checklist: checklist(['contact', 'utr', 'nino', 'company_number', 'vat', 'year_end', 'services', 'id_docs', 'aml', 'ch_identity', 'engagement']) },
+    { id: 'ob_bluebell', practiceId: FIXTURE_PRACTICE_ID, clientId: 'cl_bluebell', stage: 'identity_aml', startedAt: ago(9), checklist: checklist(['contact', 'company_number', 'year_end', 'services', 'id_docs']) },
+    { id: 'ob_summit', practiceId: FIXTURE_PRACTICE_ID, clientId: 'cl_summit', stage: 'engagement', startedAt: ago(24), checklist: checklist(['contact', 'utr', 'nino', 'company_number', 'vat', 'year_end', 'services', 'id_docs', 'aml', 'ch_identity', 'engagement']) },
   ];
 
   // -------------------------------------------------------------------------
@@ -1024,7 +976,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
   const inboxItems: InboxItem[] = [
     {
       id: 'inb_abc_loan',
-      practiceId: PRACTICE_ID,
+      practiceId: FIXTURE_PRACTICE_ID,
       fileName: 'ABC-Lloyds-Loan-Statement.pdf',
       receivedAt: ago(0, 8, 42),
       source: 'email',
@@ -1035,7 +987,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
     },
     {
       id: 'inb_hmrc_ct',
-      practiceId: PRACTICE_ID,
+      practiceId: FIXTURE_PRACTICE_ID,
       fileName: 'HMRC_CT_Notice.pdf',
       receivedAt: ago(0, 7, 55),
       source: 'scan',
@@ -1046,7 +998,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
     },
     {
       id: 'inb_oakwood_purchases',
-      practiceId: PRACTICE_ID,
+      practiceId: FIXTURE_PRACTICE_ID,
       fileName: 'Oakwood_Purchase_Invoices_Q3.zip',
       receivedAt: ago(0, 9, 10),
       source: 'portal',
@@ -1057,7 +1009,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
     },
     {
       id: 'inb_greenfield_ch',
-      practiceId: PRACTICE_ID,
+      practiceId: FIXTURE_PRACTICE_ID,
       fileName: 'Companies_House_Reminder_12345678.pdf',
       receivedAt: ago(1, 16, 20),
       source: 'email',
@@ -1068,7 +1020,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
     },
     {
       id: 'inb_payroll_sept',
-      practiceId: PRACTICE_ID,
+      practiceId: FIXTURE_PRACTICE_ID,
       fileName: 'payroll_hours_sept.xlsx',
       receivedAt: ago(1, 11, 5),
       source: 'email',
@@ -1079,7 +1031,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
     },
     {
       id: 'inb_barclays',
-      practiceId: PRACTICE_ID,
+      practiceId: FIXTURE_PRACTICE_ID,
       fileName: 'Barclays-Statement-Aug.pdf',
       receivedAt: ago(2, 9, 30),
       source: 'email',
@@ -1094,33 +1046,33 @@ export function buildDemoData(today: IsoDate): PracticeData {
   // Activity feed
   // -------------------------------------------------------------------------
   const activities: Activity[] = [
-    { id: 'act_1', practiceId: PRACTICE_ID, kind: 'reminder_sent', message: 'Email reminder sent to ABC Construction Ltd for Annual Accounts (loan statement, director expenses).', clientId: 'cl_abc', jobId: 'job_abc_accounts', actorUserId: 'u_adnan', occurredAt: ago(2, 14, 5) },
-    { id: 'act_2', practiceId: PRACTICE_ID, kind: 'document_received', message: 'Q3 sales and purchase invoices received from ABC Construction Ltd via portal.', clientId: 'cl_abc', jobId: 'job_abc_vat', occurredAt: ago(4, 10, 2) },
-    { id: 'act_3', practiceId: PRACTICE_ID, kind: 'status_changed', message: 'Khan Consulting Ltd VAT return moved to Ready to file after client approval.', clientId: 'cl_khan', jobId: 'job_khan_vat', actorUserId: 'u_sarah', occurredAt: ago(1, 16, 30) },
-    { id: 'act_4', practiceId: PRACTICE_ID, kind: 'approval_recorded', message: 'Client approval recorded for Khan Consulting Ltd VAT return (Amira Khan).', clientId: 'cl_khan', jobId: 'job_khan_vat', actorUserId: 'u_sarah', occurredAt: ago(1, 16, 0) },
-    { id: 'act_5', practiceId: PRACTICE_ID, kind: 'job_reassigned', message: 'Sarah Mitchell reassigned Northern Foods Ltd VAT return to Michael Okafor.', clientId: 'cl_northern', jobId: 'job_northern_vat', actorUserId: 'u_sarah', occurredAt: ago(2, 9, 15) },
-    { id: 'act_6', practiceId: PRACTICE_ID, kind: 'reminder_sent', message: 'WhatsApp reminder sent to Oakwood Joinery Ltd for VAT return (purchase invoices, fuel receipts).', clientId: 'cl_oakwood', jobId: 'job_oakwood_vat', actorUserId: 'u_michael', occurredAt: ago(5, 15, 20) },
-    { id: 'act_7', practiceId: PRACTICE_ID, kind: 'reminder_sent', message: 'Urgent SMS reminder sent to Patel & Daughters for Annual Accounts.', clientId: 'cl_patel', jobId: 'job_patel_accounts', actorUserId: 'u_michael', occurredAt: ago(6, 9, 30) },
-    { id: 'act_8', practiceId: PRACTICE_ID, kind: 'status_changed', message: 'Hartley Bakery Ltd Annual Accounts sent for internal review.', clientId: 'cl_hartley', jobId: 'job_hartley_accounts', actorUserId: 'u_priya', occurredAt: ago(8, 17, 10) },
-    { id: 'act_9', practiceId: PRACTICE_ID, kind: 'approval_recorded', message: 'Client approval requested from Brown Property Ltd for Annual Accounts.', clientId: 'cl_brown', jobId: 'job_brown_accounts', actorUserId: 'u_michael', occurredAt: ago(11, 11, 30) },
-    { id: 'act_10', practiceId: PRACTICE_ID, kind: 'onboarding_updated', message: 'Bluebell Nursery Ltd moved to Identity / AML stage.', clientId: 'cl_bluebell', actorUserId: 'u_priya', occurredAt: ago(3, 12, 0) },
-    { id: 'act_11', practiceId: PRACTICE_ID, kind: 'document_received', message: 'Year-end pack received from Northern Foods Ltd (6 documents).', clientId: 'cl_northern', jobId: 'job_northern_accounts', occurredAt: ago(15, 9, 5) },
-    { id: 'act_12', practiceId: PRACTICE_ID, kind: 'job_filed', message: 'Northern Foods Ltd payroll filed (simulated submission).', clientId: 'cl_northern', jobId: 'job_northern_payroll_prev', actorUserId: 'u_priya', occurredAt: ago(24, 15, 40) },
-    { id: 'act_13', practiceId: PRACTICE_ID, kind: 'document_received', message: 'Rental income schedule and mortgage statements received from James Whitfield.', clientId: 'cl_whitfield', jobId: 'job_whitfield_sa', occurredAt: ago(4, 14, 22) },
-    { id: 'act_14', practiceId: PRACTICE_ID, kind: 'client_created', message: 'Summit Fitness Ltd added as a new lead.', clientId: 'cl_summit', actorUserId: 'u_michael', occurredAt: ago(24, 10, 0) },
+    { id: 'act_1', practiceId: FIXTURE_PRACTICE_ID, kind: 'reminder_sent', message: 'Email reminder sent to ABC Construction Ltd for Annual Accounts (loan statement, director expenses).', clientId: 'cl_abc', jobId: 'job_abc_accounts', actorUserId: 'u_adnan', occurredAt: ago(2, 14, 5) },
+    { id: 'act_2', practiceId: FIXTURE_PRACTICE_ID, kind: 'document_received', message: 'Q3 sales and purchase invoices received from ABC Construction Ltd via portal.', clientId: 'cl_abc', jobId: 'job_abc_vat', occurredAt: ago(4, 10, 2) },
+    { id: 'act_3', practiceId: FIXTURE_PRACTICE_ID, kind: 'status_changed', message: 'Khan Consulting Ltd VAT return moved to Ready to file after client approval.', clientId: 'cl_khan', jobId: 'job_khan_vat', actorUserId: 'u_sarah', occurredAt: ago(1, 16, 30) },
+    { id: 'act_4', practiceId: FIXTURE_PRACTICE_ID, kind: 'approval_recorded', message: 'Client approval recorded for Khan Consulting Ltd VAT return (Amira Khan).', clientId: 'cl_khan', jobId: 'job_khan_vat', actorUserId: 'u_sarah', occurredAt: ago(1, 16, 0) },
+    { id: 'act_5', practiceId: FIXTURE_PRACTICE_ID, kind: 'job_reassigned', message: 'Sarah Mitchell reassigned Northern Foods Ltd VAT return to Michael Okafor.', clientId: 'cl_northern', jobId: 'job_northern_vat', actorUserId: 'u_sarah', occurredAt: ago(2, 9, 15) },
+    { id: 'act_6', practiceId: FIXTURE_PRACTICE_ID, kind: 'reminder_sent', message: 'WhatsApp reminder sent to Oakwood Joinery Ltd for VAT return (purchase invoices, fuel receipts).', clientId: 'cl_oakwood', jobId: 'job_oakwood_vat', actorUserId: 'u_michael', occurredAt: ago(5, 15, 20) },
+    { id: 'act_7', practiceId: FIXTURE_PRACTICE_ID, kind: 'reminder_sent', message: 'Urgent SMS reminder sent to Patel & Daughters for Annual Accounts.', clientId: 'cl_patel', jobId: 'job_patel_accounts', actorUserId: 'u_michael', occurredAt: ago(6, 9, 30) },
+    { id: 'act_8', practiceId: FIXTURE_PRACTICE_ID, kind: 'status_changed', message: 'Hartley Bakery Ltd Annual Accounts sent for internal review.', clientId: 'cl_hartley', jobId: 'job_hartley_accounts', actorUserId: 'u_priya', occurredAt: ago(8, 17, 10) },
+    { id: 'act_9', practiceId: FIXTURE_PRACTICE_ID, kind: 'approval_recorded', message: 'Client approval requested from Brown Property Ltd for Annual Accounts.', clientId: 'cl_brown', jobId: 'job_brown_accounts', actorUserId: 'u_michael', occurredAt: ago(11, 11, 30) },
+    { id: 'act_10', practiceId: FIXTURE_PRACTICE_ID, kind: 'onboarding_updated', message: 'Bluebell Nursery Ltd moved to Identity / AML stage.', clientId: 'cl_bluebell', actorUserId: 'u_priya', occurredAt: ago(3, 12, 0) },
+    { id: 'act_11', practiceId: FIXTURE_PRACTICE_ID, kind: 'document_received', message: 'Year-end pack received from Northern Foods Ltd (6 documents).', clientId: 'cl_northern', jobId: 'job_northern_accounts', occurredAt: ago(15, 9, 5) },
+    { id: 'act_12', practiceId: FIXTURE_PRACTICE_ID, kind: 'job_filed', message: 'Northern Foods Ltd payroll filed (simulated submission).', clientId: 'cl_northern', jobId: 'job_northern_payroll_prev', actorUserId: 'u_priya', occurredAt: ago(24, 15, 40) },
+    { id: 'act_13', practiceId: FIXTURE_PRACTICE_ID, kind: 'document_received', message: 'Rental income schedule and mortgage statements received from James Whitfield.', clientId: 'cl_whitfield', jobId: 'job_whitfield_sa', occurredAt: ago(4, 14, 22) },
+    { id: 'act_14', practiceId: FIXTURE_PRACTICE_ID, kind: 'client_created', message: 'Summit Fitness Ltd added as a new lead.', clientId: 'cl_summit', actorUserId: 'u_michael', occurredAt: ago(24, 10, 0) },
   ];
 
   const notifications: Notification[] = [
-    { id: 'ntf_1', practiceId: PRACTICE_ID, title: 'New documents in Smart Inbox', body: '6 documents are waiting for review, including a loan statement for ABC Construction Ltd.', kind: 'document', createdAt: ago(0, 8, 45), read: false },
-    { id: 'ntf_2', practiceId: PRACTICE_ID, title: 'Deadline approaching', body: 'Oakwood Joinery Ltd VAT return is due in 5 days with 2 documents missing.', kind: 'deadline', clientId: 'cl_oakwood', jobId: 'job_oakwood_vat', createdAt: ago(0, 7, 0), read: false },
-    { id: 'ntf_3', practiceId: PRACTICE_ID, title: 'Job now ready to file', body: 'Khan Consulting Ltd VAT return has client approval and is ready to file.', kind: 'job', clientId: 'cl_khan', jobId: 'job_khan_vat', createdAt: ago(1, 16, 31), read: false },
-    { id: 'ntf_4', practiceId: PRACTICE_ID, title: 'Job reassigned to you', body: 'Sarah Mitchell reassigned Northern Foods Ltd VAT return to Michael Okafor.', kind: 'job', clientId: 'cl_northern', jobId: 'job_northern_vat', createdAt: ago(2, 9, 16), read: true },
-    { id: 'ntf_5', practiceId: PRACTICE_ID, title: 'Overdue', body: 'Patel & Daughters Annual Accounts are now overdue by 3 days.', kind: 'deadline', clientId: 'cl_patel', jobId: 'job_patel_accounts', createdAt: ago(3, 0, 5), read: true },
+    { id: 'ntf_1', practiceId: FIXTURE_PRACTICE_ID, title: 'New documents in Smart Inbox', body: '6 documents are waiting for review, including a loan statement for ABC Construction Ltd.', kind: 'document', createdAt: ago(0, 8, 45), read: false },
+    { id: 'ntf_2', practiceId: FIXTURE_PRACTICE_ID, title: 'Deadline approaching', body: 'Oakwood Joinery Ltd VAT return is due in 5 days with 2 documents missing.', kind: 'deadline', clientId: 'cl_oakwood', jobId: 'job_oakwood_vat', createdAt: ago(0, 7, 0), read: false },
+    { id: 'ntf_3', practiceId: FIXTURE_PRACTICE_ID, title: 'Job now ready to file', body: 'Khan Consulting Ltd VAT return has client approval and is ready to file.', kind: 'job', clientId: 'cl_khan', jobId: 'job_khan_vat', createdAt: ago(1, 16, 31), read: false },
+    { id: 'ntf_4', practiceId: FIXTURE_PRACTICE_ID, title: 'Job reassigned to you', body: 'Sarah Mitchell reassigned Northern Foods Ltd VAT return to Michael Okafor.', kind: 'job', clientId: 'cl_northern', jobId: 'job_northern_vat', createdAt: ago(2, 9, 16), read: true },
+    { id: 'ntf_5', practiceId: FIXTURE_PRACTICE_ID, title: 'Overdue', body: 'Patel & Daughters Annual Accounts are now overdue by 3 days.', kind: 'deadline', clientId: 'cl_patel', jobId: 'job_patel_accounts', createdAt: ago(3, 0, 5), read: true },
   ];
 
   return {
-    practice: { id: PRACTICE_ID, name: 'Farhan & Raihan', timezone: 'Europe/London' },
-    users: DEMO_USERS,
+    practice: { id: FIXTURE_PRACTICE_ID, name: 'Farhan & Raihan', timezone: 'Europe/London' },
+    users: FIXTURE_USERS,
     clients,
     contacts,
     identifiers,
@@ -1132,7 +1084,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
     requestItems,
     documents,
     communications,
-    reminderSequences: REMINDER_SEQUENCES,
+    reminderSequences: FIXTURE_REMINDER_SEQUENCES,
     approvals,
     filings,
     activities,

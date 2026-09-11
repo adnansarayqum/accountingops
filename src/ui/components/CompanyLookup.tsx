@@ -9,7 +9,7 @@ import type { CompanyProfile, CompanySearchResult } from '../../integrations/com
  * Type a company name, pick a match, and get back its Companies House
  * profile (company number, registered office, incorporation date, next
  * accounts/confirmation statement dates). Falls back to a clearly-labelled
- * demo dataset when no live API key is configured — see
+ * sample dataset when no live API key is configured — see
  * docs/INTEGRATIONS.md.
  */
 export function CompanyLookup({ onSelect, id }: { onSelect: (profile: CompanyProfile) => void; id?: string }) {
@@ -17,7 +17,7 @@ export function CompanyLookup({ onSelect, id }: { onSelect: (profile: CompanyPro
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<CompanySearchResult[]>([]);
-  const [source, setSource] = useState<'companies_house' | 'demo' | null>(null);
+  const [source, setSource] = useState<'companies_house' | 'sample' | null>(null);
   const [selected, setSelected] = useState<CompanyProfile | null>(null);
   const [resolving, setResolving] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -146,7 +146,7 @@ export function CompanyLookup({ onSelect, id }: { onSelect: (profile: CompanyPro
   );
 }
 
-function SourceBadge({ source }: { source: 'companies_house' | 'demo' | null }) {
+function SourceBadge({ source }: { source: 'companies_house' | 'sample' | null }) {
   if (!source) return null;
   return source === 'companies_house' ? (
     <Badge tone="green" dot>
@@ -154,7 +154,7 @@ function SourceBadge({ source }: { source: 'companies_house' | 'demo' | null }) 
     </Badge>
   ) : (
     <Badge tone="amber" title="No Companies House API key is configured — see docs/INTEGRATIONS.md">
-      Demo data — not a live lookup
+      Sample data — not a live lookup
     </Badge>
   );
 }

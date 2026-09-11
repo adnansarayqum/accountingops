@@ -20,7 +20,7 @@ export interface CapacitySummary {
   unassigned: Job[];
 }
 
-/** Share of a job's estimate still to be spent, by status. Transparent demo weights. */
+/** Share of a job's estimate still to be spent, by status. Transparent weighting. */
 export const REMAINING_EFFORT: Record<JobStatus, number> = {
   waiting_for_records: 1,
   ready_to_start: 1,

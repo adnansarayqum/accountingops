@@ -26,26 +26,26 @@ pages / ui  ──►  application (store, selectors, assistant)  ──►  dom
 
 The product is an authenticated, single-tenant-per-session operations tool:
 no SEO, no public pages, heavy client interactivity. Vite gives the fastest
-demo iteration and a trivial Railway deployment (static build + Express).
-When a server-side API arrives it mounts under `/api` in `server/` (or
-becomes its own Railway service) without touching the UI. Migrating to
-Next.js would add churn before the demo with no architectural payoff.
+iteration and a trivial Railway deployment (static build + Express). When a
+server-side API arrives it mounts under `/api` in `server/` (or becomes its
+own Railway service) without touching the UI. Migrating to Next.js would add
+churn with no architectural payoff.
 
 ## Persistence boundary
 
 `src/application/persistence/repository.ts` defines `PracticeRepository`
 (`load / save / clear`). Two adapters exist:
 
-- `LocalStorageRepository` — demo mode. Versioned envelope; a schema bump
-  discards stale snapshots and reseeds.
+- `LocalStorageRepository` — this build's only persistence. Versioned
+  envelope; a schema bump discards stale snapshots.
 - `MemoryRepository` — tests.
 
 The next adapter is an HTTP client to a tenant-scoped API backed by
 PostgreSQL (`db/schema.sql`). Because components never touch storage, the
 swap is confined to this folder plus an `init()` change. The whole-aggregate
-`PracticeData` shape is a demo convenience; the server API will expose
-per-entity endpoints and the store will move from "clone the world" to
-optimistic per-entity updates behind the same action signatures.
+`PracticeData` shape is a convenience for a client-only build; the server API
+will expose per-entity endpoints and the store will move from "clone the
+world" to optimistic per-entity updates behind the same action signatures.
 
 ## Business rules (all in `src/domain/rules/`)
 
@@ -80,8 +80,8 @@ to invalidate and no manual refresh.
 
 ## Background automation
 
-The demo has no worker. The interfaces automation will need already exist as
-pure functions that take `today`:
+This build has no worker. The interfaces automation will need already exist
+as pure functions that take `today`:
 
 - deadline / recurring job generation → `generateNextJob`
 - reminder scheduling → `assessChasing` + `nextReminderStep`
@@ -123,8 +123,8 @@ Companies House lookup (full detail in `docs/INTEGRATIONS.md`):
    `express()` app) mount the exact same router — `npm run dev` and Railway
    run the same code path, not a dev-only stub.
 4. **A client-side wrapper** (`src/integrations/<provider>.ts`) calls the
-   proxy and falls back to a clearly-labelled synthetic dataset
-   (`source: 'demo'`) when the proxy reports the credential isn't
+   proxy and falls back to a clearly-labelled sample dataset
+   (`source: 'sample'`) when the proxy reports the credential isn't
    configured, or the network call fails — so a missing key degrades the
    feature, it never breaks the page.
 
@@ -151,9 +151,10 @@ Front-end filtering is never the tenant boundary.
 
 ## Security posture and roadmap
 
-Present in the demo: masked identifiers with audited reveal, synthetic data
-only, simulated sends and filings, tenant id on every record, security headers
-on the web server, no bodies or identifiers in server logs.
+Present today: masked identifiers with audited reveal, no client data
+persisted server-side (everything lives in the browser until a real backend
+exists), simulated sends and filings, tenant id on every record, security
+headers on the web server, no bodies or identifiers in server logs.
 
 Required before real client data (in order): authentication (email + passkey
 or SSO), server-side persistence with RLS, RBAC (owner/manager/accountant/admin)
@@ -181,11 +182,12 @@ graceful on SIGTERM.
 
 - **Domain / unit** (`src/domain/rules/__tests__`) — completeness, chasing
   (including stop-when-complete and not-client-blocked), transitions,
-  recurrence and duplicate prevention, attention rules on the demo dataset,
-  metrics, capacity.
+  recurrence and duplicate prevention, attention rules against the fixture
+  dataset (`src/testing/fixtures.ts`), metrics, capacity.
 - **Integration** (`src/application/__tests__`) — store workflows: reminder,
   inbox confirm, final document → ready, approvals, filing → next job once,
   reassignment, client creation, identifier reveal audit; assistant routing.
-- **E2E** (`e2e/`) — the ten-scene demo journey on desktop and mobile, plus a
-  render-cleanly sweep of every screen (no console errors, no horizontal
-  overflow).
+- **E2E** (`e2e/`) — a brand-new empty practice (`empty-practice.spec.ts`),
+  the fixture's ten-scene journey on desktop and mobile
+  (`scenario-journey.spec.ts`), plus a render-cleanly sweep of every screen
+  (no console errors, no horizontal overflow).

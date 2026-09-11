@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { computeDashboardMetrics } from '../metrics';
 import { computeCapacity } from '../capacity';
-import { buildDemoData } from '../../../demo/seed';
+import { buildFixtureData } from '../../../testing/fixtures';
 import { evaluateAttention } from '../attention';
 
 const today = '2026-09-11';
-const d = buildDemoData(today);
+const d = buildFixtureData(today);
 
 describe('dashboard metrics', () => {
   const attention = evaluateAttention({ jobs: d.jobs, clients: d.clients, items: d.requestItems, comms: d.communications, approvals: d.approvals, personRoles: d.personRoles, sequences: d.reminderSequences, users: d.users, today });
