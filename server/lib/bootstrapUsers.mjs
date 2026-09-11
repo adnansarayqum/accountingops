@@ -40,7 +40,7 @@ async function runSeed() {
     if (rows.length > 0) continue;
     const envPassword = process.env[spec.envVar];
     const password = envPassword || generateTempPassword();
-    const { hash, salt } = hashPassword(password);
+    const { hash, salt } = await hashPassword(password);
     await query(
       'insert into practice_users (id, username, name, role, password_hash, password_salt, must_change_password) values ($1,$2,$3,$4,$5,$6,true)',
       [spec.id, spec.username, spec.name, spec.role, hash, salt],

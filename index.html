@@ -9,21 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <title>Farhan & Raihan Accounting Operations Hub — Practice Today</title>
-    <script>
-      // Applied before the app bundle loads and before first paint, so
-      // dark-mode users never see a flash of the light theme. Mirrors
-      // src/ui/theme.ts's resolution logic exactly.
-      (function () {
-        try {
-          var stored = localStorage.getItem('practiceops.theme');
-          var mode = stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
-          var dark = mode === 'dark' || (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-          if (dark) document.documentElement.classList.add('dark');
-        } catch (e) {
-          /* localStorage unavailable — default to light */
-        }
-      })();
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

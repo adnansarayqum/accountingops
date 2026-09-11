@@ -13,6 +13,7 @@ import companiesHouseRouter from './routes/companiesHouse.mjs';
 import authRouter from './routes/auth.mjs';
 import practiceDataRouter from './routes/practiceData.mjs';
 import { healthPayload } from './lib/health.mjs';
+import { securityHeaders } from './lib/securityHeaders.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.resolve(__dirname, '../dist');
@@ -21,6 +22,16 @@ const startedAt = new Date().toISOString();
 
 const app = express();
 app.disable('x-powered-by');
+
+// Railway terminates TLS at its edge and forwards over plain HTTP, one hop
+// away. Trusting that hop is what makes req.ip the visitor's address (for
+// the login rate limits) and req.secure honest (for the Secure cookie flag
+// and HSTS) rather than always reporting the proxy.
+app.set('trust proxy', 1);
+
+// On every response, API and static alike — a JSON error from /api/* is as
+// much a document as index.html is, and the headers cost nothing.
+app.use(securityHeaders());
 
 // Structured request log — one line per request, no bodies, no identifiers.
 app.use((req, res, next) => {
@@ -46,15 +57,6 @@ app.use('/api/companies-house', companiesHouseRouter);
 // browser-only mode instead of getting stuck — see src/App.tsx.
 app.use('/api/auth', authRouter);
 app.use('/api/practice-data', practiceDataRouter);
-
-// Security headers appropriate for a static SPA.
-app.use((_req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  next();
-});
 
 app.use(express.static(dist, { index: false, maxAge: '1y', immutable: true, setHeaders: (res, filePath) => { if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache'); } }));
 
