@@ -6,7 +6,17 @@ export interface AuthUser {
   mustChangePassword: boolean;
 }
 
-export type AuthCheckResult = { status: 'ok'; user: AuthUser } | { status: 'unauthenticated' } | { status: 'not_configured' };
+export type AuthCheckResult =
+  | { status: 'ok'; user: AuthUser }
+  | { status: 'unauthenticated' }
+  | { status: 'not_configured' }
+  /** A database is configured but isn't answering right now — show an outage, never the browser-only mode. */
+  | { status: 'unavailable' };
+
+interface HealthBody {
+  database?: boolean;
+  databaseReachable?: boolean | null;
+}
 
 /**
  * Checks sign-in status against the server. `not_configured` means no
@@ -18,15 +28,25 @@ export type AuthCheckResult = { status: 'ok'; user: AuthUser } | { status: 'unau
  * configured) so the common no-database case never has to make a request
  * that fails — hitting /api/auth/me directly would 503, which the browser
  * logs as a failed request regardless of how the response is handled here.
+ *
+ * The distinction that matters most here is "no database" versus "a
+ * database that isn't answering". The first is a deployment choice and the
+ * app works fully in the browser. The second is an outage: the shared
+ * practice exists, and anything typed into a local copy meanwhile would be
+ * stored in one browser and never reach the team — so it is reported as
+ * `unavailable` and the caller shows a retry screen instead.
  */
 export async function fetchCurrentUser(): Promise<AuthCheckResult> {
   try {
     const health = await fetch('/health');
     if (health.ok) {
-      const body = (await health.json().catch(() => null)) as { database?: boolean } | null;
+      const body = (await health.json().catch(() => null)) as HealthBody | null;
       if (body?.database === false) return { status: 'not_configured' };
+      if (body?.database === true && body.databaseReachable === false) return { status: 'unavailable' };
     }
   } catch {
+    // No server answering at all (e.g. the built files served statically) —
+    // there is nothing to sign in to, so this is the browser-only mode.
     return { status: 'not_configured' };
   }
 
@@ -34,11 +54,11 @@ export async function fetchCurrentUser(): Promise<AuthCheckResult> {
   try {
     res = await fetch('/api/auth/me', { credentials: 'include' });
   } catch {
-    return { status: 'not_configured' };
+    return { status: 'unavailable' };
   }
   if (res.status === 503) return { status: 'not_configured' };
   if (res.status === 401) return { status: 'unauthenticated' };
-  if (!res.ok) return { status: 'not_configured' };
+  if (!res.ok) return { status: 'unavailable' };
   const body = (await res.json()) as { user: AuthUser };
   return { status: 'ok', user: body.user };
 }
@@ -52,7 +72,9 @@ export async function login(username: string, password: string): Promise<AuthUse
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { error?: string });
-    throw new Error(body.error === 'invalid_credentials' ? 'Incorrect username or password.' : "Couldn't sign in. Try again.");
+    if (body.error === 'invalid_credentials') throw new Error('Incorrect username or password.');
+    if (body.error === 'too_many_attempts') throw new Error('Too many sign-in attempts. Wait 15 minutes and try again.');
+    throw new Error("Couldn't sign in. Try again.");
   }
   const body = (await res.json()) as { user: AuthUser };
   return body.user;

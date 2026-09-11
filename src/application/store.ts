@@ -56,9 +56,24 @@ export interface AppState {
   /** 'server' once a real signed-in session exists; 'local' is the original browser-only mode (no DATABASE_URL configured). */
   authMode: 'local' | 'server';
   authUser: AuthUser | null;
+  /**
+   * True when the last load failed and the data on screen is an empty
+   * stand-in, not the practice. Every mutation is refused while this is set
+   * — saving would overwrite the real snapshot with the stand-in.
+   */
+  loadFailed: boolean;
+  /** True from a mutation until the save that carries it has completed. */
+  unsaved: boolean;
 
   // lifecycle
   init(): Promise<void>;
+  /**
+   * Re-reads the stored snapshot and adopts it if this tab has nothing
+   * unsaved. Resolves true when the data on screen was replaced. Called on
+   * tab focus and before a background write, so a tab that has sat idle
+   * doesn't carry on from a copy the other users have since moved past.
+   */
+  refresh(): Promise<boolean>;
 
   // feedback
   toast(t: Omit<Toast, 'id'>): void;
@@ -152,20 +167,49 @@ export interface AppState {
 
 let repository: PracticeRepository = new LocalStorageRepository();
 
+// One save in flight at a time, and at most one waiting behind it. Two
+// quick actions used to fire two independent PUTs, and nothing stopped the
+// first from landing after the second — persisting the older snapshot over
+// the newer one. Now the second waits, and because every snapshot is the
+// whole practice, only the newest waiting one needs sending.
+let saveInFlight = false;
+let queued: PracticeData | null = null;
+
 export function configureRepository(repo: PracticeRepository): void {
   repository = repo;
+  saveInFlight = false;
+  queued = null;
 }
 
 /**
- * Persist immediately after every mutation. The localStorage adapter writes
- * synchronously, so a navigation straight after an action can never lose it.
+ * Persist after every mutation. The first save starts synchronously (the
+ * localStorage adapter writes before yielding, so a navigation straight
+ * after an action can never lose it); later ones are chained behind it.
  * Failures are surfaced, never swallowed silently.
  */
-function persist(get: () => AppState): void {
-  repository.save(get().data).catch((err: unknown) => {
-    console.error('Persist failed', err);
-    get().toast({ title: "We couldn't save that change", description: 'It is still on screen. Try the action again.', tone: 'error' });
-  });
+function persist(get: () => AppState, set: (patch: Partial<AppState>) => void): void {
+  queued = get().data;
+  if (saveInFlight) return;
+  void drainSaves(get, set);
+}
+
+async function drainSaves(get: () => AppState, set: (patch: Partial<AppState>) => void): Promise<void> {
+  saveInFlight = true;
+  try {
+    while (queued) {
+      const data = queued;
+      queued = null;
+      try {
+        await repository.save(data);
+        if (!queued) set({ unsaved: false });
+      } catch (err) {
+        console.error('Persist failed', err);
+        get().toast({ title: "We couldn't save that change", description: "It's still on screen but not saved. Try the action again, and keep this tab open until it saves.", tone: 'error' });
+      }
+    }
+  } finally {
+    saveInFlight = false;
+  }
 }
 
 /**
@@ -258,14 +302,18 @@ export const useAppStore = create<AppState>((set, get) => {
   /** Apply a data mutation, persist, and return the new data. */
   const mutate = (fn: (d: PracticeData, ctx: MutationContext) => PracticeData | void): void => {
     const state = get();
+    if (state.loadFailed) {
+      state.toast({ title: 'Changes are paused', description: "Practice data didn't load, so nothing can be changed until it does. Use Try again at the top of the page.", tone: 'error' });
+      return;
+    }
     const ctx = new MutationContext(state.currentUserId, state.data.practice.id);
     const draft = structuredClone(state.data);
     const result = fn(draft, ctx) ?? draft;
     result.activities = [...ctx.activities, ...result.activities];
     result.auditEvents = [...ctx.audits, ...result.auditEvents].slice(0, 2000);
     result.notifications = [...ctx.notifications, ...result.notifications];
-    set({ data: result });
-    persist(get);
+    set({ data: result, unsaved: true });
+    persist(get, set);
   };
 
   return {
@@ -276,26 +324,44 @@ export const useAppStore = create<AppState>((set, get) => {
     toasts: [],
     authMode: 'local',
     authUser: null,
+    loadFailed: false,
+    unsaved: false,
 
     async init() {
       const today = todayIso();
       try {
         const loaded = await loadWithRetry();
-        if (loaded) {
-          set({ data: loaded, today, ready: true });
-        } else {
-          const data = buildEmptyPracticeData();
-          await repository.save(data);
-          set({ data, today, ready: true });
-        }
+        // A load never writes. An empty practice is only ever saved once
+        // something is actually added to it — a "nothing stored yet" answer
+        // that was wrong (a misrouted request, say) must not become a real
+        // empty snapshot on top of the one the practice actually has.
+        set({ data: loaded ?? buildEmptyPracticeData(), today, ready: true, loadFailed: false, unsaved: false });
       } catch (err) {
         // A transient failure here must never leave the app stuck on the
-        // splash screen forever — fall back to an empty view and let the
-        // user retry, the same way persist() surfaces a save failure.
+        // splash screen forever — show the shell with an empty, read-only
+        // stand-in and a way to retry. Read-only matters: the first save
+        // from a writable empty practice would replace the real one.
         console.error('Failed to load practice data', err);
-        set({ data: buildEmptyPracticeData(), today, ready: true });
-        get().toast({ title: "Couldn't load practice data", description: 'Showing an empty view — reload the page to try again.', tone: 'error' });
+        set({ data: buildEmptyPracticeData(), today, ready: true, loadFailed: true, unsaved: false });
+        get().toast({ title: "Couldn't load practice data", description: 'Changes are paused until it loads. Use Try again at the top of the page.', tone: 'error' });
       }
+    },
+
+    async refresh() {
+      const state = get();
+      if (!state.ready || state.loadFailed || state.unsaved || saveInFlight) return false;
+      let loaded: PracticeData | null;
+      try {
+        loaded = await repository.load();
+      } catch {
+        return false;
+      }
+      // A mutation that started while the read was in flight is newer than
+      // what was read — keep it.
+      if (!loaded || get().unsaved || saveInFlight) return false;
+      if (JSON.stringify(loaded) === JSON.stringify(get().data)) return false;
+      set({ data: loaded });
+      return true;
     },
 
     toast(t) {

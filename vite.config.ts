@@ -36,7 +36,7 @@ function apiMiddleware(): Plugin {
   const build = (options: { csp: boolean }) => {
     const app = express();
     app.use(securityHeaders(options));
-    app.get('/health', (_req, res) => res.json(healthPayload()));
+    app.get('/health', async (_req, res) => res.json(await healthPayload()));
     app.use('/api/companies-house', companiesHouseRouter);
     app.use('/api/auth', authRouter);
     app.use('/api/practice-data', practiceDataRouter);

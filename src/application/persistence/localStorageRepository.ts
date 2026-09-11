@@ -22,12 +22,18 @@ export class LocalStorageRepository implements PracticeRepository {
     }
   }
 
+  /**
+   * Throws when the browser refuses the write (most often the storage quota,
+   * or storage disabled in a private window). The store turns that into the
+   * "couldn't save" toast — swallowing it here would leave the change on
+   * screen looking saved when it isn't.
+   */
   async save(data: PracticeData): Promise<void> {
+    const env: Envelope = { version: SCHEMA_VERSION, savedAt: new Date().toISOString(), data };
     try {
-      const env: Envelope = { version: SCHEMA_VERSION, savedAt: new Date().toISOString(), data };
       globalThis.localStorage?.setItem(this.key, JSON.stringify(env));
     } catch (err) {
-      console.warn('Could not persist practice data', err);
+      throw new Error(`Could not persist practice data: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
     }
   }
 

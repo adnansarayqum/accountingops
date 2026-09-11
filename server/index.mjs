@@ -44,8 +44,11 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get('/health', (_req, res) => {
-  res.json({ ...healthPayload(), service: 'accountingops-web', startedAt, env: process.env.RAILWAY_ENVIRONMENT_NAME ?? process.env.NODE_ENV ?? 'development', build: existsSync(path.join(dist, 'index.html')) });
+// Always 200, even when the database is unreachable: the payload carries the
+// detail, and a non-200 here would make Railway restart a container that is
+// perfectly healthy itself and waiting on a database it can't fix.
+app.get('/health', async (_req, res) => {
+  res.json({ ...(await healthPayload()), service: 'accountingops-web', startedAt, env: process.env.RAILWAY_ENVIRONMENT_NAME ?? process.env.NODE_ENV ?? 'development', build: existsSync(path.join(dist, 'index.html')) });
 });
 
 // External integrations. Each router owns its own credentials — the

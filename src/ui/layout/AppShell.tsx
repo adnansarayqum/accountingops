@@ -10,6 +10,8 @@ import { ThemeToggle } from '../components/ThemeToggle';
 import { useAppStore } from '../../application/store';
 import { useData } from '../../application/selectors';
 import { useCompaniesHouseSync } from '../../application/useCompaniesHouseSync';
+import { useRefreshOnFocus, useUnsavedChangesWarning } from '../../application/usePersistenceGuards';
+import { LoadFailedBanner } from '../components/LoadFailedBanner';
 import { formatDate } from '../../domain/dates';
 
 export function AppShell() {
@@ -22,6 +24,8 @@ export function AppShell() {
   const me = data.users.find((u) => u.id === currentUserId);
 
   useCompaniesHouseSync();
+  useRefreshOnFocus();
+  useUnsavedChangesWarning();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -68,6 +72,7 @@ export function AppShell() {
             </div>
           </div>
         </header>
+        <LoadFailedBanner />
         <main id="main" className="flex-1 px-4 sm:px-6 lg:px-8 py-5 sm:py-6 max-w-[1400px] w-full mx-auto">
           <Outlet />
         </main>

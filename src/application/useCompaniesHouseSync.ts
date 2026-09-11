@@ -6,12 +6,21 @@ import { getCompaniesHouseStatus, getCompanyPeople, getCompanyProfile } from '..
 /** How often to look for clients whose Companies House data has gone stale. */
 const CHECK_EVERY_MS = 30 * 60 * 1000;
 
+function tabIsVisible(): boolean {
+  return typeof document === 'undefined' || document.visibilityState === 'visible';
+}
+
 /**
  * Keeps Companies House data fresh while the app is open: every half hour it
  * re-pulls a handful of the clients whose data is oldest. Companies House
  * changes slowly (a director resigns, a filing date moves) so a daily refresh
  * per client is plenty, and spreading it over small batches keeps a large
  * roster well inside the API's rate limit.
+ *
+ * Only a visible tab syncs, and it re-reads the stored snapshot right before
+ * writing. Every save is the whole practice, so a tab left open in the
+ * background would otherwise write its hours-old copy over everything the
+ * other users had done since — silently, with nobody clicking anything.
  *
  * Deliberately silent — no toasts. A sync that nobody asked for shouldn't
  * interrupt anyone; the "Synced ..." line on each client's Companies House
@@ -26,7 +35,7 @@ export function useCompaniesHouseSync(): void {
     let cancelled = false;
 
     const pass = async () => {
-      if (running.current || cancelled) return;
+      if (running.current || cancelled || !tabIsVisible()) return;
       running.current = true;
       try {
         const status = await getCompaniesHouseStatus();
@@ -46,7 +55,9 @@ export function useCompaniesHouseSync(): void {
         });
 
         const updates = fetched.filter((u) => u !== null);
-        if (cancelled || updates.length === 0) return;
+        if (cancelled || updates.length === 0 || !tabIsVisible()) return;
+        await useAppStore.getState().refresh();
+        if (cancelled) return;
         useAppStore.getState().refreshClientsFromCompaniesHouse(updates);
       } catch {
         // Background work: a failed pass just waits for the next one.
@@ -57,9 +68,17 @@ export function useCompaniesHouseSync(): void {
 
     void pass();
     const timer = setInterval(() => void pass(), CHECK_EVERY_MS);
+    // A tab that was hidden at the last tick catches up when it's looked at
+    // again; findStaleClients keeps this from doing anything when nothing
+    // is actually stale.
+    const onVisibility = () => {
+      if (tabIsVisible()) void pass();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       cancelled = true;
       clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [ready]);
 }
