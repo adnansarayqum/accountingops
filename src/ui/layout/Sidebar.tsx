@@ -1,11 +1,12 @@
 import { NavLink } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { NAV_GROUPS, SETTINGS_NAV } from './nav';
-import { useDerived } from '../../application/selectors';
+import { useData, useDerived } from '../../application/selectors';
 import { cn } from '../cn';
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const derived = useDerived();
+  const data = useData();
   const badges = {
     attention: derived.attention.length,
     inbox: derived.pendingInbox,
@@ -22,8 +23,8 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             </svg>
           </span>
           <span>
-            <span className="block text-[15px] font-bold text-slate-900 leading-tight">PracticeOps</span>
-            <span className="block text-[11px] text-slate-500 leading-tight">Northgate Accountants</span>
+            <span className="block text-[15px] font-bold text-slate-900 leading-tight">{data.practice.name}</span>
+            <span className="block text-[11px] text-slate-500 leading-tight">Accounting Operations Hub</span>
           </span>
         </NavLink>
         <button type="button" onClick={onClose} className="lg:hidden rounded-md p-1.5 text-slate-500 hover:bg-slate-100" aria-label="Close navigation">

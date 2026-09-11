@@ -66,7 +66,7 @@ describe('draftReminder', () => {
   const sender: User = { id: 'u', practiceId: 'p', name: 'Adnan Rahman', initials: 'AR', role: 'owner', weeklyCapacityHours: 30, colour: 'blue' };
 
   it('references what was received and what is still outstanding', () => {
-    const d = draftReminder({ client, contact, job, items: items(['Loan statement', 'Director expenses'], ['Bank statements', 'Payroll records']), channel: 'whatsapp', sender, practiceName: 'Northgate', today });
+    const d = draftReminder({ client, contact, job, items: items(['Loan statement', 'Director expenses'], ['Bank statements', 'Payroll records']), channel: 'whatsapp', sender, practiceName: 'Farhan & Raihan', today });
     expect(d.body).toContain('Thanks for sending your bank statements and payroll records');
     expect(d.body).toContain('still waiting for your loan statement and director expenses');
     expect(d.body).not.toMatch(/please send your documents/i);
@@ -75,7 +75,7 @@ describe('draftReminder', () => {
   });
 
   it('produces an email subject and greeting for email', () => {
-    const d = draftReminder({ client, contact, job, items: items(['Loan statement'], []), channel: 'email', sender, practiceName: 'Northgate', today });
+    const d = draftReminder({ client, contact, job, items: items(['Loan statement'], []), channel: 'email', sender, practiceName: 'Farhan & Raihan', today });
     expect(d.subject).toContain('ABC Construction Ltd');
     expect(d.body.startsWith('Hi Dave,')).toBe(true);
     expect(d.recipient).toBe('d@x');

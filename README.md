@@ -1,4 +1,4 @@
-# PracticeOps — Accountancy Operations Command Centre
+# Farhan & Raihan Accounting Operations Hub
 
 An operations layer for small UK accountancy practices. It is **not** bookkeeping,
 tax or filing software. It answers, continuously:
