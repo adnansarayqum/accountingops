@@ -120,7 +120,7 @@ export function CompanyLookup({ onSelect, id }: { onSelect: (profile: CompanyPro
           )}
         </>
       ) : (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2.5" data-testid="company-lookup-selected">
+        <div className="rounded-lg border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50/60 dark:bg-emerald-500/10 px-3 py-2.5" data-testid="company-lookup-selected">
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-start gap-2 min-w-0">
               <CheckCircle2 className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />

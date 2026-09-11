@@ -42,7 +42,7 @@ import type {
 export const PRACTICE_ID = 'prac_demo';
 
 export const DEMO_USERS: User[] = [
-  { id: 'u_adnan', practiceId: PRACTICE_ID, name: 'Adnan Rahman', initials: 'AR', role: 'owner', weeklyCapacityHours: 32, colour: 'blue' },
+  { id: 'u_adnan', practiceId: PRACTICE_ID, name: 'Adnan Sarayqum', initials: 'AS', role: 'owner', weeklyCapacityHours: 32, colour: 'blue' },
   { id: 'u_sarah', practiceId: PRACTICE_ID, name: 'Sarah Mitchell', initials: 'SM', role: 'manager', weeklyCapacityHours: 36, colour: 'violet' },
   { id: 'u_michael', practiceId: PRACTICE_ID, name: 'Michael Okafor', initials: 'MO', role: 'accountant', weeklyCapacityHours: 36, colour: 'emerald' },
   { id: 'u_priya', practiceId: PRACTICE_ID, name: 'Priya Shah', initials: 'PS', role: 'accountant', weeklyCapacityHours: 16, colour: 'amber' },
@@ -715,7 +715,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
     channel: 'email',
     recipient: 'dave@abc-construction.example',
     subject: 'ABC Construction Ltd — Annual Accounts: documents still needed',
-    body: 'Hi Dave,\n\nThanks for sending your bank statements, sales invoices, payroll records and purchase invoices. We\'re still waiting for your loan statement and director expenses before we can complete your accounts. The deadline is 30 days away and we want to leave enough time to do a thorough job.\n\nBest wishes,\nAdnan Rahman\nFarhan & Raihan',
+    body: 'Hi Dave,\n\nThanks for sending your bank statements, sales invoices, payroll records and purchase invoices. We\'re still waiting for your loan statement and director expenses before we can complete your accounts. The deadline is 30 days away and we want to leave enough time to do a thorough job.\n\nBest wishes,\nAdnan Sarayqum\nFarhan & Raihan',
     sentAt: ago(18, 9, 12),
     sentByUserId: 'u_adnan',
     reminderStage: 'Email (30 days)',
@@ -730,7 +730,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
     channel: 'email',
     recipient: 'dave@abc-construction.example',
     subject: 'ABC Construction Ltd — Annual Accounts: two items outstanding',
-    body: 'Hi Dave,\n\nA quick follow-up — we\'re still missing the loan statement and director expenses for the accounts. The filing deadline is in 14 days. Could you send them over this week?\n\nBest wishes,\nAdnan Rahman\nFarhan & Raihan',
+    body: 'Hi Dave,\n\nA quick follow-up — we\'re still missing the loan statement and director expenses for the accounts. The filing deadline is in 14 days. Could you send them over this week?\n\nBest wishes,\nAdnan Sarayqum\nFarhan & Raihan',
     sentAt: ago(2, 14, 5),
     sentByUserId: 'u_adnan',
     reminderStage: 'Email + WhatsApp (14 days)',
@@ -901,11 +901,11 @@ export function buildDemoData(today: IsoDate): PracticeData {
   // Approvals & filings
   // -------------------------------------------------------------------------
   const approvals: Approval[] = [
-    { id: 'ap_brown_internal', practiceId: PRACTICE_ID, jobId: 'job_brown_accounts', kind: 'internal', status: 'approved', requestedAt: ago(13), decidedAt: ago(12), reviewerName: 'Adnan Rahman', note: 'Reviewed — depreciation policy consistent with prior year.' },
+    { id: 'ap_brown_internal', practiceId: PRACTICE_ID, jobId: 'job_brown_accounts', kind: 'internal', status: 'approved', requestedAt: ago(13), decidedAt: ago(12), reviewerName: 'Adnan Sarayqum', note: 'Reviewed — depreciation policy consistent with prior year.' },
     { id: 'ap_brown_client', practiceId: PRACTICE_ID, jobId: 'job_brown_accounts', kind: 'client', status: 'pending', requestedAt: ago(11) },
-    { id: 'ap_khan_internal', practiceId: PRACTICE_ID, jobId: 'job_khan_vat', kind: 'internal', status: 'approved', requestedAt: ago(2), decidedAt: ago(1), reviewerName: 'Adnan Rahman' },
+    { id: 'ap_khan_internal', practiceId: PRACTICE_ID, jobId: 'job_khan_vat', kind: 'internal', status: 'approved', requestedAt: ago(2), decidedAt: ago(1), reviewerName: 'Adnan Sarayqum' },
     { id: 'ap_khan_client', practiceId: PRACTICE_ID, jobId: 'job_khan_vat', kind: 'client', status: 'approved', requestedAt: ago(1), decidedAt: ago(1, 16), reviewerName: 'Amira Khan', note: 'Approved by email.' },
-    { id: 'ap_ashby_internal', practiceId: PRACTICE_ID, jobId: 'job_ashby_sa', kind: 'internal', status: 'approved', requestedAt: ago(4), decidedAt: ago(3), reviewerName: 'Adnan Rahman' },
+    { id: 'ap_ashby_internal', practiceId: PRACTICE_ID, jobId: 'job_ashby_sa', kind: 'internal', status: 'approved', requestedAt: ago(4), decidedAt: ago(3), reviewerName: 'Adnan Sarayqum' },
     { id: 'ap_ashby_client', practiceId: PRACTICE_ID, jobId: 'job_ashby_sa', kind: 'client', status: 'approved', requestedAt: ago(3), decidedAt: ago(2), reviewerName: 'Anne Ashby' },
     { id: 'ap_hartley_internal', practiceId: PRACTICE_ID, jobId: 'job_hartley_accounts', kind: 'internal', status: 'pending', requestedAt: ago(8) },
   ];

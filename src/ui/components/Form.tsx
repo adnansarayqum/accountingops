@@ -1,7 +1,7 @@
 import { forwardRef, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 import { cn } from '../cn';
 
-const fieldBase = 'rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 shadow-sm transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-100 focus:outline-none disabled:bg-slate-50';
+const fieldBase = 'rounded-lg border border-slate-200 bg-surface px-3 text-sm text-slate-900 placeholder:text-slate-400 shadow-sm transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-100 focus:outline-none disabled:bg-slate-50';
 
 /** Fields fill their container unless an explicit width utility is supplied. */
 function widthOf(className?: string): string {

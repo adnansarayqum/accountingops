@@ -82,7 +82,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] px-4" role="presentation">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden="true" />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={onClose} aria-hidden="true" />
       <div role="dialog" aria-modal="true" aria-label="Search" className="relative w-full max-w-xl card shadow-pop overflow-hidden animate-in">
         <div className="flex items-center gap-3 px-4 border-b border-slate-100">
           <Search className="h-4 w-4 text-slate-400" />

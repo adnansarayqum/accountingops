@@ -61,8 +61,8 @@ export default function App() {
 function SplashSkeleton() {
   return (
     <div className="min-h-screen bg-canvas lg:pl-64">
-      <div className="hidden lg:block fixed inset-y-0 left-0 w-64 bg-white border-r border-slate-200" />
-      <div className="h-14 bg-white border-b border-slate-200" />
+      <div className="hidden lg:block fixed inset-y-0 left-0 w-64 bg-surface border-r border-slate-200" />
+      <div className="h-14 bg-surface border-b border-slate-200" />
       <div className="p-6 space-y-4 max-w-[1400px]">
         <div className="skeleton h-7 w-56" />
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">

@@ -153,7 +153,7 @@ export function NewClientPage() {
           <CardBody>
             <div className="flex flex-wrap gap-2">
               {(Object.keys(SERVICES) as ServiceCode[]).map((code) => (
-                <button key={code} type="button" onClick={() => toggleService(code)} aria-pressed={services.includes(code)} className={cn('rounded-lg border px-3 h-9 text-sm font-medium transition-colors', services.includes(code) ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300')}>
+                <button key={code} type="button" onClick={() => toggleService(code)} aria-pressed={services.includes(code)} className={cn('rounded-lg border px-3 h-9 text-sm font-medium transition-colors', services.includes(code) ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-slate-200 bg-surface text-slate-700 hover:border-slate-300')}>
                   {SERVICES[code].name}
                 </button>
               ))}

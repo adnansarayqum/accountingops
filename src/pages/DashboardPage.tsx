@@ -97,7 +97,7 @@ export function DashboardPage() {
               </form>
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {EXAMPLE_QUESTIONS.slice(0, 4).map((q) => (
-                  <button key={q} type="button" onClick={() => navigate(`/ask?q=${encodeURIComponent(q)}`)} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 hover:border-primary-300 hover:text-primary-700">
+                  <button key={q} type="button" onClick={() => navigate(`/ask?q=${encodeURIComponent(q)}`)} className="rounded-full border border-slate-200 bg-surface px-2.5 py-1 text-xs text-slate-600 hover:border-primary-300 hover:text-primary-700">
                     {q}
                   </button>
                 ))}

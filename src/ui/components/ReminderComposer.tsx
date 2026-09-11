@@ -94,7 +94,7 @@ export function ReminderComposer({ job, open, onClose, initialChannel }: { job: 
                   aria-checked={channel === c.value}
                   disabled={!available}
                   onClick={() => setChannel(c.value)}
-                  className={cn('flex items-center justify-center gap-2 rounded-lg border px-3 h-10 text-sm font-medium transition-colors', channel === c.value ? 'border-primary-500 bg-primary-50 text-primary-700 ring-2 ring-primary-100' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300', !available && 'opacity-40')}
+                  className={cn('flex items-center justify-center gap-2 rounded-lg border px-3 h-10 text-sm font-medium transition-colors', channel === c.value ? 'border-primary-500 bg-primary-50 text-primary-700 ring-2 ring-primary-100' : 'border-slate-200 bg-surface text-slate-700 hover:border-slate-300', !available && 'opacity-40')}
                 >
                   <Icon className="h-4 w-4" />
                   {CHANNEL_LABELS[c.value]}

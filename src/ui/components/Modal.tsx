@@ -23,8 +23,8 @@ export function Modal({ open, onClose, title, description, children, footer, siz
   const width = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-3xl' }[size];
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" role="presentation">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden="true" />
-      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="modal-title" className={cn('relative w-full bg-white shadow-pop rounded-t-2xl sm:rounded-2xl animate-in max-h-[92vh] flex flex-col', width)}>
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={onClose} aria-hidden="true" />
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="modal-title" className={cn('relative w-full bg-surface shadow-pop rounded-t-2xl sm:rounded-2xl animate-in max-h-[92vh] flex flex-col', width)}>
         <div className="flex items-start justify-between gap-4 px-5 pt-5 pb-3 border-b border-slate-100">
           <div>
             <h2 id="modal-title" className="text-base font-semibold text-slate-900">

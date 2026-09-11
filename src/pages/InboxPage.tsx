@@ -136,7 +136,7 @@ export function InboxPage() {
                         )}
                         <p className="mt-2 text-xs text-slate-500 italic">{item.suggestion.rationale}</p>
                         {job && outstanding.some((o) => o.documentType.toLowerCase() === item.suggestion.documentType.toLowerCase()) && (
-                          <Badge tone="green" className="mt-2">
+                          <Badge tone="green" className="mt-2 max-w-full !whitespace-normal text-left">
                             Matches an outstanding request on this job — checklist will update
                           </Badge>
                         )}

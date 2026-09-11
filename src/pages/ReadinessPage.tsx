@@ -54,7 +54,7 @@ export function ReadinessPage() {
                 action={<Badge tone={row.status === 'ready' ? 'green' : row.status === 'in_progress' ? 'amber' : 'red'} dot>{row.status === 'ready' ? 'Ready' : row.status === 'in_progress' ? 'In progress' : 'Blocked'}</Badge>}
               />
               <CardBody className="pt-0">
-                {row.confirmationStatementBlocked && <p className="mb-2 text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-2.5 py-1.5">Confirmation statement cannot be filed until every director and PSC is verified.</p>}
+                {row.confirmationStatementBlocked && <p className="mb-2 text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/30 rounded-md px-2.5 py-1.5">Confirmation statement cannot be filed until every director and PSC is verified.</p>}
                 <ul className="divide-y divide-slate-100">
                   {row.roles.map(({ role, person }) => {
                     const Icon = role.identityVerification === 'verified' ? ShieldCheck : role.identityVerification === 'in_progress' ? ShieldQuestion : ShieldAlert;

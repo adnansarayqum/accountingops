@@ -72,11 +72,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
 
   return (
     <>
-      <aside className="hidden lg:block fixed inset-y-0 left-0 w-64 bg-white border-r border-slate-200 z-30">{content}</aside>
+      <aside className="hidden lg:block fixed inset-y-0 left-0 w-64 bg-surface border-r border-slate-200 z-30">{content}</aside>
       {/* Mobile drawer */}
       <div className={cn('lg:hidden fixed inset-0 z-40', open ? '' : 'pointer-events-none')} aria-hidden={!open}>
-        <div className={cn('absolute inset-0 bg-slate-900/40 transition-opacity', open ? 'opacity-100' : 'opacity-0')} onClick={onClose} />
-        <aside className={cn('absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-white shadow-pop transition-transform duration-200', open ? 'translate-x-0' : '-translate-x-full')}>{content}</aside>
+        <div className={cn('absolute inset-0 bg-black/50 transition-opacity', open ? 'opacity-100' : 'opacity-0')} onClick={onClose} />
+        <aside className={cn('absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-surface shadow-pop transition-transform duration-200', open ? 'translate-x-0' : '-translate-x-full')}>{content}</aside>
       </div>
     </>
   );

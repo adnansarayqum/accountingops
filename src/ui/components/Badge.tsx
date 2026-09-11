@@ -7,7 +7,10 @@ export type Tone = 'neutral' | 'blue' | 'green' | 'amber' | 'red' | 'violet' | '
 
 const tones: Record<Tone, string> = {
   neutral: 'bg-slate-100 text-slate-700 ring-slate-200',
-  slate: 'bg-slate-800 text-white ring-slate-800',
+  // Fixed (non-theme-inverted) solid dark chip — bg-slate-800 doubles as a
+  // strong solid fill here, not neutral text/border, so it must not flip
+  // to a light colour in dark mode the way the rest of the slate ramp does.
+  slate: 'bg-[#1e293b] text-white ring-[#1e293b]',
   blue: 'bg-primary-50 text-primary-700 ring-primary-100',
   green: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
   amber: 'bg-amber-50 text-amber-800 ring-amber-100',

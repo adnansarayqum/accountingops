@@ -257,7 +257,7 @@ export function ClientDetailPage() {
                   <HandoverRow label="Next recommended action" value={nextAction} tone="blue" />
                 </dl>
                 {client.notes && (
-                  <div className="mt-3 rounded-lg bg-amber-50/60 border border-amber-100 px-3 py-2 text-[13px] text-slate-700">
+                  <div className="mt-3 rounded-lg bg-amber-50/60 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/30 px-3 py-2 text-[13px] text-slate-700">
                     <span className="font-medium text-slate-800">Notes: </span>
                     {client.notes}
                   </div>

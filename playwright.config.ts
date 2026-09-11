@@ -13,7 +13,10 @@ export default defineConfig({
   },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'] } },
-    { name: 'mobile', use: { ...devices['Pixel 7'] }, testMatch: /demo-journey/ },
+    // No testMatch restriction: screens.spec.ts's overflow check must run
+    // at mobile width too, or mobile-only layout bugs (e.g. a badge with
+    // whitespace-nowrap forcing overflow at 390px) pass unnoticed.
+    { name: 'mobile', use: { ...devices['Pixel 7'] } },
   ],
   webServer: {
     command: 'npm run build && npm run preview',

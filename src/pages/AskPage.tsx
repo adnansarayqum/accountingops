@@ -51,7 +51,7 @@ export function AskPage() {
 
       <div className="mt-3 flex flex-wrap gap-1.5">
         {EXAMPLE_QUESTIONS.map((q) => (
-          <button key={q} type="button" onClick={() => ask(q)} className={cn('rounded-full border px-2.5 py-1 text-xs transition-colors', question === q ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-slate-200 bg-white text-slate-600 hover:border-primary-300 hover:text-primary-700')}>
+          <button key={q} type="button" onClick={() => ask(q)} className={cn('rounded-full border px-2.5 py-1 text-xs transition-colors', question === q ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-slate-200 bg-surface text-slate-600 hover:border-primary-300 hover:text-primary-700')}>
             {q}
           </button>
         ))}
