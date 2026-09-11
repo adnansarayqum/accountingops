@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './ui/layout/AppShell';
 import { useAppStore, configureRepository } from './application/store';
@@ -7,6 +7,7 @@ import { fetchCurrentUser, type AuthUser } from './application/auth';
 import { ErrorBoundary } from './ui/components/ErrorBoundary';
 import { LoginPage } from './pages/LoginPage';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
+import { UnavailablePage } from './pages/UnavailablePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { AttentionPage } from './pages/AttentionPage';
 import { ClientsPage } from './pages/ClientsPage';
@@ -26,29 +27,35 @@ import { AskPage } from './pages/AskPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
-type AuthPhase = 'checking' | 'local' | 'unauthenticated' | 'must_change_password' | 'authenticated';
+type AuthPhase = 'checking' | 'local' | 'unauthenticated' | 'must_change_password' | 'authenticated' | 'unavailable';
 
 export default function App() {
   const ready = useAppStore((s) => s.ready);
   const init = useAppStore((s) => s.init);
   const [authPhase, setAuthPhase] = useState<AuthPhase>('checking');
   const [pendingUser, setPendingUser] = useState<AuthUser | null>(null);
+  const [retrying, setRetrying] = useState(false);
+
+  const checkSession = useCallback(async () => {
+    const result = await fetchCurrentUser();
+    if (result.status === 'not_configured') {
+      setAuthPhase('local');
+    } else if (result.status === 'unavailable') {
+      setAuthPhase('unavailable');
+    } else if (result.status === 'unauthenticated') {
+      setAuthPhase('unauthenticated');
+    } else if (result.user.mustChangePassword) {
+      setPendingUser(result.user);
+      setAuthPhase('must_change_password');
+    } else {
+      useAppStore.setState({ authMode: 'server', authUser: result.user, currentUserId: result.user.id });
+      setAuthPhase('authenticated');
+    }
+  }, []);
 
   useEffect(() => {
-    void fetchCurrentUser().then((result) => {
-      if (result.status === 'not_configured') {
-        setAuthPhase('local');
-      } else if (result.status === 'unauthenticated') {
-        setAuthPhase('unauthenticated');
-      } else if (result.user.mustChangePassword) {
-        setPendingUser(result.user);
-        setAuthPhase('must_change_password');
-      } else {
-        useAppStore.setState({ authMode: 'server', authUser: result.user, currentUserId: result.user.id });
-        setAuthPhase('authenticated');
-      }
-    });
-  }, []);
+    void checkSession();
+  }, [checkSession]);
 
   useEffect(() => {
     if (authPhase === 'local' || authPhase === 'authenticated') {
@@ -58,6 +65,18 @@ export default function App() {
   }, [authPhase, init]);
 
   if (authPhase === 'checking') return <SplashSkeleton />;
+
+  if (authPhase === 'unavailable') {
+    return (
+      <UnavailablePage
+        busy={retrying}
+        onRetry={() => {
+          setRetrying(true);
+          void checkSession().finally(() => setRetrying(false));
+        }}
+      />
+    );
+  }
 
   if (authPhase === 'unauthenticated') {
     return (

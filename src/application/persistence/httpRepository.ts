@@ -10,7 +10,16 @@ import type { PracticeRepository } from './repository';
 export class HttpRepository implements PracticeRepository {
   async load(): Promise<PracticeData | null> {
     const res = await fetch('/api/practice-data', { credentials: 'include' });
-    if (res.status === 404) return null;
+    if (res.status === 404) {
+      // Only the practice-data route's own "nothing saved yet" answer means
+      // a brand-new practice. Any other 404 (the router unmounted, a wrong
+      // deploy, a proxy in the way) is a failure — treating it as "new"
+      // would hand the user an empty practice with the real one intact but
+      // out of reach, one save away from being overwritten.
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (body?.error === 'not_found') return null;
+      throw new Error("Couldn't load practice data.");
+    }
     if (!res.ok) throw new Error("Couldn't load practice data.");
     const body = (await res.json()) as { data: PracticeData };
     return body.data;
