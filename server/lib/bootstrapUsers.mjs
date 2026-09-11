@@ -12,7 +12,7 @@ import { generateTempPassword, hashPassword } from './passwords.mjs';
 const SEED_USERS = [
   { id: 'u_adnan', username: 'adnan', name: 'Adnan Sarayqum', role: 'owner', envVar: 'ADNAN_TEMP_PASSWORD' },
   { id: 'u_farhan', username: 'farhan', name: 'Farhan', role: 'owner', envVar: 'FARHAN_TEMP_PASSWORD' },
-  { id: 'u_rayhan', username: 'rayhan', name: 'Rayhan', role: 'owner', envVar: 'RAYHAN_TEMP_PASSWORD' },
+  { id: 'u_rayhan', username: 'rayhan', name: 'Raihan', role: 'owner', envVar: 'RAYHAN_TEMP_PASSWORD' },
 ];
 
 // In-flight promise, not a permanent "already done" flag: concurrent

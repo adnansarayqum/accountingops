@@ -122,6 +122,10 @@ export interface AppState {
   recordIdentifierReveal(clientId: string, kind: ClientIdentifier['kind']): void;
   updatePersonRoleVerification(roleId: string, status: IdentityVerificationStatus, personalCodeCaptured?: boolean): void;
 
+  // team
+  /** Corrects a team member's display name (e.g. a typo from initial setup) — shown everywhere in the app, including Settings' "Signed in as" line. */
+  renameUser(userId: string, name: string): void;
+
   // onboarding
   toggleOnboardingItem(caseId: string, key: string): void;
   setOnboardingStage(caseId: string, stage: OnboardingStage): void;
@@ -756,6 +760,17 @@ export const useAppStore = create<AppState>((set, get) => {
         const client = d.clients.find((c) => c.id === role.clientId);
         ctx.activity('client_updated', `${person?.fullName} (${role.kind === 'psc' ? 'PSC' : role.kind}) identity verification marked ${status.replace(/_/g, ' ')} for ${client?.name}.`, undefined, role.clientId);
         ctx.audit('person_role.verification', 'person_role', roleId, before, { identityVerification: status, personalCodeCaptured: role.personalCodeCaptured });
+      });
+    },
+
+    renameUser(userId, name) {
+      mutate((d, ctx) => {
+        const user = d.users.find((u) => u.id === userId);
+        if (!user || !name.trim()) return;
+        const before = user.name;
+        user.name = name.trim();
+        ctx.activity('note', `${before} renamed to ${user.name}.`);
+        ctx.audit('user.rename', 'user', userId, { name: before }, { name: user.name });
       });
     },
 
