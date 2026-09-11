@@ -69,6 +69,8 @@ export interface Client {
   sicCodes?: string[];
   /** Names this company has previously traded under, most recent first. */
   previousNames?: string[];
+  /** When the Companies House fields above were last pulled. Absent means never — the client came from a spreadsheet or was typed in by hand. */
+  companiesHouseSyncedAt?: IsoDateTime;
 }
 
 /** A UK registered office address, as returned by Companies House. */
