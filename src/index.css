@@ -1,0 +1,166 @@
+@import 'tailwindcss';
+
+/*
+ * Class-based dark mode: `dark:` utilities apply when a `.dark` class is
+ * present on an ancestor (set on <html> by src/ui/theme.ts), not just by
+ * OS preference. See that file for the toggle/persistence logic.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --color-primary-50: #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-200: #bfdbfe;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+
+  --color-surface: #ffffff;
+  --color-canvas: #f6f8fb;
+  --color-line: #e2e8f0;
+
+  /*
+   * The slate scale is redeclared here at Tailwind's own default values
+   * (no visual change in light mode) so every `bg-slate-*` / `text-slate-*`
+   * / `border-slate-*` utility in the app resolves through these custom
+   * properties. That lets the whole neutral ramp be flipped for dark mode
+   * in one place below, without touching the ~40 component files that use
+   * those utilities directly. `white` and `black` are deliberately left
+   * alone — they're used for text on solid colour buttons/badges
+   * (e.g. `bg-primary-600 text-white`), which must stay literally white in
+   * both themes for contrast.
+   */
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+
+  --radius-card: 0.75rem;
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06);
+  --shadow-pop: 0 10px 30px -10px rgba(15, 23, 42, 0.25), 0 4px 12px -4px rgba(15, 23, 42, 0.1);
+}
+
+/*
+ * Dark theme. Plain custom-property reassignment (not @theme, which always
+ * targets :root) scoped to .dark, so it cascades to every descendant.
+ * Numeric "position" is preserved (50 = subtlest step away from the page
+ * background, 900 = strongest contrast) even though the concrete colours
+ * invert — the same relationship every component already relies on.
+ */
+.dark {
+  --color-surface: #141a24;
+  --color-canvas: #0b0f17;
+  --color-line: #2b3546;
+
+  /*
+   * Only the pale tint shades invert (used as "selected/active" chip
+   * backgrounds — Sidebar active link, selected service/channel chips).
+   * primary-500/600/700 stay the same saturated blue in both themes,
+   * since they're solid button fills paired with literal white text.
+   */
+  --color-primary-50: #16233d;
+  --color-primary-100: #1c2d4d;
+  --color-primary-200: #24406e;
+
+  --color-slate-50: #1b2230;
+  --color-slate-100: #212939;
+  --color-slate-200: #2b3546;
+  --color-slate-300: #384254;
+  --color-slate-400: #7c8aa0;
+  --color-slate-500: #94a3b8;
+  --color-slate-600: #aab6c6;
+  --color-slate-700: #c2cbd8;
+  --color-slate-800: #dde3ea;
+  --color-slate-900: #f3f5f8;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    color: var(--color-slate-900);
+    background: var(--color-canvas);
+    -webkit-font-smoothing: antialiased;
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--color-canvas);
+  }
+  *:focus-visible {
+    outline: 2px solid var(--color-primary-600);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  button,
+  [role='button'] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  ::selection {
+    background: #bfdbfe;
+    color: #0f172a;
+  }
+  .dark ::selection {
+    background: #1d4ed8;
+    color: #ffffff;
+  }
+}
+
+@layer utilities {
+  .card {
+    @apply bg-surface border border-line rounded-card shadow-card min-w-0;
+  }
+  .card-hover {
+    @apply transition-colors hover:border-slate-300;
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  .animate-in {
+    animation: fade-up 180ms ease-out both;
+  }
+  .animate-toast {
+    animation: toast-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  .skeleton {
+    @apply bg-slate-200/70 rounded animate-pulse;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
