@@ -82,7 +82,7 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
       candidates.push({
         severity: 'red',
         ruleCode: 'overdue_missing_docs',
-        headline: `${job.name} overdue by ${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'}.`,
+        headline: `Overdue by ${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'}.`,
         reasons: [
           `Deadline passed ${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} ago.`,
           `Client has not supplied ${listLabels(completeness.missing)}.`,
@@ -97,7 +97,7 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
       candidates.push({
         severity: 'red',
         ruleCode: 'overdue',
-        headline: `${job.name} overdue by ${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'}.`,
+        headline: `Overdue by ${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'}.`,
         reasons: [`Deadline passed and the job is still ${statusPhrase(job)}.`],
         recommendedAction: actionForStatus(job, reminderAction),
         score: 900 + Math.abs(days) * 5,
@@ -109,7 +109,7 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
       candidates.push({
         severity: 'red',
         ruleCode: 'imminent_missing_docs',
-        headline: `${job.name} due in ${days} day${days === 1 ? '' : 's'}.`,
+        headline: `Due in ${days} day${days === 1 ? '' : 's'}.`,
         reasons: [
           `${missingPct}% of required information is still missing.`,
           `Still needed: ${listLabels(completeness.missing)}.`,
@@ -126,13 +126,13 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
       candidates.push({
         severity: ignored ? 'red' : 'amber',
         ruleCode: 'approaching_missing_docs',
-        headline: `${job.name} due in ${days} days.`,
+        headline: `Due in ${days} days.`,
         reasons: [
           `${completeness.missing.length} document${completeness.missing.length === 1 ? ' is' : 's are'} still missing: ${listLabels(completeness.missing)}.`,
           ignored ? `Client has ignored ${chasing.remindersSent} reminders.` : chasing.remindersSent === 1 ? 'One reminder sent so far.' : 'No reminder has been sent yet.',
         ],
         recommendedAction: reminderAction(),
-        score: (ignored ? 700 : 500) + (21 - days) * 5,
+        score: (ignored ? 700 : 400) + (21 - days) * 5,
       });
     }
 
@@ -141,7 +141,7 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
       candidates.push({
         severity: 'amber',
         ruleCode: 'review_no_reviewer',
-        headline: `${job.name} ready for internal review for ${stale} days.`,
+        headline: `Ready for internal review for ${stale} days.`,
         reasons: ['No reviewer has been assigned.', `Due in ${days} days.`],
         recommendedAction: { kind: 'assign_reviewer', label: 'Assign a reviewer' },
         score: 450 + stale * 3,
@@ -153,10 +153,10 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
       candidates.push({
         severity: days <= 7 ? 'red' : 'amber',
         ruleCode: 'approval_stalled',
-        headline: `${job.name} completed. Waiting for client approval for ${stale} days.`,
+        headline: `Completed. Waiting for client approval for ${stale} days.`,
         reasons: [`Approval requested ${stale} days ago and nothing has come back.`, `Filing deadline in ${days} days.`],
         recommendedAction: { kind: 'chase_approval', label: `Chase approval by ${CHANNEL_LABELS[preferred]}`, channel: preferred },
-        score: 480 + stale * 3,
+        score: 520 + stale * 3,
       });
     }
 
@@ -167,7 +167,7 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
         candidates.push({
           severity: days <= 14 ? 'red' : 'amber',
           ruleCode: 'identity_incomplete',
-          headline: `Confirmation Statement due in ${days} days.`,
+          headline: `Due in ${days} days — director identity verification incomplete.`,
           reasons: [`${unverified.length} director${unverified.length === 1 ? '' : 's'}/PSC${unverified.length === 1 ? '' : 's'} still need identity verification.`, 'Companies House will reject the filing without it.'],
           recommendedAction: { kind: 'verify_identity', label: 'Complete identity verification' },
           score: 470 + (45 - days) * 3,
@@ -180,7 +180,7 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
       candidates.push({
         severity: 'amber',
         ruleCode: 'stale',
-        headline: `${job.name} has not changed state for ${stale} days.`,
+        headline: `No change for ${stale} days.`,
         reasons: [`Status is "${statusPhrase(job)}" and nobody has moved it on.`, `Due in ${days} days.`],
         recommendedAction: job.assigneeUserId ? { kind: 'review_job', label: 'Review and move the job on' } : { kind: 'reassign', label: 'Assign an accountant' },
         score: 300 + stale,
@@ -188,14 +188,14 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
     }
 
     // AMBER: ready to file and deadline close — don't lose the win
-    if (job.status === 'ready_to_file' && days <= 5 && days >= 0) {
+    if (job.status === 'ready_to_file' && days <= 7 && days >= 0) {
       candidates.push({
         severity: 'amber',
         ruleCode: 'ready_deadline_close',
-        headline: `${job.name} ready to file, due in ${days} day${days === 1 ? '' : 's'}.`,
+        headline: `Ready to file, due in ${days} day${days === 1 ? '' : 's'}.`,
         reasons: ['Everything is approved. File it before the deadline.'],
         recommendedAction: { kind: 'file', label: 'Mark as filed' },
-        score: 400 + (5 - days) * 10,
+        score: 420 + (7 - days) * 10,
       });
     }
 

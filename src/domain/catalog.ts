@@ -44,7 +44,7 @@ export const SERVICES: Record<ServiceCode, Service> = {
     shortName: 'Payroll',
     frequency: 'monthly',
     defaultRequirements: ['Timesheets', 'Starter/leaver forms'],
-    defaultEstimatedHours: 1.5,
+    defaultEstimatedHours: 3,
     reminderSequenceId: 'seq_payroll',
   },
   self_assessment: {

@@ -48,6 +48,12 @@ describe('assessChasing', () => {
     expect(a.kind).toBe('approval');
   });
 
+  it('does not chase the client when the outstanding item is with the practice', () => {
+    const a = assessChasing({ ...job, waitingOn: 'accountant' }, items(['Approved accounts'], []), [], seq, today);
+    expect(a.required).toBe(false);
+    expect(a.reason).toMatch(/with the practice/);
+  });
+
   it('never chases a filed or paused job', () => {
     expect(assessChasing({ ...job, status: 'filed' }, items(['x'], []), [], seq, today).required).toBe(false);
     expect(assessChasing({ ...job, chasingPaused: true }, items(['x'], []), [], seq, today).required).toBe(false);

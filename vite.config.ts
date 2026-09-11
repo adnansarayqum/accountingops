@@ -9,6 +9,13 @@ export default defineConfig({
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: { react: ['react', 'react-dom', 'react-router-dom'], icons: ['lucide-react'] },
+      },
+    },
+  },
   server: { port: 5173, host: true },
   preview: { port: 4173, host: true },
   test: {

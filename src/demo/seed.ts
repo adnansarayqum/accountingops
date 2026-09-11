@@ -45,7 +45,7 @@ export const DEMO_USERS: User[] = [
   { id: 'u_adnan', practiceId: PRACTICE_ID, name: 'Adnan Rahman', initials: 'AR', role: 'owner', weeklyCapacityHours: 32, colour: 'blue' },
   { id: 'u_sarah', practiceId: PRACTICE_ID, name: 'Sarah Mitchell', initials: 'SM', role: 'manager', weeklyCapacityHours: 36, colour: 'violet' },
   { id: 'u_michael', practiceId: PRACTICE_ID, name: 'Michael Okafor', initials: 'MO', role: 'accountant', weeklyCapacityHours: 36, colour: 'emerald' },
-  { id: 'u_priya', practiceId: PRACTICE_ID, name: 'Priya Shah', initials: 'PS', role: 'accountant', weeklyCapacityHours: 24, colour: 'amber' },
+  { id: 'u_priya', practiceId: PRACTICE_ID, name: 'Priya Shah', initials: 'PS', role: 'accountant', weeklyCapacityHours: 16, colour: 'amber' },
 ];
 
 export const REMINDER_SEQUENCES: ReminderSequence[] = [
@@ -497,7 +497,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
     },
     { id: 'job_abc_ct', client: 'cl_abc', service: 'corporation_tax', dueIn: 102, status: 'waiting_for_records', waitingOn: 'accountant', assignee: 'u_adnan', changedDaysAgo: 34, docs: [{ label: 'Approved accounts', status: 'missing' }, { label: 'Capital allowances schedule', status: 'received', receivedDaysAgo: 10 }] },
     { id: 'job_abc_vat', client: 'cl_abc', service: 'vat', dueIn: 26, status: 'in_progress', assignee: 'u_priya', changedDaysAgo: 3, docs: [{ label: 'Sales invoices', status: 'received', receivedDaysAgo: 4 }, { label: 'Purchase invoices', status: 'received', receivedDaysAgo: 4 }, { label: 'Bank statements', status: 'received', receivedDaysAgo: 4 }] },
-    { id: 'job_abc_payroll', client: 'cl_abc', service: 'payroll', dueIn: 8, status: 'ready_to_start', assignee: 'u_priya', changedDaysAgo: 2, docs: [{ label: 'Timesheets', status: 'received', receivedDaysAgo: 2 }, { label: 'Starter/leaver forms', status: 'received', receivedDaysAgo: 2 }] },
+    { id: 'job_abc_payroll', client: 'cl_abc', service: 'payroll', dueIn: 8, status: 'ready_to_start', assignee: 'u_priya', hours: 4, changedDaysAgo: 2, docs: [{ label: 'Timesheets', status: 'received', receivedDaysAgo: 2 }, { label: 'Starter/leaver forms', status: 'received', receivedDaysAgo: 2 }] },
     { id: 'job_abc_payroll_prev', client: 'cl_abc', service: 'payroll', dueIn: -22, status: 'filed', assignee: 'u_priya', changedDaysAgo: 25, filedDaysAgo: 25, docs: [{ label: 'Timesheets', status: 'received', receivedDaysAgo: 30 }] },
     { id: 'job_abc_cs', client: 'cl_abc', service: 'confirmation_statement', dueIn: 140, status: 'ready_to_start', assignee: 'u_adnan', changedDaysAgo: 5, docs: [{ label: 'Director confirmation', status: 'received', receivedDaysAgo: 5 }, { label: 'PSC confirmation', status: 'received', receivedDaysAgo: 5 }, { label: 'Registered office check', status: 'received', receivedDaysAgo: 5 }] },
     { id: 'job_abc_accounts_prev', client: 'cl_abc', service: 'annual_accounts', dueIn: -353, status: 'filed', assignee: 'u_adnan', changedDaysAgo: 360, filedDaysAgo: 360, docs: [{ label: 'Bank statements', status: 'received', receivedDaysAgo: 400 }] },
@@ -518,7 +518,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
     { id: 'job_greenfield_cs', client: 'cl_greenfield', service: 'confirmation_statement', dueIn: 18, status: 'in_progress', assignee: 'u_priya', changedDaysAgo: 6, docs: [{ label: 'Director confirmation', status: 'received', receivedDaysAgo: 6 }, { label: 'PSC confirmation', status: 'received', receivedDaysAgo: 6 }, { label: 'Registered office check', status: 'received', receivedDaysAgo: 6 }] },
     { id: 'job_greenfield_vat', client: 'cl_greenfield', service: 'vat', dueIn: 26, status: 'waiting_for_records', assignee: 'u_priya', changedDaysAgo: 8, docs: [{ label: 'Sales invoices', status: 'received', receivedDaysAgo: 3 }, { label: 'Purchase invoices', status: 'requested' }, { label: 'Bank statements', status: 'received', receivedDaysAgo: 3 }] },
     { id: 'job_greenfield_accounts', client: 'cl_greenfield', service: 'annual_accounts', dueIn: 200, status: 'waiting_for_records', assignee: 'u_priya', changedDaysAgo: 30, docs: [{ label: 'Bank statements', status: 'missing' }, { label: 'Sales invoices', status: 'missing' }, { label: 'Purchase invoices', status: 'missing' }, { label: 'Payroll records', status: 'missing' }] },
-    { id: 'job_greenfield_payroll', client: 'cl_greenfield', service: 'payroll', dueIn: 8, status: 'ready_to_start', assignee: 'u_priya', changedDaysAgo: 1, docs: [{ label: 'Timesheets', status: 'received', receivedDaysAgo: 1 }] },
+    { id: 'job_greenfield_payroll', client: 'cl_greenfield', service: 'payroll', dueIn: 8, status: 'ready_to_start', assignee: 'u_priya', hours: 4, changedDaysAgo: 1, docs: [{ label: 'Timesheets', status: 'received', receivedDaysAgo: 1 }] },
 
     // Sarah Malik — MTD readiness, SA
     { id: 'job_malik_sa', client: 'cl_malik', service: 'self_assessment', dueIn: 142, status: 'waiting_for_records', assignee: 'u_priya', changedDaysAgo: 40, docs: [{ label: 'Income summary', status: 'received', receivedDaysAgo: 12 }, { label: 'Expense summary', status: 'requested' }, { label: 'Bank interest', status: 'requested' }, { label: 'Pension contributions', status: 'requested' }] },
@@ -526,10 +526,10 @@ export function buildDemoData(today: IsoDate): PracticeData {
     { id: 'job_malik_sa_prev', client: 'cl_malik', service: 'self_assessment', dueIn: -223, status: 'filed', assignee: 'u_priya', changedDaysAgo: 230, filedDaysAgo: 230, docs: [{ label: 'Income summary', status: 'received', receivedDaysAgo: 250 }] },
 
     // Northern Foods — large workload, healthy
-    { id: 'job_northern_accounts', client: 'cl_northern', service: 'annual_accounts', dueIn: 110, status: 'in_progress', assignee: 'u_sarah', reviewer: 'u_adnan', hours: 30, changedDaysAgo: 9, docs: [{ label: 'Bank statements', status: 'received', receivedDaysAgo: 20 }, { label: 'Sales invoices', status: 'received', receivedDaysAgo: 20 }, { label: 'Purchase invoices', status: 'received', receivedDaysAgo: 20 }, { label: 'Payroll records', status: 'received', receivedDaysAgo: 20 }, { label: 'Stock valuation', status: 'received', receivedDaysAgo: 15 }, { label: 'Loan statement', status: 'received', receivedDaysAgo: 15 }] },
+    { id: 'job_northern_accounts', client: 'cl_northern', service: 'annual_accounts', dueIn: 110, status: 'in_progress', assignee: 'u_sarah', reviewer: 'u_adnan', hours: 40, changedDaysAgo: 9, docs: [{ label: 'Bank statements', status: 'received', receivedDaysAgo: 20 }, { label: 'Sales invoices', status: 'received', receivedDaysAgo: 20 }, { label: 'Purchase invoices', status: 'received', receivedDaysAgo: 20 }, { label: 'Payroll records', status: 'received', receivedDaysAgo: 20 }, { label: 'Stock valuation', status: 'received', receivedDaysAgo: 15 }, { label: 'Loan statement', status: 'received', receivedDaysAgo: 15 }] },
     { id: 'job_northern_ct', client: 'cl_northern', service: 'corporation_tax', dueIn: 200, status: 'waiting_for_records', waitingOn: 'accountant', assignee: 'u_sarah', changedDaysAgo: 9, docs: [{ label: 'Approved accounts', status: 'missing' }, { label: 'Capital allowances schedule', status: 'missing' }, { label: 'R&D summary', status: 'received', receivedDaysAgo: 5 }] },
     { id: 'job_northern_vat', client: 'cl_northern', service: 'vat', dueIn: 26, status: 'in_progress', assignee: 'u_michael', changedDaysAgo: 2, hours: 5, docs: [{ label: 'Sales invoices', status: 'received', receivedDaysAgo: 3 }, { label: 'Purchase invoices', status: 'received', receivedDaysAgo: 3 }, { label: 'Bank statements', status: 'received', receivedDaysAgo: 3 }] },
-    { id: 'job_northern_payroll', client: 'cl_northern', service: 'payroll', dueIn: 8, status: 'in_progress', assignee: 'u_priya', hours: 4, changedDaysAgo: 1, docs: [{ label: 'Timesheets', status: 'received', receivedDaysAgo: 1 }, { label: 'Starter/leaver forms', status: 'received', receivedDaysAgo: 1 }] },
+    { id: 'job_northern_payroll', client: 'cl_northern', service: 'payroll', dueIn: 8, status: 'in_progress', assignee: 'u_priya', hours: 8, changedDaysAgo: 1, docs: [{ label: 'Timesheets', status: 'received', receivedDaysAgo: 1 }, { label: 'Starter/leaver forms', status: 'received', receivedDaysAgo: 1 }] },
     { id: 'job_northern_bk', client: 'cl_northern', service: 'bookkeeping_review', dueIn: 15, status: 'ready_to_start', assignee: 'u_michael', changedDaysAgo: 1, docs: [{ label: 'Bank statements', status: 'received', receivedDaysAgo: 1 }, { label: 'Receipts bundle', status: 'received', receivedDaysAgo: 1 }] },
     { id: 'job_northern_cs', client: 'cl_northern', service: 'confirmation_statement', dueIn: 95, status: 'waiting_for_records', assignee: 'u_sarah', changedDaysAgo: 3, docs: [{ label: 'Director confirmation', status: 'requested' }, { label: 'PSC confirmation', status: 'requested' }, { label: 'Registered office check', status: 'received', receivedDaysAgo: 3 }] },
     { id: 'job_northern_vat_prev', client: 'cl_northern', service: 'vat', dueIn: -65, status: 'filed', assignee: 'u_michael', changedDaysAgo: 70, filedDaysAgo: 70, docs: [{ label: 'Sales invoices', status: 'received', receivedDaysAgo: 80 }] },
@@ -563,7 +563,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
 
     // Lumen Digital — stale in progress
     { id: 'job_lumen_accounts', client: 'cl_lumen', service: 'annual_accounts', dueIn: 50, status: 'in_progress', assignee: 'u_michael', changedDaysAgo: 16, hours: 9, docs: [{ label: 'Bank statements', status: 'received', receivedDaysAgo: 40 }, { label: 'Sales invoices', status: 'received', receivedDaysAgo: 40 }, { label: 'Purchase invoices', status: 'received', receivedDaysAgo: 40 }] },
-    { id: 'job_lumen_vat', client: 'cl_lumen', service: 'vat', dueIn: 26, status: 'waiting_for_records', assignee: 'u_michael', changedDaysAgo: 5, docs: [{ label: 'Sales invoices', status: 'requested' }, { label: 'Purchase invoices', status: 'requested' }, { label: 'Bank statements', status: 'received', receivedDaysAgo: 5 }] },
+    { id: 'job_lumen_vat', client: 'cl_lumen', service: 'vat', dueIn: 26, status: 'waiting_for_records', changedDaysAgo: 5, docs: [{ label: 'Sales invoices', status: 'requested' }, { label: 'Purchase invoices', status: 'requested' }, { label: 'Bank statements', status: 'received', receivedDaysAgo: 5 }] },
     { id: 'job_lumen_cs', client: 'cl_lumen', service: 'confirmation_statement', dueIn: 88, status: 'waiting_for_records', assignee: 'u_michael', changedDaysAgo: 2, docs: [{ label: 'Director confirmation', status: 'missing' }, { label: 'PSC confirmation', status: 'missing' }, { label: 'Registered office check', status: 'missing' }] },
 
     // Fenwick Plumbing — MTD ready, healthy
@@ -576,7 +576,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
     { id: 'job_ashby_sa_prev', client: 'cl_ashby', service: 'self_assessment', dueIn: -362, status: 'filed', assignee: 'u_sarah', changedDaysAgo: 370, filedDaysAgo: 370, docs: [{ label: 'Rental income schedule', status: 'received', receivedDaysAgo: 380 }] },
 
     // Meadow Vets — payroll, healthy
-    { id: 'job_meadow_payroll', client: 'cl_meadow', service: 'payroll', dueIn: 8, status: 'waiting_for_records', assignee: 'u_priya', changedDaysAgo: 2, docs: [{ label: 'Timesheets', status: 'requested' }, { label: 'Starter/leaver forms', status: 'received', receivedDaysAgo: 2 }] },
+    { id: 'job_meadow_payroll', client: 'cl_meadow', service: 'payroll', dueIn: 8, status: 'waiting_for_records', assignee: 'u_priya', hours: 4, changedDaysAgo: 2, docs: [{ label: 'Timesheets', status: 'requested' }, { label: 'Starter/leaver forms', status: 'received', receivedDaysAgo: 2 }] },
     { id: 'job_meadow_vat', client: 'cl_meadow', service: 'vat', dueIn: 26, status: 'ready_to_start', assignee: 'u_sarah', changedDaysAgo: 1, docs: [{ label: 'Sales invoices', status: 'received', receivedDaysAgo: 1 }, { label: 'Purchase invoices', status: 'received', receivedDaysAgo: 1 }, { label: 'Bank statements', status: 'received', receivedDaysAgo: 1 }] },
     { id: 'job_meadow_accounts', client: 'cl_meadow', service: 'annual_accounts', dueIn: 290, status: 'waiting_for_records', assignee: 'u_sarah', changedDaysAgo: 6, docs: [{ label: 'Bank statements', status: 'missing' }, { label: 'Sales invoices', status: 'missing' }, { label: 'Purchase invoices', status: 'missing' }, { label: 'Payroll records', status: 'missing' }] },
     { id: 'job_meadow_vat_prev', client: 'cl_meadow', service: 'vat', dueIn: -65, status: 'filed', assignee: 'u_sarah', changedDaysAgo: 68, filedDaysAgo: 68, docs: [{ label: 'Sales invoices', status: 'received', receivedDaysAgo: 75 }] },
@@ -620,7 +620,7 @@ export function buildDemoData(today: IsoDate): PracticeData {
     const service = SERVICES[j.service];
     const dueDate = inDays(j.dueIn);
     const months = j.periodMonths ?? periodMonthsFor(j.service);
-    const periodEnd = addDays(dueDate, -dueOffsetFor(j.service));
+    const periodEnd = snapPeriodEnd(addDays(dueDate, -dueOffsetFor(j.service)), j.service);
     const periodStart = addDays(addMonths(periodEnd, -months), 1);
     const [y, m] = periodEnd.split('-').map(Number);
     const periodKey = service.frequency === 'annual' ? `${y}` : service.frequency === 'quarterly' ? `${y}-Q${Math.ceil(m / 3)}` : `${y}-${String(m).padStart(2, '0')}`;
@@ -1171,6 +1171,27 @@ function nameForJob(code: ServiceCode, periodKey: string, periodEnd: string): st
     default:
       return `${periodKey} ${service.name}`;
   }
+}
+
+/**
+ * Demo-relative due dates produce ragged period ends; snap them to the
+ * nearest month end (or 5 April for Self Assessment) so periods read
+ * like real statutory periods.
+ */
+function snapPeriodEnd(iso: IsoDate, code: ServiceCode): IsoDate {
+  const [y, m, d] = iso.split('-').map(Number);
+  if (code === 'self_assessment' || code === 'mtd_income_tax') {
+    if (code === 'self_assessment') return `${m > 4 || (m === 4 && d >= 5) ? y : y - 1}-04-05`;
+  }
+  if (d <= 15) {
+    const prev = new Date(y, m - 1, 0);
+    return toIso(prev);
+  }
+  return toIso(new Date(y, m, 0));
+}
+
+function toIso(d: Date): IsoDate {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function slug(s: string): string {

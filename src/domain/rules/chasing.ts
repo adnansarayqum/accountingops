@@ -51,7 +51,7 @@ export function assessChasing(
       overdueStep: step?.overdue ?? false,
     };
   }
-  if (job.status === 'waiting_for_records' && !completeness.complete) {
+  if (job.status === 'waiting_for_records' && job.waitingOn === 'client' && !completeness.complete) {
     const step = nextReminderStep(job, sequence, reminders.length, today);
     return {
       ...base,
@@ -65,6 +65,9 @@ export function assessChasing(
   }
   if (completeness.complete && job.status === 'waiting_for_records') {
     return { ...base, required: false, reason: 'All documents received — no further chasing required.', kind: 'none', outstanding: [], overdueStep: false };
+  }
+  if (job.status === 'waiting_for_records' && !completeness.complete) {
+    return { ...base, required: false, reason: `Outstanding items are with the practice, not the client (waiting on ${job.waitingOn.replace(/_/g, ' ')}).`, kind: 'none', outstanding: completeness.missing, overdueStep: false };
   }
   return { ...base, required: false, reason: 'Nothing outstanding from the client.', kind: 'none', outstanding: [], overdueStep: false };
 }
