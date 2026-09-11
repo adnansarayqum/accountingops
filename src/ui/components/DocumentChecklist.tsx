@@ -41,9 +41,9 @@ export function DocumentChecklist({ job, items, compact = false, editable = true
           const received = item.status === 'received';
           const Icon = received ? CheckCircle2 : item.status === 'requested' ? Clock : Circle;
           return (
-            <li key={item.id} className="flex items-center gap-3 py-2" data-status={item.status}>
+            <li key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2" data-status={item.status}>
               <Icon className={cn('h-4 w-4 shrink-0', received ? 'text-emerald-500' : item.status === 'requested' ? 'text-amber-500' : 'text-slate-300')} aria-hidden="true" />
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 basis-40">
                 <p className={cn('text-sm', received ? 'text-slate-700' : 'text-slate-900 font-medium')}>{item.label}</p>
                 {!compact && (
                   <p className="text-xs text-slate-500">
@@ -51,16 +51,18 @@ export function DocumentChecklist({ job, items, compact = false, editable = true
                   </p>
                 )}
               </div>
-              <span className={cn('text-xs font-medium', received ? 'text-emerald-600' : item.status === 'requested' ? 'text-amber-600' : 'text-slate-400')}>{received ? 'Received' : item.status === 'requested' ? 'Requested' : 'Missing'}</span>
-              {editable && !filed && (
-                received ? (
-                  <Button size="sm" variant="ghost" icon={<RotateCcw />} onClick={() => markMissing(item.id)} aria-label={`Mark ${item.label} as not received`} title="Undo — mark as not received" />
-                ) : (
-                  <Button size="sm" variant="secondary" icon={<Upload />} onClick={() => receive(item)} data-testid={`receive-${item.id}`}>
-                    Mark received
-                  </Button>
-                )
-              )}
+              <div className="ml-auto flex items-center gap-2 pl-7 sm:pl-0">
+                <span className={cn('text-xs font-medium', received ? 'text-emerald-600' : item.status === 'requested' ? 'text-amber-600' : 'text-slate-400')}>{received ? 'Received' : item.status === 'requested' ? 'Requested' : 'Missing'}</span>
+                {editable && !filed && (
+                  received ? (
+                    <Button size="sm" variant="ghost" icon={<RotateCcw />} onClick={() => markMissing(item.id)} aria-label={`Mark ${item.label} as not received`} title="Undo — mark as not received" />
+                  ) : (
+                    <Button size="sm" variant="secondary" icon={<Upload />} onClick={() => receive(item)} data-testid={`receive-${item.id}`}>
+                      Mark received
+                    </Button>
+                  )
+                )}
+              </div>
             </li>
           );
         })}

@@ -128,7 +128,10 @@ export function ClientsPage() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="font-medium text-slate-900 truncate">{r.client.name}</p>
-                        <p className="text-xs text-slate-500">{CLIENT_TYPE_LABELS[r.client.type]} · {r.contact?.name}</p>
+                        <p className="text-xs text-slate-500">
+                          {CLIENT_TYPE_LABELS[r.client.type]} · {r.contact?.name}
+                          {r.idMatch && <span className="ml-2 text-primary-700">matched {r.idMatch.kind.replace(/_/g, ' ')}</span>}
+                        </p>
                       </div>
                       {r.next && <DueBadge days={r.next.daysUntilDue} />}
                     </div>

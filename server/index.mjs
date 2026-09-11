@@ -53,7 +53,6 @@ app.get('/{*splat}', (req, res, next) => {
 
 app.use((req, res) => res.status(404).json({ error: 'Not found', path: req.path }));
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err, _req, res, _next) => {
   console.error(JSON.stringify({ level: 'error', at: new Date().toISOString(), message: err?.message ?? String(err) }));
   res.status(500).json({ error: 'Something went wrong. Nothing has been lost — try again.' });

@@ -119,17 +119,21 @@ export interface AppState {
 }
 
 let repository: PracticeRepository = new LocalStorageRepository();
-let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
 export function configureRepository(repo: PracticeRepository): void {
   repository = repo;
 }
 
-function schedulePersist(get: () => AppState): void {
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    void repository.save(get().data);
-  }, 150);
+/**
+ * Persist immediately after every mutation. The localStorage adapter writes
+ * synchronously, so a navigation straight after an action can never lose it.
+ * Failures are surfaced, never swallowed silently.
+ */
+function persist(get: () => AppState): void {
+  repository.save(get().data).catch((err: unknown) => {
+    console.error('Persist failed', err);
+    get().toast({ title: "We couldn't save that change", description: 'It is still on screen. Try the action again.', tone: 'error' });
+  });
 }
 
 export const useAppStore = create<AppState>((set, get) => {
@@ -143,7 +147,7 @@ export const useAppStore = create<AppState>((set, get) => {
     result.auditEvents = [...ctx.audits, ...result.auditEvents].slice(0, 2000);
     result.notifications = [...ctx.notifications, ...result.notifications];
     set({ data: result });
-    schedulePersist(get);
+    persist(get);
   };
 
   const emptyData = buildDemoData(todayIso());
