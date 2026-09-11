@@ -5,8 +5,11 @@
 -- the bottom so tenant isolation is enforced by the database, not only by
 -- application code.
 --
--- This schema mirrors src/domain/types.ts. It is the target for the first
--- server-side persistence adapter; the demo build does not connect to it.
+-- This schema mirrors src/domain/types.ts. It is the target end-state once
+-- the app moves from whole-aggregate mutations to per-entity API calls.
+-- The tables the app actually connects to today are simpler — see the
+-- "Interim server persistence" section at the end of this file — and are
+-- created automatically by server/lib/db.mjs, not from this file.
 
 create extension if not exists pgcrypto;
 
@@ -334,3 +337,40 @@ begin
     execute format('create policy tenant_isolation on %I using (practice_id = current_setting(''app.practice_id'', true)::uuid) with check (practice_id = current_setting(''app.practice_id'', true)::uuid)', t);
   end loop;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- Interim server persistence (what the app actually uses today)
+--
+-- Rewriting the store's whole-aggregate mutate() into per-entity API calls
+-- against the schema above is real future work. Until then, the server
+-- stores the entire PracticeData object as one JSONB snapshot — this is
+-- what let real, shared, multi-user login and persistence ship without
+-- rewriting the client's domain/application layers. Created automatically
+-- by server/lib/db.mjs (create table if not exists) on first use, so this
+-- block is documentation, not something you need to run by hand.
+-- ---------------------------------------------------------------------------
+
+create table if not exists practice_snapshots (
+  practice_id text primary key,
+  data        jsonb not null,
+  updated_at  timestamptz not null default now()
+);
+
+create table if not exists practice_users (
+  id                    text primary key,
+  username              text not null unique,
+  name                  text not null,
+  role                  text not null,
+  password_hash         text not null,
+  password_salt         text not null,
+  must_change_password  boolean not null default true,
+  created_at            timestamptz not null default now()
+);
+
+create table if not exists practice_sessions (
+  token       text primary key,
+  user_id     text not null references practice_users(id) on delete cascade,
+  expires_at  timestamptz not null,
+  created_at  timestamptz not null default now()
+);
+create index if not exists practice_sessions_expires_idx on practice_sessions (expires_at);

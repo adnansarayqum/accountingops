@@ -5,19 +5,32 @@ import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath, URL } from 'node:url';
 import express from 'express';
 import companiesHouseRouter from './server/routes/companiesHouse.mjs';
+import authRouter from './server/routes/auth.mjs';
+import practiceDataRouter from './server/routes/practiceData.mjs';
+import { healthPayload } from './server/lib/health.mjs';
 
 /**
- * Mounts the exact same Express router the production server uses, so
- * /api/companies-house behaves identically in `npm run dev` and on Railway.
+ * Mounts the exact same Express routers the production server uses, so
+ * /api/* (and /health) behave identically in `npm run dev` and on Railway.
  * A bare `express.Router()` does not get Express's request/response
  * augmentation (req.query, res.json, …) unless it runs through a full
- * `express()` app — mounting the Router directly on Vite's Connect
- * middleware skips that step. Wrapping it in a minimal app first mirrors
- * exactly how server/index.mjs mounts the same router in production.
+ * `express()` app — mounting a Router directly on Vite's Connect middleware
+ * skips that step. Wrapping them in a minimal app first mirrors exactly how
+ * server/index.mjs mounts the same routers in production.
+ *
+ * /health matters here beyond parity for its own sake: src/application/
+ * auth.ts checks /health's `database` flag before ever calling
+ * /api/auth/me, specifically to avoid a failed (503) request when no
+ * database is configured. Without a matching /health here, that request
+ * falls through to Vite's SPA fallback (which returns index.html, not
+ * JSON) and the check silently fails to short-circuit.
  */
 function apiMiddleware(): Plugin {
   const app = express();
+  app.get('/health', (_req, res) => res.json(healthPayload()));
   app.use('/api/companies-house', companiesHouseRouter);
+  app.use('/api/auth', authRouter);
+  app.use('/api/practice-data', practiceDataRouter);
   return {
     name: 'api-middleware',
     configureServer(server) {

@@ -2,7 +2,8 @@ import { addDays, addMonths, daysBetween, nowIso } from '../domain/dates';
 import { SERVICES } from '../domain/catalog';
 import { jobNameFor, periodKeyFor } from '../domain/rules';
 import { newId } from './ids';
-import type { Client, ClientIdentifier, Contact, IdentifierKind, InformationRequestItem, IsoDate, Job, Obligation, ServiceSubscription } from '../domain/types';
+import type { Client, ClientIdentifier, Contact, IdentifierKind, InformationRequestItem, IsoDate, Job, Obligation, RegisteredAddress, ServiceSubscription } from '../domain/types';
+import type { CompanyProfile } from '../integrations/companiesHouseTypes';
 
 /**
  * One row of an existing client roster (e.g. imported from a practice's own
@@ -27,6 +28,31 @@ export interface ClientRosterRow {
   accountsDue?: IsoDate;
   /** Confirmation statement filing deadline. */
   confirmationStatementDue?: IsoDate;
+  /** Populated by a Companies House lookup (see mergeCompanyProfile) — not from the spreadsheet itself. */
+  registeredOffice?: RegisteredAddress;
+  companiesHouseStatus?: string;
+  sicCodes?: string[];
+  incorporatedOn?: IsoDate;
+}
+
+/**
+ * Merges a live Companies House profile into a roster row. Companies House
+ * is treated as the more authoritative source: where it has a value, that
+ * value is used even if the roster already had one (a spreadsheet's "next
+ * accounts due" can go stale; Companies House's own record is current).
+ * Pure — the caller is responsible for fetching the profile.
+ */
+export function mergeCompanyProfile(row: ClientRosterRow, profile: CompanyProfile): ClientRosterRow {
+  return {
+    ...row,
+    registeredOffice: profile.registeredOfficeAddress ?? row.registeredOffice,
+    companiesHouseStatus: profile.companyStatus ?? row.companiesHouseStatus,
+    sicCodes: profile.sicCodes.length > 0 ? profile.sicCodes : row.sicCodes,
+    incorporatedOn: profile.dateOfCreation ?? row.incorporatedOn,
+    accountsPeriodEnd: profile.nextAccountsPeriodEndOn ?? row.accountsPeriodEnd,
+    accountsDue: profile.nextAccountsDueOn ?? row.accountsDue,
+    confirmationStatementDue: profile.nextConfirmationStatementDueOn ?? row.confirmationStatementDue,
+  };
 }
 
 export interface BuiltClientImport {
@@ -72,6 +98,10 @@ export function buildImportedClientRecords(rows: ClientRosterRow[], practiceId: 
       preferredChannel: 'email',
       averageResponseDays: 5,
       createdAt: nowIso(),
+      registeredOffice: row.registeredOffice,
+      companiesHouseStatus: row.companiesHouseStatus,
+      sicCodes: row.sicCodes,
+      incorporatedOn: row.incorporatedOn,
     });
 
     contacts.push({

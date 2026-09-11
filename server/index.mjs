@@ -10,6 +10,9 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import companiesHouseRouter from './routes/companiesHouse.mjs';
+import authRouter from './routes/auth.mjs';
+import practiceDataRouter from './routes/practiceData.mjs';
+import { healthPayload } from './lib/health.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.resolve(__dirname, '../dist');
@@ -31,12 +34,18 @@ app.use((req, res, next) => {
 });
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'accountingops-web', startedAt, env: process.env.RAILWAY_ENVIRONMENT_NAME ?? process.env.NODE_ENV ?? 'development', build: existsSync(path.join(dist, 'index.html')) });
+  res.json({ ...healthPayload(), service: 'accountingops-web', startedAt, env: process.env.RAILWAY_ENVIRONMENT_NAME ?? process.env.NODE_ENV ?? 'development', build: existsSync(path.join(dist, 'index.html')) });
 });
 
 // External integrations. Each router owns its own credentials — the
 // browser only ever talks to /api/*, never to a third-party API directly.
 app.use('/api/companies-house', companiesHouseRouter);
+
+// Authentication and shared practice-data persistence. Both return 503 when
+// DATABASE_URL isn't configured, so the client falls back to the original
+// browser-only mode instead of getting stuck — see src/App.tsx.
+app.use('/api/auth', authRouter);
+app.use('/api/practice-data', practiceDataRouter);
 
 // Security headers appropriate for a static SPA.
 app.use((_req, res, next) => {

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { buildEmptyPracticeData, OWNER_USER_ID } from './emptyState';
 import { buildImportedClientRecords, type ClientRosterRow } from './clientImport';
+import type { AuthUser } from './auth';
 import { nowIso, todayIso } from '../domain/dates';
 import { CHANNEL_LABELS, JOB_STATUS_LABELS, SERVICES, FILING_DESTINATION } from '../domain/catalog';
 import {
@@ -50,6 +51,9 @@ export interface AppState {
   ready: boolean;
   currentUserId: string;
   toasts: Toast[];
+  /** 'server' once a real signed-in session exists; 'local' is the original browser-only mode (no DATABASE_URL configured). */
+  authMode: 'local' | 'server';
+  authUser: AuthUser | null;
 
   // lifecycle
   init(): Promise<void>;
@@ -144,6 +148,20 @@ function persist(get: () => AppState): void {
   });
 }
 
+/** Retries a transient load failure (e.g. a momentary network or server hiccup) before giving up. */
+async function loadWithRetry(attempts = 3): Promise<PracticeData | null> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await repository.load();
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 300 * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 export const useAppStore = create<AppState>((set, get) => {
   /** Apply a data mutation, persist, and return the new data. */
   const mutate = (fn: (d: PracticeData, ctx: MutationContext) => PracticeData | void): void => {
@@ -164,16 +182,27 @@ export const useAppStore = create<AppState>((set, get) => {
     ready: false,
     currentUserId: OWNER_USER_ID,
     toasts: [],
+    authMode: 'local',
+    authUser: null,
 
     async init() {
       const today = todayIso();
-      const loaded = await repository.load();
-      if (loaded) {
-        set({ data: loaded, today, ready: true });
-      } else {
-        const data = buildEmptyPracticeData();
-        await repository.save(data);
-        set({ data, today, ready: true });
+      try {
+        const loaded = await loadWithRetry();
+        if (loaded) {
+          set({ data: loaded, today, ready: true });
+        } else {
+          const data = buildEmptyPracticeData();
+          await repository.save(data);
+          set({ data, today, ready: true });
+        }
+      } catch (err) {
+        // A transient failure here must never leave the app stuck on the
+        // splash screen forever — fall back to an empty view and let the
+        // user retry, the same way persist() surfaces a save failure.
+        console.error('Failed to load practice data', err);
+        set({ data: buildEmptyPracticeData(), today, ready: true });
+        get().toast({ title: "Couldn't load practice data", description: 'Showing an empty view — reload the page to try again.', tone: 'error' });
       }
     },
 
