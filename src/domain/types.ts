@@ -63,6 +63,23 @@ export interface Client {
   /** Demo-transparent behaviour stats used by the responsiveness rule. */
   averageResponseDays: number;
   createdAt: IsoDateTime;
+  /** Populated when the client was looked up via the Companies House integration. */
+  registeredOffice?: RegisteredAddress;
+  companiesHouseStatus?: string;
+  sicCodes?: string[];
+}
+
+/** A UK registered office address, as returned by Companies House. */
+export interface RegisteredAddress {
+  premises?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  locality?: string;
+  region?: string;
+  postalCode?: string;
+  country?: string;
+  /** Single-line rendering for display. */
+  formatted: string;
 }
 
 export interface Contact {

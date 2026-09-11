@@ -79,3 +79,26 @@ Deliberately away from anything used during the presentation.
 Remaining effort by status × estimate, against chargeable hours (60% of
 contracted). Not a project-management tool; enough to answer "who is
 overloaded next week?" and rebalance inline.
+
+### 17. Companies House ships live; HMRC and accounting software do not
+Three external integrations were on the table: company registry lookup,
+HMRC (Making Tax Digital), and third-party accounting software (Xero,
+QuickBooks, FreeAgent, Sage). Only Companies House is built as a live,
+working connection — a free public API, no OAuth, no approval process,
+read-only. HMRC requires the firm to become a recognised software vendor
+and per-client OAuth agent authorisation, which is weeks of process on
+HMRC's side, not code; it stays architected (the domain model already has
+`WaitingOn = 'hmrc'` and a filing destination) but unconnected until that's
+real. Accounting-software sync is not built at all: each vendor needs its
+own OAuth registration, and pulling ledger data would cross into
+bookkeeping, which decision #1 rules out. See `docs/INTEGRATIONS.md`.
+
+### 18. External integration credentials never reach the browser
+Every external API key lives only in a server-side proxy
+(`server/routes/<provider>.mjs`), read from `process.env`, and the browser
+talks only to this app's own `/api/<provider>/*` routes. The same proxy
+router is mounted in `npm run dev`, `vite preview`, and production — not a
+dev-only stub — so what's tested locally is what runs on Railway. Without a
+credential configured, the feature falls back to a labelled synthetic
+dataset rather than breaking, matching the product's existing demo-first
+posture.

@@ -22,11 +22,13 @@ import type {
   Contact,
   Document,
   IdentityVerificationStatus,
+  IsoDate,
   Job,
   JobStatus,
   Notification,
   OnboardingStage,
   PracticeData,
+  RegisteredAddress,
   ServiceCode,
   WaitingOn,
 } from '../domain/types';
@@ -101,6 +103,11 @@ export interface AppState {
     services: ServiceCode[];
     identifiers: Partial<Record<ClientIdentifier['kind'], string>>;
     yearEnd?: string;
+    /** Populated when the client was found via the Companies House lookup. */
+    registeredOffice?: RegisteredAddress;
+    companiesHouseStatus?: string;
+    sicCodes?: string[];
+    incorporatedOn?: IsoDate;
   }): Client;
   updateIdentifier(clientId: string, kind: ClientIdentifier['kind'], value: string): void;
   recordIdentifierReveal(clientId: string, kind: ClientIdentifier['kind']): void;
@@ -551,6 +558,10 @@ export const useAppStore = create<AppState>((set, get) => {
         yearEnd: input.yearEnd,
         averageResponseDays: 4,
         createdAt: nowIso(),
+        registeredOffice: input.registeredOffice,
+        companiesHouseStatus: input.companiesHouseStatus,
+        sicCodes: input.sicCodes,
+        incorporatedOn: input.incorporatedOn,
       };
       mutate((d, ctx) => {
         d.clients.push(created);

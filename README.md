@@ -19,7 +19,7 @@ accountant's attention.
 | **Jobs / Job** | Status and *waiting on* tracked independently. Document checklist with completion %, approval checkpoints, simulated filing, communications, next action. |
 | **Chasing** | Reminder sequences per service. Drafts reference the actual outstanding items. Chasing stops automatically when everything is received. |
 | **Smart Inbox** | Incoming documents with suggested client/job/type/confidence. AI suggests, a human confirms; confirming attaches, updates the checklist and recalculates everything. |
-| **Onboarding** | Lightweight lead → active checklist with stage tracking. |
+| **Onboarding** | Lightweight lead → active checklist with stage tracking. Search Companies House by name to auto-fill company number, registered address and year end. |
 | **Capacity** | Load per accountant for 7/30/60 days with inline reassignment. |
 | **Readiness** | MTD for Income Tax and Companies House director/PSC identity verification. |
 | **Briefing** | Morning summary with ranked priorities. |
@@ -84,6 +84,7 @@ e2e/               Playwright specs
 - [docs/DOMAIN_MODEL.md](docs/DOMAIN_MODEL.md) — Practice, Client, Service, Obligation, Job, Request, Document, Communication, Blocker, Approval.
 - [docs/PRODUCT_DECISIONS.md](docs/PRODUCT_DECISIONS.md) — the important decisions and why.
 - [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) — the ten-scene demo, step by step.
+- [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) — Companies House (live), HMRC and accounting software (why they're not).
 
 ## Demo safety
 

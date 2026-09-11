@@ -4,10 +4,13 @@ import { PageHeader } from '../ui/components/PageHeader';
 import { Card, CardBody, CardHeader } from '../ui/components/Card';
 import { Button } from '../ui/components/Button';
 import { Field, Input, Select } from '../ui/components/Form';
+import { CompanyLookup } from '../ui/components/CompanyLookup';
 import { useAppStore } from '../application/store';
 import { useData } from '../application/selectors';
 import { CLIENT_TYPE_LABELS, SERVICES, CHANNEL_LABELS } from '../domain/catalog';
-import type { Channel, ClientType, ServiceCode } from '../domain/types';
+import type { Channel, ClientType, RegisteredAddress, ServiceCode } from '../domain/types';
+import type { CompanyProfile } from '../integrations/companiesHouseTypes';
+import { formatAccountingReferenceDate } from '../integrations/companiesHouse';
 import { cn } from '../ui/cn';
 
 const DEFAULT_SERVICES: Record<ClientType, ServiceCode[]> = {
@@ -36,6 +39,20 @@ export function NewClientPage() {
   const [ids, setIds] = useState({ utr: '', company_number: '', vat_number: '', paye_reference: '', nino: '' });
   const [more, setMore] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [companiesHouse, setCompaniesHouse] = useState<{ registeredOffice?: RegisteredAddress; companiesHouseStatus?: string; sicCodes?: string[]; incorporatedOn?: string } | null>(null);
+
+  const applyCompanyProfile = (profile: CompanyProfile) => {
+    setName(profile.companyName);
+    setIds((prev) => ({ ...prev, company_number: profile.companyNumber }));
+    const label = formatAccountingReferenceDate(profile.accountingReferenceDate);
+    if (label) setYearEnd(label);
+    setCompaniesHouse({
+      registeredOffice: profile.registeredOfficeAddress ? { ...profile.registeredOfficeAddress } : undefined,
+      companiesHouseStatus: profile.companyStatus ?? undefined,
+      sicCodes: profile.sicCodes,
+      incorporatedOn: profile.dateOfCreation ?? undefined,
+    });
+  };
 
   const changeType = (t: ClientType) => {
     setType(t);
@@ -65,6 +82,10 @@ export function NewClientPage() {
         services,
         identifiers: Object.fromEntries(Object.entries(ids).filter(([, v]) => v.trim()).map(([k, v]) => [k, v.replace(/\s/g, '').toUpperCase()])),
         yearEnd: yearEnd || undefined,
+        registeredOffice: companiesHouse?.registeredOffice,
+        companiesHouseStatus: companiesHouse?.companiesHouseStatus,
+        sicCodes: companiesHouse?.sicCodes,
+        incorporatedOn: companiesHouse?.incorporatedOn,
       });
       toast({ title: 'Client created', description: `${client.name} added — onboarding checklist started.`, tone: 'success' });
       navigate(`/clients/${client.id}`);
@@ -80,6 +101,11 @@ export function NewClientPage() {
         <Card>
           <CardHeader title="Client" />
           <CardBody className="grid gap-4 sm:grid-cols-2">
+            {type === 'limited_company' && (
+              <Field label="Look up on Companies House" htmlFor="nc-lookup" className="sm:col-span-2" hint="Optional — search by name to auto-fill the company number, registered address and year end.">
+                <CompanyLookup id="nc-lookup" onSelect={applyCompanyProfile} />
+              </Field>
+            )}
             <Field label="Client / company name" error={errors.name} htmlFor="nc-name" className="sm:col-span-2">
               <Input id="nc-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Harbour Cycles Ltd" autoFocus />
             </Field>

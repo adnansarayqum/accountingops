@@ -265,6 +265,24 @@ export function ClientDetailPage() {
               </CardBody>
             </Card>
 
+            {client.registeredOffice && (
+              <Card>
+                <CardHeader title="Companies House" description={client.incorporatedOn ? `Incorporated ${formatDate(client.incorporatedOn)}` : undefined} action={client.companiesHouseStatus && <Badge tone={client.companiesHouseStatus === 'active' ? 'green' : 'amber'}>{client.companiesHouseStatus}</Badge>} />
+                <CardBody className="pt-0 text-[13px] text-slate-700 space-y-2">
+                  <div>
+                    <p className="text-xs font-medium text-slate-500">Registered office</p>
+                    <p>{client.registeredOffice.formatted}</p>
+                  </div>
+                  {client.sicCodes && client.sicCodes.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-slate-500">SIC codes</p>
+                      <p>{client.sicCodes.join(', ')}</p>
+                    </div>
+                  )}
+                </CardBody>
+              </Card>
+            )}
+
             <Card>
               <CardHeader title="Identifiers" description="Masked by default. Reveals are recorded in the audit log." />
               <CardBody className="pt-0">

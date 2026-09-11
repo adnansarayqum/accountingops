@@ -104,6 +104,37 @@ tool-calling; the tools stay tenant-scoped and bounded. The database is never
 serialised into a prompt. Identifier answers are masked; full reveal happens
 only in the client record, where it is audited.
 
+## External integrations
+
+A live external integration follows one pattern, established by the
+Companies House lookup (full detail in `docs/INTEGRATIONS.md`):
+
+1. **A server-side proxy router** (`server/routes/<provider>.mjs`) is the
+   only code allowed to read that provider's credentials from
+   `process.env`. The browser calls this app's own `/api/<provider>/*`
+   routes — never the third-party API directly — so a key never reaches
+   client-side JavaScript.
+2. **A pure mapper module** (`server/lib/<provider>Mappers.mjs`) translates
+   the provider's JSON into this app's own slim shape. It has no network
+   dependency, so it's unit-tested directly against fixture JSON.
+3. **One router, two mount points, identical behaviour.** The production
+   server (`server/index.mjs`) and the Vite dev/preview server
+   (`vite.config.ts`, via a small plugin wrapping the router in a full
+   `express()` app) mount the exact same router — `npm run dev` and Railway
+   run the same code path, not a dev-only stub.
+4. **A client-side wrapper** (`src/integrations/<provider>.ts`) calls the
+   proxy and falls back to a clearly-labelled synthetic dataset
+   (`source: 'demo'`) when the proxy reports the credential isn't
+   configured, or the network call fails — so a missing key degrades the
+   feature, it never breaks the page.
+
+Companies House ships this way today: free key, no OAuth, read-only company
+search and profile lookup, used to auto-fill company details during
+onboarding. HMRC and accounting-software integrations are deliberately not
+built the same way yet — they need vendor recognition, per-client OAuth, or
+(for accounting software) would cross into bookkeeping, which is out of
+scope. See `docs/INTEGRATIONS.md` for the full reasoning.
+
 ## Activity vs audit
 
 `Activity` is a human feed and may be filtered or reworded. `AuditEvent` is
