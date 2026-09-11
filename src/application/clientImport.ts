@@ -2,6 +2,7 @@ import { addDays, addMonths, daysBetween, nowIso } from '../domain/dates';
 import { SERVICES } from '../domain/catalog';
 import { jobNameFor, periodKeyFor } from '../domain/rules';
 import { newId } from './ids';
+import { birthMonthYearOf, isSamePerson, normalisePersonName } from '../domain/personNames';
 import type { Client, ClientIdentifier, Contact, IdentifierKind, InformationRequestItem, IsoDate, Job, Obligation, Person, PersonRole, PersonRoleKind, RegisteredAddress, ServiceSubscription } from '../domain/types';
 import type { CompanyPeopleResponse, CompanyPerson, CompanyProfile } from '../integrations/companiesHouseTypes';
 
@@ -137,7 +138,7 @@ export function buildImportedClientRecords(rows: ClientRosterRow[], practiceId: 
       id: contactId,
       practiceId,
       clientId,
-      name: primaryDirectorName ?? PLACEHOLDER_CONTACT_NAME,
+      name: primaryDirectorName ? normalisePersonName(primaryDirectorName) : PLACEHOLDER_CONTACT_NAME,
       role: 'Director',
       isPrimary: true,
     });
@@ -176,23 +177,25 @@ export function buildImportedClientRecords(rows: ClientRosterRow[], practiceId: 
 /**
  * Turns a row's Companies House directors/PSCs into Person + PersonRole
  * records. The same individual can appear as both a director and a PSC
- * (common for a sole director-shareholder) — matched by name within this
- * one company, they share a single Person but get one PersonRole per kind,
- * same as this app's own demo data models it.
+ * (common for a sole director-shareholder) — and Companies House writes
+ * the name differently in each list ("SMITH, Jane" vs "Mrs Jane Smith"),
+ * so matching goes through the normalised name with birth month/year as
+ * the tie-breaker (see domain/personNames). Matched people share a single
+ * Person but get one PersonRole per kind, same as this app's own demo data
+ * models it.
  */
 function addPeopleForRow(row: ClientRosterRow, practiceId: string, clientId: string, people: Person[], personRoles: PersonRole[]): void {
-  const entries: { name: string; kind: PersonRoleKind; naturesOfControl?: string[] }[] = [
-    ...(row.directors ?? []).map((d) => ({ name: d.name, kind: 'director' as const })),
-    ...(row.pscs ?? []).map((p) => ({ name: p.name, kind: 'psc' as const, naturesOfControl: p.naturesOfControl })),
+  const entries: { name: string; birthMonthYear?: string; kind: PersonRoleKind; naturesOfControl?: string[] }[] = [
+    ...(row.directors ?? []).map((d) => ({ name: d.name, birthMonthYear: birthMonthYearOf(d.dateOfBirth), kind: 'director' as const })),
+    ...(row.pscs ?? []).map((p) => ({ name: p.name, birthMonthYear: birthMonthYearOf(p.dateOfBirth), kind: 'psc' as const, naturesOfControl: p.naturesOfControl })),
   ];
-  const personIdByName = new Map<string, string>();
+  const added: { name: string; birthMonthYear?: string; personId: string }[] = [];
   for (const entry of entries) {
-    const key = entry.name.trim().toUpperCase();
-    let personId = personIdByName.get(key);
+    let personId = added.find((a) => isSamePerson(a, entry))?.personId;
     if (!personId) {
       personId = newId('p');
-      personIdByName.set(key, personId);
-      people.push({ id: personId, practiceId, fullName: entry.name });
+      added.push({ name: entry.name, birthMonthYear: entry.birthMonthYear, personId });
+      people.push({ id: personId, practiceId, fullName: normalisePersonName(entry.name), birthMonthYear: entry.birthMonthYear });
     }
     personRoles.push({
       id: newId('pr'),

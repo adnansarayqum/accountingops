@@ -139,6 +139,17 @@ describe('application store — primary workflow', () => {
     expect(useAppStore.getState().data.clients.length).toBe(before + 1);
   });
 
+  it('treats every spelling of a company number as the same client, and stores the canonical one', () => {
+    const first = useAppStore.getState().importClients([{ name: 'Zero Ltd', companyNumber: '8654123' }]);
+    expect(first.created).toBe(1);
+    const client = useAppStore.getState().data.clients.find((c) => c.name === 'Zero Ltd')!;
+    expect(useAppStore.getState().data.identifiers.find((i) => i.clientId === client.id && i.kind === 'company_number')?.value).toBe('08654123');
+
+    const again = useAppStore.getState().importClients([{ name: 'Zero Ltd', companyNumber: '08654123' }, { name: 'Zero Ltd', companyNumber: ' 0865 4123 ' }]);
+    expect(again.created).toBe(0);
+    expect(again.skipped).toHaveLength(2);
+  });
+
   describe('contacts', () => {
     const contactsOf = (clientId: string) => useAppStore.getState().data.contacts.filter((c) => c.clientId === clientId);
     const primaryOf = (clientId: string) => {
@@ -297,6 +308,42 @@ describe('application store — primary workflow', () => {
       expect(newRole.kind).toBe('psc');
       expect(newRole.naturesOfControl).toEqual(['Owns 75-100% of shares']);
       expect(newRole.identityVerification).toBe('not_started');
+    });
+
+    it('matches Companies House\'s two spellings of a person already on file, instead of adding them again', () => {
+      // cl_abc already has "Dave Thompson" as director and PSC. The register
+      // spells him "THOMPSON, Dave" in one list and "Mr Dave Thompson" in the other.
+      const before = useAppStore.getState().data;
+      const { peopleAdded } = useAppStore.getState().refreshClientFromCompaniesHouse('cl_abc', null, {
+        directors: [{ name: 'THOMPSON, Dave', role: 'director', appointedOn: null, dateOfBirth: { month: '4', year: '1978' }, nationality: null, occupation: null, naturesOfControl: [] }],
+        pscs: [{ name: 'Mr Dave Thompson', role: 'psc', appointedOn: null, dateOfBirth: { month: '4', year: '1978' }, nationality: null, occupation: null, naturesOfControl: ['Owns 75-100% of shares'] }],
+        source: 'companies_house',
+      });
+      expect(peopleAdded).toBe(0);
+      const after = useAppStore.getState().data;
+      expect(after.people.length).toBe(before.people.length);
+      expect(after.personRoles.filter((r) => r.clientId === 'cl_abc').length).toBe(before.personRoles.filter((r) => r.clientId === 'cl_abc').length);
+      // The name on file is left exactly as the practice had it; only the birth month is learned.
+      const dave = after.people.find((p) => p.id === 'p_dave')!;
+      expect(dave.fullName).toBe('Dave Thompson');
+      expect(dave.birthMonthYear).toBe('1978-04');
+    });
+
+    it('adds one person, not two, when a new director and PSC are the same individual spelled two ways', () => {
+      useAppStore.getState().importClients([{ name: 'Mosaic Building Design Ltd', companyNumber: '44445555' }]);
+      const client = useAppStore.getState().data.clients.find((c) => c.name === 'Mosaic Building Design Ltd')!;
+      const { peopleAdded } = useAppStore.getState().refreshClientFromCompaniesHouse(client.id, null, {
+        directors: [{ name: 'HASAN, Mohammad', role: 'director', appointedOn: null, dateOfBirth: { month: '3', year: '1985' }, nationality: null, occupation: null, naturesOfControl: [] }],
+        pscs: [{ name: 'Mr Mohammad Hasan', role: 'psc', appointedOn: null, dateOfBirth: { month: '3', year: '1985' }, nationality: null, occupation: null, naturesOfControl: [] }],
+        source: 'companies_house',
+      });
+      expect(peopleAdded).toBe(2); // two roles…
+      const roles = useAppStore.getState().data.personRoles.filter((r) => r.clientId === client.id);
+      expect(new Set(roles.map((r) => r.personId)).size).toBe(1); // …one person
+      const person = useAppStore.getState().data.people.find((p) => p.id === roles[0].personId)!;
+      expect(person.fullName).toBe('Mohammad Hasan');
+      const contact = useAppStore.getState().data.contacts.find((c) => c.id === client.primaryContactId)!;
+      expect(contact.name).toBe('Mohammad Hasan');
     });
 
     it('replaces a placeholder primary-contact name with the first director once one is known', () => {

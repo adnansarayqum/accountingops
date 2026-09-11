@@ -165,8 +165,13 @@ test.describe('import clients', () => {
     await expect(page.getByText('OLD HARBOURLINE LTD')).toBeVisible();
   });
 
-  test('shows a warning and still allows import when no Companies House key is configured', async ({ page }) => {
+  test('shows a warning and still allows import when no Companies House key is configured, without looking anything up', async ({ page }) => {
     await page.route('**/api/companies-house/status', (route) => route.fulfill({ json: { configured: false } }));
+    const lookups: string[] = [];
+    await page.route('**/api/companies-house/company/**', (route) => {
+      lookups.push(route.request().url());
+      void route.fulfill({ status: 503, json: { error: 'not_configured' } });
+    });
 
     const file = buildRosterFile();
     await page.goto('/clients/import');
@@ -174,8 +179,34 @@ test.describe('import clients', () => {
 
     await expect(page.getByText('No live Companies House data')).toBeVisible();
     await expect(page.getByText('2 clients ready to import')).toBeVisible();
+    await expect(page.getByTestId('confirm-import')).toBeEnabled();
+    expect(lookups, 'no per-row lookups when there is no key to look up with').toEqual([]);
     await page.getByTestId('confirm-import').click();
     await expect(page).toHaveURL(/\/clients$/);
+  });
+
+  test('reads UK-style typed dates and restores a lost leading zero, and flags what it could not read', async ({ page }) => {
+    const rows = [
+      { Name: 'Typed Dates Ltd', 'Company no': 8654123, 'Next accounts': '30/06/2026', Due: '31/03/2027', 'Date for CS': 'sometime' },
+      { Name: 'Typed Dates Ltd (dup)', 'Company no': '08654123' },
+    ];
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, 'Sheet1');
+    const dir = mkdtempSync(path.join(tmpdir(), 'roster-'));
+    const file = path.join(dir, 'typed.xlsx');
+    writeFileSync(file, XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer);
+
+    await page.goto('/clients/import');
+    await page.setInputFiles('input[type="file"]', file);
+
+    await expect(page.getByText('1 client ready to import')).toBeVisible();
+    const row = page.locator('tr', { hasText: 'Typed Dates Ltd' });
+    await expect(row.getByText('08654123')).toBeVisible();
+    await expect(row.getByText('31 Mar 2027')).toBeVisible();
+    await expect(page.getByText('1 row skipped')).toBeVisible();
+    await expect(page.getByText(/same company number \(08654123\) as Typed Dates Ltd earlier in the file/)).toBeVisible();
+    await expect(page.getByTestId('import-notes')).toContainText('couldn\'t read "sometime" as a date for Date for CS');
   });
 
   test('re-importing the same roster skips already-imported clients', async ({ page }) => {

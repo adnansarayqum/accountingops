@@ -17,6 +17,8 @@ import { useAppStore } from '../application/store';
 import { useData, useDerived, useToday } from '../application/selectors';
 import { CHANNEL_LABELS, CLIENT_TYPE_LABELS, IDENTIFIER_LABELS, SERVICES } from '../domain/catalog';
 import { formatAgo, formatDate, formatDateTime, formatSince } from '../domain/dates';
+import { normaliseCompanyNumber } from '../domain/companyNumber';
+import { normalisePersonName } from '../domain/personNames';
 import type { Channel, IdentifierKind, Job } from '../domain/types';
 import { cn } from '../ui/cn';
 import { ContactsCard } from '../ui/components/ContactsCard';
@@ -65,7 +67,10 @@ export function ClientDetailPage() {
     client.type === 'limited_company'
       ? ['utr', 'company_number', 'vat_number', 'paye_reference', 'accounts_office_ref', 'ch_auth_code', 'personal_code', 'gateway_credentials']
       : ['utr', 'nino', 'vat_number', 'paye_reference', 'personal_code', 'gateway_credentials'];
-  const companyNumber = identifiers.find((i) => i.kind === 'company_number')?.value;
+  const storedCompanyNumber = identifiers.find((i) => i.kind === 'company_number')?.value;
+  // Looked up in the canonical spelling: a number stored before leading zeros
+  // were preserved ("8654123") would otherwise get a 404 from the register.
+  const companyNumber = storedCompanyNumber ? normaliseCompanyNumber(storedCompanyNumber) : undefined;
 
   const refreshFromCompaniesHouse = async () => {
     if (!companyNumber) return;
@@ -404,7 +409,7 @@ export function ClientDetailPage() {
                         <li key={r.id} className="py-2 flex items-center gap-3">
                           <Icon className={cn('h-4 w-4', r.identityVerification === 'verified' ? 'text-emerald-500' : r.identityVerification === 'in_progress' ? 'text-amber-500' : 'text-red-500')} />
                           <div className="min-w-0 flex-1">
-                            <p className="text-[13px] font-medium text-slate-900">{person?.fullName}</p>
+                            <p className="text-[13px] font-medium text-slate-900">{person ? normalisePersonName(person.fullName) : ''}</p>
                             <p className="text-xs text-slate-500 capitalize">{r.kind === 'psc' ? 'PSC' : r.kind}</p>
                             {r.naturesOfControl && r.naturesOfControl.length > 0 && <p className="text-xs text-slate-400">{r.naturesOfControl.join(', ')}</p>}
                           </div>

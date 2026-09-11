@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileSpreadsheet, Upload, AlertTriangle, Building2 } from 'lucide-react';
+import { FileSpreadsheet, Upload, AlertTriangle, Building2, Info } from 'lucide-react';
 import { PageHeader } from '../ui/components/PageHeader';
 import { Card, CardBody, CardHeader } from '../ui/components/Card';
 import { Button } from '../ui/components/Button';
@@ -9,18 +9,31 @@ import { useAppStore } from '../application/store';
 import { formatDate } from '../domain/dates';
 import { mergeCompanyPeople, mergeCompanyProfile, type ClientRosterRow } from '../application/clientImport';
 import { mapWithConcurrency } from '../application/companiesHouseSync';
-import { getCompaniesHouseStatus, getCompanyPeople, getCompanyProfile } from '../integrations/companiesHouse';
+import { getCompaniesHouseStatus, getCompanyPeople, lookupCompanyProfile, type CompanyLookupOutcome } from '../integrations/companiesHouse';
 
-type EnrichStatus = 'pending' | 'live' | 'unavailable';
+type EnrichStatus = 'pending' | CompanyLookupOutcome;
+
+// Why a row has no live data, in the words a person would use.
+const NO_LIVE_DATA_REASON: Record<Exclude<CompanyLookupOutcome, 'live'>, string | null> = {
+  not_configured: null,
+  not_found: 'not on the register — check the number',
+  rate_limited: 'Companies House is rate limiting, try again in a few minutes',
+  unavailable: 'lookup failed',
+};
 
 export function ImportClientsPage() {
   const navigate = useNavigate();
   const importClients = useAppStore((s) => s.importClients);
   const toast = useAppStore((s) => s.toast);
   const fileInput = useRef<HTMLInputElement>(null);
+  // Each enrichment run gets a number; a run that finds it is no longer the
+  // current one (a second file was chosen, or Cancel was pressed) drops its
+  // results instead of writing stale rows over the new file's.
+  const enrichRun = useRef(0);
   const [parsing, setParsing] = useState(false);
   const [rows, setRows] = useState<ClientRosterRow[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [notes, setNotes] = useState<string[]>([]);
   const [fileName, setFileName] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [chConfigured, setChConfigured] = useState<boolean | null>(null);
@@ -29,35 +42,53 @@ export function ImportClientsPage() {
   const [enrichStatus, setEnrichStatus] = useState<EnrichStatus[]>([]);
 
   const reset = () => {
+    enrichRun.current += 1;
     setRows([]);
     setWarnings([]);
+    setNotes([]);
     setFileName(null);
     setEnrichStatus([]);
     setChConfigured(null);
+    setEnriching(false);
     if (fileInput.current) fileInput.current.value = '';
   };
 
   const enrichFromCompaniesHouse = async (parsedRows: ClientRosterRow[]) => {
+    const run = ++enrichRun.current;
+    const stillCurrent = () => run === enrichRun.current;
     setEnriching(true);
     setEnrichProgress(0);
     setEnrichStatus(parsedRows.map(() => 'pending'));
     const status = await getCompaniesHouseStatus();
+    if (!stillCurrent()) return;
     setChConfigured(status.configured);
+    if (!status.configured) {
+      // Nothing to look up against — every per-row call would just 503.
+      setEnrichStatus(parsedRows.map(() => 'not_configured'));
+      setEnriching(false);
+      return;
+    }
 
     let done = 0;
     const enriched = await mapWithConcurrency(parsedRows, 4, async (row, i) => {
-      const [profile, people] = await Promise.all([getCompanyProfile(row.companyNumber), getCompanyPeople(row.companyNumber)]);
+      const [lookup, people] = await Promise.all([lookupCompanyProfile(row.companyNumber), getCompanyPeople(row.companyNumber)]);
+      if (!stillCurrent()) return row;
       done += 1;
       setEnrichProgress(done);
       setEnrichStatus((prev) => {
         const next = [...prev];
-        next[i] = profile ? 'live' : 'unavailable';
+        next[i] = lookup.outcome;
         return next;
       });
-      let next = profile ? mergeCompanyProfile(row, profile) : row;
-      if (people.directors.length > 0 || people.pscs.length > 0) next = mergeCompanyPeople(next, people);
+      // Only genuinely live data is merged. The sample fallback the other
+      // lookups use for demos must never be recorded as though it came from
+      // the register — it would carry a sync timestamp and suppress the real
+      // lookup later.
+      let next = lookup.profile ? mergeCompanyProfile(row, lookup.profile) : row;
+      if (people.source === 'companies_house' && (people.directors.length > 0 || people.pscs.length > 0)) next = mergeCompanyPeople(next, people);
       return next;
     });
+    if (!stillCurrent()) return;
 
     setRows(enriched);
     setEnriching(false);
@@ -71,7 +102,11 @@ export function ImportClientsPage() {
       const parsed = await parseClientRosterFile(file);
       setRows(parsed.rows);
       setWarnings(parsed.warnings);
+      setNotes(parsed.notes);
       if (parsed.rows.length === 0) {
+        enrichRun.current += 1;
+        setEnrichStatus([]);
+        setEnriching(false);
         toast({ title: "Couldn't find any usable rows", description: 'Check the file has a Name and Company no column.', tone: 'error' });
       } else {
         void enrichFromCompaniesHouse(parsed.rows);
@@ -101,12 +136,21 @@ export function ImportClientsPage() {
     }
   };
 
+  const noLiveDataLabel = (status: EnrichStatus) => {
+    const reason = status === 'pending' || status === 'live' ? null : NO_LIVE_DATA_REASON[status];
+    return reason ? `No live data · ${reason}` : 'No live data';
+  };
+
   return (
     <div className="animate-in max-w-4xl">
       <PageHeader title="Import clients" description="Add clients in bulk from an existing roster, enriched from Companies House. Parsed entirely in your browser — the file is never uploaded anywhere." />
 
       <Card>
-        <CardHeader title="Upload a spreadsheet" icon={<FileSpreadsheet />} description="Columns: Name, Company no, UTR number, Auth code, Personal Code, Gateway, Next accounts, Due, Date for CS. Extra or missing columns are fine — only Name and Company no are required." />
+        <CardHeader
+          title="Upload a spreadsheet"
+          icon={<FileSpreadsheet />}
+          description="Columns: Name, Company no, UTR number, Auth code, Personal Code, Gateway, Next accounts, Due, Date for CS. Extra or missing columns are fine — only Name and Company no are required. Dates can be typed the UK way (31/03/2027)."
+        />
         <CardBody className="pt-0">
           <input
             ref={fileInput}
@@ -131,10 +175,9 @@ export function ImportClientsPage() {
         <Card className="mt-4 border-amber-200">
           <CardHeader title="No live Companies House data" icon={<Building2 />} />
           <CardBody className="pt-0 text-[13px] text-slate-700 space-y-1.5">
-            <p>No Companies House API key is configured, so registered address, incorporation date, SIC codes and live filing dates couldn't be filled in — clients below only have what the spreadsheet itself gave.</p>
+            <p>No Companies House API key is configured, so registered address, incorporation date, SIC codes and live filing dates couldn't be filled in — clients below only have what the spreadsheet itself gave. You can still import them and refresh from Companies House later.</p>
             <p>
-              To turn this on: register a free key at{' '}
-              <span className="font-mono">developer.company-information.service.gov.uk</span>, then set <span className="font-mono">COMPANIES_HOUSE_API_KEY</span> as an environment variable and redeploy. See{' '}
+              To turn this on, whoever looks after the deployment registers a free key at <span className="font-mono">developer.company-information.service.gov.uk</span> and sets it as <span className="font-mono">COMPANIES_HOUSE_API_KEY</span>. See{' '}
               <span className="font-mono">docs/INTEGRATIONS.md</span> for the full steps.
             </p>
           </CardBody>
@@ -148,6 +191,19 @@ export function ImportClientsPage() {
             <ul className="text-[13px] text-slate-600 space-y-1">
               {warnings.map((w, i) => (
                 <li key={i}>{w}</li>
+              ))}
+            </ul>
+          </CardBody>
+        </Card>
+      )}
+
+      {notes.length > 0 && (
+        <Card className="mt-4" data-testid="import-notes">
+          <CardHeader title={`${notes.length} thing${notes.length === 1 ? '' : 's'} to check`} icon={<Info />} description="These rows still import — worth a look before you confirm." />
+          <CardBody className="pt-0">
+            <ul className="text-[13px] text-slate-600 space-y-1">
+              {notes.map((n, i) => (
+                <li key={i}>{n}</li>
               ))}
             </ul>
           </CardBody>
@@ -190,7 +246,9 @@ export function ImportClientsPage() {
                             Live{r.companiesHouseStatus ? ` · ${r.companiesHouseStatus}` : ''}
                           </Badge>
                         )}
-                        {enrichStatus[i] === 'unavailable' && <Badge tone="neutral">No live data</Badge>}
+                        {enrichStatus[i] && enrichStatus[i] !== 'pending' && enrichStatus[i] !== 'live' && (
+                          <Badge tone={enrichStatus[i] === 'not_configured' ? 'neutral' : 'amber'}>{noLiveDataLabel(enrichStatus[i])}</Badge>
+                        )}
                       </td>
                       <td className="py-2 px-3 text-slate-700">
                         {(r.directors?.length ?? 0) === 0 && (r.pscs?.length ?? 0) === 0
