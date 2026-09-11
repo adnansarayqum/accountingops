@@ -37,8 +37,11 @@ export function NotificationCenter() {
         <Bell className="h-5 w-5" />
         {unread > 0 && <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" />}
       </button>
+      {/* On a phone the bell sits near the right edge, so a popover anchored to
+          it runs off the left of the screen; below `sm` it's pinned to the
+          viewport instead, just under the header. */}
       {open && (
-        <div className="absolute right-0 mt-2 w-[22rem] max-w-[calc(100vw-2rem)] card shadow-pop z-40 animate-in">
+        <div className="fixed inset-x-4 top-16 sm:absolute sm:inset-x-auto sm:top-auto sm:right-0 sm:mt-2 sm:w-[22rem] card shadow-pop z-40 animate-in" data-testid="notifications-popover">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100">
             <p className="text-sm font-semibold">Notifications</p>
             {unread > 0 && (

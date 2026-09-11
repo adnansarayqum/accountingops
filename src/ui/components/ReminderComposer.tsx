@@ -83,7 +83,8 @@ export function ReminderComposer({ job, open, onClose, initialChannel }: { job: 
       <div className="flex flex-col gap-4">
         <div>
           <p className="text-[13px] font-medium text-slate-700 mb-1.5">Channel</p>
-          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Channel">
+          {/* Stacked on a phone: three across at 390px clipped the "preferred" tag. */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" role="radiogroup" aria-label="Channel">
             {CHANNELS.map((c) => {
               const Icon = c.icon;
               const available = c.value === 'email' ? !!contact.email : c.value === 'whatsapp' ? !!(contact.whatsapp ?? contact.phone) : !!contact.phone;
@@ -99,7 +100,7 @@ export function ReminderComposer({ job, open, onClose, initialChannel }: { job: 
                 >
                   <Icon className="h-4 w-4" />
                   {CHANNEL_LABELS[c.value]}
-                  {client.preferredChannel === c.value && <span className="text-[10px] uppercase tracking-wide text-slate-400">preferred</span>}
+                  {client.preferredChannel === c.value && <span className="text-[10px] uppercase tracking-wide text-slate-400 whitespace-nowrap">preferred</span>}
                 </button>
               );
             })}

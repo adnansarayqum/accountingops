@@ -68,7 +68,7 @@ export function JobList({ views, showClient = true, emptyTitle = 'No jobs here',
                   </div>
                 </td>
                 <td className="px-3 align-middle">
-                  <span className={cn('text-[13px]', v.nextAction.kind === 'send_reminder' ? 'text-amber-700 font-medium' : 'text-slate-600')}>{v.nextAction.label}</span>
+                  <span className={cn('text-[13px] whitespace-nowrap', v.nextAction.kind === 'send_reminder' ? 'text-amber-700 font-medium' : 'text-slate-600')}>{v.nextAction.label}</span>
                 </td>
                 <td className="pr-4 align-middle text-right">
                   <Link to={`/jobs/${v.job.id}`} className="text-slate-300 group-hover:text-primary-600" aria-label={`Open ${v.job.name}`}>

@@ -358,8 +358,8 @@ export function ClientDetailPage() {
                     const rec = identifiers.find((i) => i.kind === kind);
                     return (
                       <div key={kind} className="flex items-center justify-between gap-3 py-2">
-                        <dt className="text-[13px] text-slate-500">{IDENTIFIER_LABELS[kind]}</dt>
-                        <dd className="flex items-center gap-2">
+                        <dt className="text-[13px] text-slate-500 min-w-0">{IDENTIFIER_LABELS[kind]}</dt>
+                        <dd className="flex items-center gap-2 shrink-0">
                           {editingId === kind ? (
                             <form
                               className="flex items-center gap-1"
@@ -375,7 +375,7 @@ export function ClientDetailPage() {
                           ) : rec ? (
                             <MaskedValue value={rec.value} kind={kind} clientId={client.id} />
                           ) : (
-                            <span className="text-xs text-slate-400">Not on file</span>
+                            <span className="text-xs text-slate-400 whitespace-nowrap">Not on file</span>
                           )}
                           {editing && editingId !== kind && (
                             <button
