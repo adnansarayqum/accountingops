@@ -28,6 +28,11 @@ function companyNumber(clientId: string, value: string): ClientIdentifier {
 const hoursAgo = (h: number) => new Date(now.getTime() - h * 60 * 60 * 1000).toISOString();
 
 describe('findStaleClients', () => {
+  it('looks a client up by the canonical spelling of its company number, whatever was stored', () => {
+    const stale = findStaleClients([client('cl_zero')], [companyNumber('cl_zero', '8654123')], now);
+    expect(stale).toEqual([{ clientId: 'cl_zero', companyNumber: '08654123' }]);
+  });
+
   it('picks up a client that has never been synced', () => {
     const stale = findStaleClients([client('cl_1')], [companyNumber('cl_1', '12345678')], now);
     expect(stale).toEqual([{ clientId: 'cl_1', companyNumber: '12345678' }]);

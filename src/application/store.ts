@@ -4,6 +4,8 @@ import { buildImportedClientRecords, PLACEHOLDER_CONTACT_NAME, type ClientRoster
 import type { AuthUser } from './auth';
 import type { CompanyPeopleResponse, CompanyProfile } from '../integrations/companiesHouseTypes';
 import { nowIso, todayIso } from '../domain/dates';
+import { normaliseCompanyNumber } from '../domain/companyNumber';
+import { birthMonthYearOf, isSamePerson, normalisePersonName, personNameKey } from '../domain/personNames';
 import { CHANNEL_LABELS, JOB_STATUS_LABELS, SERVICES, FILING_DESTINATION } from '../domain/catalog';
 import {
   canTransition,
@@ -242,22 +244,31 @@ function applyCompaniesHouseRefresh(
     // Only ever additive: a director/PSC Companies House no longer lists (resigned,
     // ceased) keeps their existing role here rather than being silently removed — the
     // practice's own identity-verification history on that role shouldn't just vanish.
+    //
+    // Matching is by normalised name (Companies House writes "SMITH, Jane" in one
+    // list and "Mrs Jane Smith" in the other) with birth month/year as the
+    // tie-breaker. Names already on file are left as they were stored — only new
+    // records get the normalised form — so nothing the practice has typed changes.
     const existingRoleKeys = new Set(
       d.personRoles
         .filter((r) => r.clientId === clientId)
-        .map((r) => `${(d.people.find((p) => p.id === r.personId)?.fullName ?? '').trim().toUpperCase()}|${r.kind}`),
+        .map((r) => `${personNameKey(d.people.find((p) => p.id === r.personId)?.fullName ?? '')}|${r.kind}`),
     );
-    const entries: { name: string; kind: PersonRoleKind; naturesOfControl?: string[] }[] = [
-      ...people.directors.map((p) => ({ name: p.name, kind: 'director' as const })),
-      ...people.pscs.map((p) => ({ name: p.name, kind: 'psc' as const, naturesOfControl: p.naturesOfControl })),
+    const entries: { name: string; birthMonthYear?: string; kind: PersonRoleKind; naturesOfControl?: string[] }[] = [
+      ...people.directors.map((p) => ({ name: p.name, birthMonthYear: birthMonthYearOf(p.dateOfBirth), kind: 'director' as const })),
+      ...people.pscs.map((p) => ({ name: p.name, birthMonthYear: birthMonthYearOf(p.dateOfBirth), kind: 'psc' as const, naturesOfControl: p.naturesOfControl })),
     ];
     for (const entry of entries) {
-      const key = entry.name.trim().toUpperCase();
+      const key = personNameKey(entry.name);
+      const existingPerson = d.people.find((p) => isSamePerson({ name: p.fullName, birthMonthYear: p.birthMonthYear }, entry));
+      // A person on file without a recorded birth month learns it now — even when
+      // their role is already linked — so a later namesake with a different one
+      // is kept apart.
+      if (existingPerson && !existingPerson.birthMonthYear && entry.birthMonthYear) existingPerson.birthMonthYear = entry.birthMonthYear;
       if (existingRoleKeys.has(`${key}|${entry.kind}`)) continue;
       existingRoleKeys.add(`${key}|${entry.kind}`);
-      const existingPerson = d.people.find((p) => p.fullName.trim().toUpperCase() === key);
       const personId = existingPerson?.id ?? newId('p');
-      if (!existingPerson) d.people.push({ id: personId, practiceId: d.practice.id, fullName: entry.name });
+      if (!existingPerson) d.people.push({ id: personId, practiceId: d.practice.id, fullName: normalisePersonName(entry.name), birthMonthYear: entry.birthMonthYear });
       d.personRoles.push({
         id: newId('pr'),
         practiceId: d.practice.id,
@@ -275,7 +286,7 @@ function applyCompaniesHouseRefresh(
     // primary contact name — replace it now that a real director's name is known.
     if (people.directors.length > 0) {
       const contact = d.contacts.find((c) => c.id === client.primaryContactId);
-      if (contact && contact.name === PLACEHOLDER_CONTACT_NAME) contact.name = people.directors[0].name;
+      if (contact && contact.name === PLACEHOLDER_CONTACT_NAME) contact.name = normalisePersonName(people.directors[0].name);
     }
   }
 
@@ -783,9 +794,9 @@ export const useAppStore = create<AppState>((set, get) => {
       let created = 0;
       const skipped: string[] = [];
       mutate((d, ctx) => {
-        const existingNumbers = new Set(d.identifiers.filter((i) => i.kind === 'company_number').map((i) => i.value.replace(/\s/g, '').toUpperCase()));
+        const existingNumbers = new Set(d.identifiers.filter((i) => i.kind === 'company_number').map((i) => normaliseCompanyNumber(i.value)));
         const toImport = rows.filter((r) => {
-          const key = r.companyNumber.replace(/\s/g, '').toUpperCase();
+          const key = normaliseCompanyNumber(r.companyNumber);
           if (existingNumbers.has(key)) {
             skipped.push(`${r.name} (${r.companyNumber}) — already on file`);
             return false;
@@ -794,7 +805,9 @@ export const useAppStore = create<AppState>((set, get) => {
           return true;
         });
         if (toImport.length === 0) return;
-        const built = buildImportedClientRecords(toImport, d.practice.id, get().currentUserId, get().today);
+        // Stored in the one canonical spelling, so a later lookup or re-import matches.
+        const normalised = toImport.map((r) => ({ ...r, companyNumber: normaliseCompanyNumber(r.companyNumber) }));
+        const built = buildImportedClientRecords(normalised, d.practice.id, get().currentUserId, get().today);
         d.clients.push(...built.clients);
         d.contacts.push(...built.contacts);
         d.identifiers.push(...built.identifiers);

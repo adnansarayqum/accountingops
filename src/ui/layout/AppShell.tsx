@@ -11,6 +11,7 @@ import { useAppStore } from '../../application/store';
 import { useData } from '../../application/selectors';
 import { useCompaniesHouseSync } from '../../application/useCompaniesHouseSync';
 import { useRefreshOnFocus, useUnsavedChangesWarning } from '../../application/usePersistenceGuards';
+import { useLiveToday } from '../../application/useLiveToday';
 import { LoadFailedBanner } from '../components/LoadFailedBanner';
 import { formatDate } from '../../domain/dates';
 
@@ -26,6 +27,7 @@ export function AppShell() {
   useCompaniesHouseSync();
   useRefreshOnFocus();
   useUnsavedChangesWarning();
+  useLiveToday();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

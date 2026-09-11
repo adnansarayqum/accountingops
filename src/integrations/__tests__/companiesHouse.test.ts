@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { formatAccountingReferenceDate, getCompanyPeople, getCompanyProfile, searchCompanies } from '../companiesHouse';
+import { formatAccountingReferenceDate, getCompanyPeople, getCompanyProfile, lookupCompanyProfile, searchCompanies } from '../companiesHouse';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -41,6 +41,31 @@ describe('getCompanyProfile', () => {
     const profile = await getCompanyProfile('14829301');
     expect(profile?.source).toBe('sample');
     expect(profile?.companyName).toBe('HARBOUR CYCLES LTD');
+  });
+});
+
+describe('lookupCompanyProfile', () => {
+  const answer = (status: number, body: unknown = {}) => vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status })));
+
+  it('says why there is no live data instead of substituting sample data', async () => {
+    answer(503, { error: 'not_configured' });
+    expect(await lookupCompanyProfile('14829301')).toEqual({ outcome: 'not_configured', profile: null });
+    answer(404, { error: 'not_found' });
+    expect(await lookupCompanyProfile('14829301')).toEqual({ outcome: 'not_found', profile: null });
+    answer(429, { error: 'rate_limited' });
+    expect(await lookupCompanyProfile('14829301')).toEqual({ outcome: 'rate_limited', profile: null });
+    answer(502, { error: 'upstream_unreachable' });
+    expect(await lookupCompanyProfile('14829301')).toEqual({ outcome: 'unavailable', profile: null });
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network down'); }));
+    expect(await lookupCompanyProfile('14829301')).toEqual({ outcome: 'unavailable', profile: null });
+  });
+
+  it('returns the live profile on success', async () => {
+    const live = { companyNumber: '14829301', companyName: 'LIVE LTD', source: 'companies_house' };
+    answer(200, live);
+    const result = await lookupCompanyProfile('14829301');
+    expect(result.outcome).toBe('live');
+    expect(result.profile).toEqual(live);
   });
 });
 

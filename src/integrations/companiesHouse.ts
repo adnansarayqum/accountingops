@@ -47,16 +47,33 @@ export async function getCompaniesHouseStatus(): Promise<{ configured: boolean }
   }
 }
 
-export async function getCompanyProfile(companyNumber: string): Promise<CompanyProfile | null> {
+/** Why a profile lookup didn't return live data — so a screen can say "not on the register" rather than a bare "no data". */
+export type CompanyLookupOutcome = 'live' | 'not_configured' | 'not_found' | 'rate_limited' | 'unavailable';
+
+export interface CompanyLookupResult {
+  outcome: CompanyLookupOutcome;
+  /** Present only when `outcome` is 'live' — never sample data. */
+  profile: CompanyProfile | null;
+}
+
+/** A profile lookup that reports what happened instead of quietly substituting sample data. */
+export async function lookupCompanyProfile(companyNumber: string): Promise<CompanyLookupResult> {
   try {
     const res = await fetch(`/api/companies-house/company/${encodeURIComponent(companyNumber)}`);
-    if (NOT_CONFIGURED_STATUSES.has(res.status)) return mockCompanyProfile(companyNumber);
-    if (!res.ok) return mockCompanyProfile(companyNumber);
+    if (NOT_CONFIGURED_STATUSES.has(res.status)) return { outcome: 'not_configured', profile: null };
+    if (res.status === 404) return { outcome: 'not_found', profile: null };
+    if (res.status === 429) return { outcome: 'rate_limited', profile: null };
+    if (!res.ok) return { outcome: 'unavailable', profile: null };
     const data = await safeJson<CompanyProfile>(res);
-    return data ?? mockCompanyProfile(companyNumber);
+    return data ? { outcome: 'live', profile: data } : { outcome: 'unavailable', profile: null };
   } catch {
-    return mockCompanyProfile(companyNumber);
+    return { outcome: 'unavailable', profile: null };
   }
+}
+
+export async function getCompanyProfile(companyNumber: string): Promise<CompanyProfile | null> {
+  const { profile } = await lookupCompanyProfile(companyNumber);
+  return profile ?? mockCompanyProfile(companyNumber);
 }
 
 /** Active directors and individual PSCs for a company. */

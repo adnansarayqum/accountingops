@@ -1,4 +1,5 @@
 import type { Client, ClientIdentifier, IsoDateTime } from '../domain/types';
+import { normaliseCompanyNumber } from '../domain/companyNumber';
 
 /** How old a client's Companies House data may be before it's re-pulled. */
 export const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -30,7 +31,9 @@ export function findStaleClients(
   const limit = opts.limit ?? BATCH_SIZE;
   const numberByClient = new Map<string, string>();
   for (const id of identifiers) {
-    if (id.kind === 'company_number' && id.value.trim()) numberByClient.set(id.clientId, id.value.trim());
+    // Normalised at lookup time as well as at import, so a number stored before
+    // leading zeros were preserved still finds its company.
+    if (id.kind === 'company_number' && id.value.trim()) numberByClient.set(id.clientId, normaliseCompanyNumber(id.value));
   }
 
   return clients

@@ -117,6 +117,8 @@ export interface Person {
   practiceId: Id;
   fullName: string;
   dateOfBirth?: IsoDate;
+  /** "1980-05" — the month and year Companies House publishes (never the day). Used to tell two people with the same name apart. */
+  birthMonthYear?: string;
   email?: string;
 }
 

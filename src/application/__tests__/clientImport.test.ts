@@ -118,6 +118,32 @@ describe('buildImportedClientRecords', () => {
     expect(built.personRoles.map((r) => r.kind).sort()).toEqual(['director', 'psc']);
   });
 
+  it('recognises the officers-list and PSC-list spellings of one person, and stores the readable form', () => {
+    const row: ClientRosterRow = {
+      name: 'Mosaic Building Design Ltd',
+      companyNumber: '12345678',
+      directors: [fakePerson({ name: 'HASAN, Mohammad', role: 'director', dateOfBirth: { month: '3', year: '1985' } })],
+      pscs: [fakePerson({ name: 'Mr Mohammad Hasan', role: 'psc', dateOfBirth: { month: '3', year: '1985' } })],
+    };
+    const built = buildImportedClientRecords([row], practiceId, ownerUserId, today);
+    expect(built.people).toHaveLength(1);
+    expect(built.people[0].fullName).toBe('Mohammad Hasan');
+    expect(built.people[0].birthMonthYear).toBe('1985-03');
+    expect(built.personRoles.map((r) => r.kind).sort()).toEqual(['director', 'psc']);
+    expect(built.contacts[0].name).toBe('Mohammad Hasan');
+  });
+
+  it('keeps two people with the same name apart when their birth months differ', () => {
+    const row: ClientRosterRow = {
+      name: 'Two Johns Ltd',
+      companyNumber: '12345679',
+      directors: [fakePerson({ name: 'SMITH, John', dateOfBirth: { month: '1', year: '1960' } }), fakePerson({ name: 'SMITH, John', dateOfBirth: { month: '7', year: '1992' } })],
+    };
+    const built = buildImportedClientRecords([row], practiceId, ownerUserId, today);
+    expect(built.people).toHaveLength(2);
+    expect(built.people.map((p) => p.birthMonthYear).sort()).toEqual(['1960-01', '1992-07']);
+  });
+
   it('creates no people when the row has no directors or PSCs', () => {
     const row: ClientRosterRow = { name: 'No People Ltd', companyNumber: '99990000' };
     const built = buildImportedClientRecords([row], practiceId, ownerUserId, today);

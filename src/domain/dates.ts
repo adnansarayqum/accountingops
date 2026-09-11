@@ -46,7 +46,11 @@ export function daysUntil(due: IsoDate, today: IsoDate): number {
 }
 
 export function daysSince(when: IsoDateTime | IsoDate, today: IsoDate): number {
-  return daysBetween(when.slice(0, 10), today);
+  // A timestamp is UTC; `today` is a local calendar date. Slicing the first
+  // ten characters off a timestamp mixes the two, so an event at 00:30 BST
+  // reads as the previous day. Convert to the local date first.
+  const day = when.length > 10 ? toIsoDate(new Date(when)) : when;
+  return daysBetween(day, today);
 }
 
 export function isoDateTimeDaysAgo(today: IsoDate, days: number, hour = 9, minute = 0): IsoDateTime {
