@@ -15,6 +15,12 @@ export function maskIdentifier(value: string, kind: IdentifierKind): string {
       return `${clean.slice(0, 3)}/•••••${clean.slice(-2)}`;
     case 'nino':
       return `${clean.slice(0, 2)} •• •• •• ${clean.slice(-1)}`;
+    case 'ch_auth_code':
+    case 'personal_code':
+    case 'gateway_credentials':
+      // Short, high-value codes — mask completely rather than leaving most
+      // of a 6-character value exposed by a trailing-characters mask.
+      return '•'.repeat(Math.max(clean.length, 6));
     case 'utr':
     case 'accounts_office_ref':
     default:

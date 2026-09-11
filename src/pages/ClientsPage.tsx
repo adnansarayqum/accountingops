@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Search, ChevronRight } from 'lucide-react';
+import { Plus, Search, ChevronRight, Upload } from 'lucide-react';
 import { PageHeader } from '../ui/components/PageHeader';
 import { LinkButton } from '../ui/components/Button';
 import { Card } from '../ui/components/Card';
@@ -42,7 +42,20 @@ export function ClientsPage() {
 
   return (
     <div className="animate-in">
-      <PageHeader title="Clients" description={`${data.clients.length} clients · search by name, contact, company number, UTR, VAT or PAYE reference.`} actions={<LinkButton to="/clients/new" variant="primary" icon={<Plus />}>New client</LinkButton>} />
+      <PageHeader
+        title="Clients"
+        description={`${data.clients.length} clients · search by name, contact, company number, UTR, VAT or PAYE reference.`}
+        actions={
+          <>
+            <LinkButton to="/clients/import" variant="secondary" icon={<Upload />}>
+              Import clients
+            </LinkButton>
+            <LinkButton to="/clients/new" variant="primary" icon={<Plus />}>
+              New client
+            </LinkButton>
+          </>
+        }
+      />
       <div className="flex flex-col sm:flex-row gap-2 mb-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />

@@ -94,6 +94,27 @@ describe('application store — primary workflow', () => {
     expect(s.identifiers.find((i) => i.clientId === c.id)?.kind).toBe('company_number');
   });
 
+  it('imports clients in bulk and skips rows whose company number is already on file', () => {
+    const before = useAppStore.getState().data.clients.length;
+    const { created, skipped } = useAppStore.getState().importClients([
+      { name: 'Imported Co Ltd', companyNumber: '99999999', accountsPeriodEnd: '2026-06-30', accountsDue: '2027-03-31' },
+    ]);
+    expect(created).toBe(1);
+    expect(skipped).toEqual([]);
+    const s = useAppStore.getState().data;
+    expect(s.clients.length).toBe(before + 1);
+    const imported = s.clients.find((c) => c.name === 'Imported Co Ltd')!;
+    expect(imported.lifecycle).toBe('active');
+    expect(s.jobs.some((j) => j.clientId === imported.id && j.serviceCode === 'annual_accounts')).toBe(true);
+    expect(s.activities[0].kind).toBe('client_created');
+
+    // Re-importing the same company number is a no-op, not a duplicate.
+    const second = useAppStore.getState().importClients([{ name: 'Imported Co Ltd', companyNumber: '99999999' }]);
+    expect(second.created).toBe(0);
+    expect(second.skipped).toHaveLength(1);
+    expect(useAppStore.getState().data.clients.length).toBe(before + 1);
+  });
+
   it('records an audit event when an identifier is revealed', () => {
     useAppStore.getState().recordIdentifierReveal('cl_abc', 'utr');
     expect(useAppStore.getState().data.auditEvents[0].action).toBe('identifier.reveal');

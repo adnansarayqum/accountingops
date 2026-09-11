@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { buildEmptyPracticeData, OWNER_USER_ID } from './emptyState';
+import { buildImportedClientRecords, type ClientRosterRow } from './clientImport';
 import { nowIso, todayIso } from '../domain/dates';
 import { CHANNEL_LABELS, JOB_STATUS_LABELS, SERVICES, FILING_DESTINATION } from '../domain/catalog';
 import {
@@ -107,6 +108,8 @@ export interface AppState {
     sicCodes?: string[];
     incorporatedOn?: IsoDate;
   }): Client;
+  /** Bulk-add clients from an existing roster (e.g. an imported spreadsheet). Skips rows whose company number is already on file. */
+  importClients(rows: ClientRosterRow[]): { created: number; skipped: string[] };
   updateIdentifier(clientId: string, kind: ClientIdentifier['kind'], value: string): void;
   recordIdentifierReveal(clientId: string, kind: ClientIdentifier['kind']): void;
   updatePersonRoleVerification(roleId: string, status: IdentityVerificationStatus, personalCodeCaptured?: boolean): void;
@@ -587,6 +590,36 @@ export const useAppStore = create<AppState>((set, get) => {
         ctx.audit('client.create', 'client', id, undefined, { name: input.name, type: input.type });
       });
       return created;
+    },
+
+    importClients(rows) {
+      let created = 0;
+      const skipped: string[] = [];
+      mutate((d, ctx) => {
+        const existingNumbers = new Set(d.identifiers.filter((i) => i.kind === 'company_number').map((i) => i.value.replace(/\s/g, '').toUpperCase()));
+        const toImport = rows.filter((r) => {
+          const key = r.companyNumber.replace(/\s/g, '').toUpperCase();
+          if (existingNumbers.has(key)) {
+            skipped.push(`${r.name} (${r.companyNumber}) — already on file`);
+            return false;
+          }
+          existingNumbers.add(key);
+          return true;
+        });
+        if (toImport.length === 0) return;
+        const built = buildImportedClientRecords(toImport, d.practice.id, get().currentUserId, get().today);
+        d.clients.push(...built.clients);
+        d.contacts.push(...built.contacts);
+        d.identifiers.push(...built.identifiers);
+        d.subscriptions.push(...built.subscriptions);
+        d.obligations.push(...built.obligations);
+        d.jobs.push(...built.jobs);
+        d.requestItems.push(...built.requestItems);
+        created = built.clients.length;
+        ctx.activity('client_created', `${created} client${created === 1 ? '' : 's'} imported from a spreadsheet.`);
+        ctx.audit('client.import', 'client', 'bulk', undefined, { count: created, names: built.clients.map((c) => c.name) });
+      });
+      return { created, skipped };
     },
 
     updateIdentifier(clientId, kind, value) {
