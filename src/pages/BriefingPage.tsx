@@ -36,7 +36,7 @@ export function BriefingPage() {
   return (
     <div className="animate-in max-w-4xl">
       <PageHeader eyebrow={formatDate(today)} title={`${weekdayName(today)} Briefing`} description="Your practice has already been analysed. Here's what matters before you start." />
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 [&>*:nth-child(5)]:col-span-2 md:[&>*:nth-child(5)]:col-span-1">
         <Brief icon={<AlertTriangle />} label="Urgent" value={urgent.length} detail={`job${urgent.length === 1 ? '' : 's'} at immediate risk`} tone={urgent.length ? 'red' : 'neutral'} to="/attention?f=red" />
         <Brief icon={<CalendarClock />} label="Due this week" value={dueThisWeek.length} detail="jobs" tone="blue" to="/jobs?due=7" />
         <Brief icon={<UserX />} label="Waiting on clients" value={waitingClients.size} detail="clients" tone="amber" to="/chasing" />

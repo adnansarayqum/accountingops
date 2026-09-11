@@ -31,7 +31,15 @@ export function Field({ label, hint, error, children, className, htmlFor }: { la
         {label}
       </label>
       {children}
-      {error ? <p className="text-xs text-red-600">{error}</p> : hint ? <p className="text-xs text-slate-500">{hint}</p> : null}
+      {/* The error carries a predictable id (<field id>-error) so the input can
+          point at it with aria-describedby and a screen reader announces it. */}
+      {error ? (
+        <p id={htmlFor ? `${htmlFor}-error` : undefined} className="text-xs text-red-600" role="alert">
+          {error}
+        </p>
+      ) : hint ? (
+        <p className="text-xs text-slate-500">{hint}</p>
+      ) : null}
     </div>
   );
 }

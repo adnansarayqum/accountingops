@@ -5,6 +5,7 @@ import { useData, useDerived } from '../../application/selectors';
 import { SERVICES, JOB_STATUS_LABELS } from '../../domain/catalog';
 import { NAV_GROUPS } from './nav';
 import { cn } from '../cn';
+import { useFocusTrap } from '../useFocusTrap';
 
 interface Result {
   id: string;
@@ -26,6 +27,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, open);
 
   useEffect(() => {
     if (open) {
@@ -34,6 +37,20 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       setTimeout(() => inputRef.current?.focus(), 10);
     }
   }, [open]);
+
+  // Escape closes from anywhere in the palette (the hint promises it), not
+  // only while the input has focus.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
 
   const results = useMemo<Result[]>(() => {
     const query = q.trim().toLowerCase();
@@ -70,7 +87,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     return out.slice(0, 14);
   }, [q, data, derived]);
 
-  useEffect(() => setActive(0), [results.length]);
+  // Every keystroke starts again from the top result, so Enter always runs
+  // the first match for what was just typed.
+  useEffect(() => setActive(0), [q]);
 
   const go = (r: Result) => {
     navigate(r.to);
@@ -83,7 +102,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] px-4" role="presentation">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={onClose} aria-hidden="true" />
-      <div role="dialog" aria-modal="true" aria-label="Search" className="relative w-full max-w-xl card shadow-pop overflow-hidden animate-in">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Search" className="relative w-full max-w-xl card shadow-pop overflow-hidden animate-in">
         <div className="flex items-center gap-3 px-4 border-b border-slate-100">
           <Search className="h-4 w-4 text-slate-400" />
           <input
@@ -114,7 +133,10 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
             const RIcon = Icon[r.kind];
             return (
               <li key={`${r.kind}-${r.id}`} role="option" aria-selected={i === active}>
-                <button type="button" onMouseEnter={() => setActive(i)} onClick={() => go(r)} className={cn('w-full flex items-center gap-3 px-4 py-2 text-left', i === active ? 'bg-primary-50' : 'hover:bg-slate-50')}>
+                {/* onMouseMove, not onMouseEnter: rows re-rendering under a stationary
+                    cursor fire mouseenter and would steal the highlight from the
+                    result the keyboard user is about to press Enter on. */}
+                <button type="button" onMouseMove={() => active !== i && setActive(i)} onClick={() => go(r)} className={cn('w-full flex items-center gap-3 px-4 py-2 text-left', i === active ? 'bg-primary-50' : 'hover:bg-slate-50')}>
                   <span className={cn('h-7 w-7 rounded-md flex items-center justify-center shrink-0', r.kind === 'ask' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-500')}>
                     <RIcon className="h-3.5 w-3.5" />
                   </span>

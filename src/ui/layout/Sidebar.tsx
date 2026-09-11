@@ -1,17 +1,35 @@
+import { useEffect, useRef } from 'react';
 import { NavLink } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { NAV_GROUPS, SETTINGS_NAV } from './nav';
 import { useData, useDerived } from '../../application/selectors';
 import { cn } from '../cn';
+import { useFocusTrap } from '../useFocusTrap';
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const derived = useDerived();
   const data = useData();
+  const drawerRef = useRef<HTMLElement>(null);
   const badges = {
     attention: derived.attention.length,
     inbox: derived.pendingInbox,
     chasing: derived.jobViews.filter((v) => v.chasing.required).length,
   };
+
+  // The drawer is a modal surface on a phone: focus goes in when it opens,
+  // stays in while it's open, and Escape closes it like any other overlay.
+  useFocusTrap(drawerRef, open);
+  useEffect(() => {
+    if (!open) return;
+    // Close first: the one control a keyboard user is most likely to want next.
+    const drawer = drawerRef.current;
+    (drawer?.querySelector<HTMLElement>('button[aria-label="Close navigation"]') ?? drawer?.querySelector<HTMLElement>('a[href], button'))?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
 
   const content = (
     <div className="flex h-full flex-col">
@@ -74,9 +92,11 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
     <>
       <aside className="hidden lg:block fixed inset-y-0 left-0 w-64 bg-surface border-r border-slate-200 z-30">{content}</aside>
       {/* Mobile drawer */}
-      <div className={cn('lg:hidden fixed inset-0 z-40', open ? '' : 'pointer-events-none')} aria-hidden={!open}>
+      <div className={cn('lg:hidden fixed inset-0 z-40', open ? '' : 'pointer-events-none')} aria-hidden={!open} data-testid="mobile-drawer" data-open={open ? 'true' : 'false'}>
         <div className={cn('absolute inset-0 bg-black/50 transition-opacity', open ? 'opacity-100' : 'opacity-0')} onClick={onClose} />
-        <aside className={cn('absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-surface shadow-pop transition-transform duration-200', open ? 'translate-x-0' : '-translate-x-full')}>{content}</aside>
+        <aside ref={drawerRef} role="dialog" aria-modal={open || undefined} aria-label="Navigation" className={cn('absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-surface shadow-pop transition-transform duration-200', open ? 'translate-x-0' : '-translate-x-full')}>
+          {content}
+        </aside>
       </div>
     </>
   );

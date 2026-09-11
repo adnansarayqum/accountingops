@@ -15,6 +15,7 @@ export function SettingsPage() {
   const authMode = useAppStore((s) => s.authMode);
   const authUser = useAppStore((s) => s.authUser);
   const renameUser = useAppStore((s) => s.renameUser);
+  const toast = useAppStore((s) => s.toast);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
 
@@ -23,7 +24,14 @@ export function SettingsPage() {
     setNameDraft(currentName);
   };
   const saveEditing = () => {
-    if (editingUserId) renameUser(editingUserId, nameDraft);
+    if (editingUserId) {
+      const before = data.users.find((u) => u.id === editingUserId)?.name;
+      renameUser(editingUserId, nameDraft);
+      const after = useAppStore.getState().data.users.find((u) => u.id === editingUserId)?.name;
+      // Confirmed like every other change — a rename that silently reverts (blank
+      // name) or silently sticks looked the same until now.
+      if (after && after !== before) toast({ title: 'Name updated', description: `${before} is now ${after}.`, tone: 'success' });
+    }
     setEditingUserId(null);
   };
 

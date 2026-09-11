@@ -21,6 +21,9 @@ const DEFAULT_SERVICES: Record<ClientType, ServiceCode[]> = {
   individual: ['self_assessment'],
 };
 
+/** Validated fields, in page order, and the input id each error belongs to. */
+const FIELD_IDS = { name: 'nc-name', contactName: 'nc-contact', email: 'nc-email', company_number: 'nc-cn', utr: 'nc-utr' } as const;
+
 export function NewClientPage() {
   const navigate = useNavigate();
   const data = useData();
@@ -39,6 +42,8 @@ export function NewClientPage() {
   const [ids, setIds] = useState({ utr: '', company_number: '', vat_number: '', paye_reference: '', nino: '' });
   const [more, setMore] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  /** Links an input to its Field's error message for assistive tech. */
+  const invalid = (key: keyof typeof FIELD_IDS) => ({ 'aria-invalid': errors[key] ? true : undefined, 'aria-describedby': errors[key] ? `${FIELD_IDS[key]}-error` : undefined });
   const [companiesHouse, setCompaniesHouse] = useState<{ registeredOffice?: RegisteredAddress; companiesHouseStatus?: string; sicCodes?: string[]; incorporatedOn?: string } | null>(null);
 
   const applyCompanyProfile = (profile: CompanyProfile) => {
@@ -69,7 +74,13 @@ export function NewClientPage() {
     if (ids.utr && !/^\d{10}$/.test(ids.utr.replace(/\s/g, ''))) errs.utr = 'A UTR is 10 digits.';
     if (ids.company_number && !/^[A-Z0-9]{8}$/i.test(ids.company_number.replace(/\s/g, ''))) errs.company_number = 'A company number is 8 characters.';
     setErrors(errs);
-    if (Object.keys(errs).length) return;
+    if (Object.keys(errs).length) {
+      // Take the user to the first problem rather than leaving them at the
+      // Create button with nothing announced.
+      const firstInvalid = (Object.keys(FIELD_IDS) as (keyof typeof FIELD_IDS)[]).find((key) => errs[key]);
+      if (firstInvalid) document.getElementById(FIELD_IDS[firstInvalid])?.focus();
+      return;
+    }
     try {
       const client = createClient({
         name: name.trim(),
@@ -107,7 +118,7 @@ export function NewClientPage() {
               </Field>
             )}
             <Field label="Client / company name" error={errors.name} htmlFor="nc-name" className="sm:col-span-2">
-              <Input id="nc-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Harbour Cycles Ltd" autoFocus />
+              <Input id="nc-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Harbour Cycles Ltd" autoFocus {...invalid('name')} />
             </Field>
             <Field label="Client type" htmlFor="nc-type">
               <Select id="nc-type" value={type} onChange={(e) => changeType(e.target.value as ClientType)}>
@@ -128,7 +139,7 @@ export function NewClientPage() {
               </Select>
             </Field>
             <Field label="Main contact" error={errors.contactName} htmlFor="nc-contact">
-              <Input id="nc-contact" value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Full name" />
+              <Input id="nc-contact" value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Full name" {...invalid('contactName')} />
             </Field>
             <Field label="Preferred channel" htmlFor="nc-channel">
               <Select id="nc-channel" value={preferred} onChange={(e) => setPreferred(e.target.value as Channel)}>
@@ -140,7 +151,7 @@ export function NewClientPage() {
               </Select>
             </Field>
             <Field label="Email" error={errors.email} htmlFor="nc-email">
-              <Input id="nc-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.co.uk" />
+              <Input id="nc-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.co.uk" {...invalid('email')} />
             </Field>
             <Field label="Mobile" htmlFor="nc-phone" hint="Used for WhatsApp and SMS reminders.">
               <Input id="nc-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07700 900000" />
@@ -166,11 +177,11 @@ export function NewClientPage() {
           <CardBody className="grid gap-4 sm:grid-cols-2">
             {type === 'limited_company' && (
               <Field label="Company number" error={errors.company_number} htmlFor="nc-cn">
-                <Input id="nc-cn" value={ids.company_number} onChange={(e) => setIds({ ...ids, company_number: e.target.value })} placeholder="12345678" />
+                <Input id="nc-cn" value={ids.company_number} onChange={(e) => setIds({ ...ids, company_number: e.target.value })} placeholder="12345678" {...invalid('company_number')} />
               </Field>
             )}
             <Field label="UTR" error={errors.utr} htmlFor="nc-utr" hint="10 digits">
-              <Input id="nc-utr" value={ids.utr} onChange={(e) => setIds({ ...ids, utr: e.target.value })} placeholder="1234567890" inputMode="numeric" />
+              <Input id="nc-utr" value={ids.utr} onChange={(e) => setIds({ ...ids, utr: e.target.value })} placeholder="1234567890" inputMode="numeric" {...invalid('utr')} />
             </Field>
             {more && (
               <>

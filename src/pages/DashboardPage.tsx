@@ -30,7 +30,7 @@ export function DashboardPage() {
     <div className="animate-in">
       <PageHeader eyebrow={`${weekdayName(today)}, ${formatDate(today)}`} title="Practice Today" description="Everything requiring attention across your practice." />
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 [&>*:nth-child(5)]:col-span-2 md:[&>*:nth-child(5)]:col-span-1">
         <KpiCard label="Due in 30 days" value={m.dueIn30} hint="Open jobs with a statutory deadline in the next 30 days." to="/jobs?due=30" icon={<CalendarClock />} tone="blue" />
         <KpiCard label="Overdue" value={m.overdue} hint="Open jobs past their deadline." to="/jobs?due=overdue" icon={<AlertTriangle />} tone={m.overdue > 0 ? 'red' : 'neutral'} />
         <KpiCard label="Waiting on client" value={m.waitingOnClient} hint={`${waitingClients} client${waitingClients === 1 ? '' : 's'} are holding up work.`} to="/chasing" icon={<UserX />} tone={m.waitingOnClient > 0 ? 'amber' : 'neutral'} />
