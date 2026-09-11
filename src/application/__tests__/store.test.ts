@@ -4,8 +4,31 @@ import { PLACEHOLDER_CONTACT_NAME } from '../clientImport';
 import { MemoryRepository } from '../persistence/memoryRepository';
 import { computeDerived } from '../selectors';
 import { buildFixtureData } from '../../testing/fixtures';
+import type { CompanyPerson, CompanyProfile } from '../../integrations/companiesHouseTypes';
 
 const today = '2026-09-11';
+
+function profileFor(companyNumber: string, address: string): CompanyProfile {
+  return {
+    companyNumber,
+    companyName: `Company ${companyNumber}`,
+    companyStatus: 'active',
+    companyType: 'ltd',
+    dateOfCreation: '2015-01-01',
+    sicCodes: [],
+    previousNames: [],
+    registeredOfficeAddress: { formatted: address },
+    accountingReferenceDate: null,
+    nextAccountsDueOn: null,
+    nextAccountsPeriodEndOn: null,
+    nextConfirmationStatementDueOn: null,
+    source: 'companies_house',
+  };
+}
+
+function chPerson(name: string, role: 'director' | 'psc' = 'director'): CompanyPerson {
+  return { name, role, appointedOn: null, dateOfBirth: null, nationality: null, occupation: null, naturesOfControl: [] };
+}
 
 describe('application store — primary workflow', () => {
   beforeEach(() => {
@@ -114,6 +137,85 @@ describe('application store — primary workflow', () => {
     expect(second.created).toBe(0);
     expect(second.skipped).toHaveLength(1);
     expect(useAppStore.getState().data.clients.length).toBe(before + 1);
+  });
+
+  describe('contacts', () => {
+    const contactsOf = (clientId: string) => useAppStore.getState().data.contacts.filter((c) => c.clientId === clientId);
+    const primaryOf = (clientId: string) => {
+      const client = useAppStore.getState().data.clients.find((c) => c.id === clientId)!;
+      return useAppStore.getState().data.contacts.find((c) => c.id === client.primaryContactId)!;
+    };
+
+    it('fills in contact details that were missing', () => {
+      const contact = primaryOf('cl_abc');
+      useAppStore.getState().updateContact(contact.id, { name: 'Dave Thompson', email: 'dave@abc.example', phone: '07700 900123' });
+      const updated = primaryOf('cl_abc');
+      expect(updated.email).toBe('dave@abc.example');
+      expect(updated.phone).toBe('07700 900123');
+      expect(useAppStore.getState().data.auditEvents[0].action).toBe('contact.update');
+    });
+
+    it('trims values, and clears an optional field set to blank', () => {
+      const contact = primaryOf('cl_abc');
+      useAppStore.getState().updateContact(contact.id, { email: '  spaced@abc.example  ' });
+      expect(primaryOf('cl_abc').email).toBe('spaced@abc.example');
+
+      useAppStore.getState().updateContact(contact.id, { email: '' });
+      expect(primaryOf('cl_abc').email).toBeUndefined();
+    });
+
+    it('keeps the existing name when given a blank one', () => {
+      const contact = primaryOf('cl_abc');
+      const before = contact.name;
+      useAppStore.getState().updateContact(contact.id, { name: '   ' });
+      expect(primaryOf('cl_abc').name).toBe(before);
+    });
+
+    it('adds another contact without displacing the main one', () => {
+      const before = contactsOf('cl_abc').length;
+      const added = useAppStore.getState().addContact('cl_abc', { name: 'Book Keeper', role: 'Bookkeeper', email: 'books@abc.example' });
+      expect(contactsOf('cl_abc')).toHaveLength(before + 1);
+      expect(added.isPrimary).toBe(false);
+      expect(primaryOf('cl_abc').id).not.toBe(added.id);
+    });
+
+    it('promotes a chosen contact to main', () => {
+      const added = useAppStore.getState().addContact('cl_abc', { name: 'New Main' });
+      useAppStore.getState().setPrimaryContact('cl_abc', added.id);
+      expect(primaryOf('cl_abc').id).toBe(added.id);
+      // Exactly one contact is ever flagged primary.
+      expect(contactsOf('cl_abc').filter((c) => c.isPrimary)).toHaveLength(1);
+    });
+
+    it('removes a contact, and promotes a replacement if the main one goes', () => {
+      useAppStore.getState().addContact('cl_abc', { name: 'Spare Contact' });
+      const mainId = primaryOf('cl_abc').id;
+      useAppStore.getState().removeContact(mainId);
+
+      const remaining = contactsOf('cl_abc');
+      expect(remaining.some((c) => c.id === mainId)).toBe(false);
+      // The client is never left pointing at a contact that no longer exists.
+      expect(remaining.some((c) => c.id === primaryOf('cl_abc').id)).toBe(true);
+      expect(remaining.filter((c) => c.isPrimary)).toHaveLength(1);
+      expect(primaryOf('cl_abc').isPrimary).toBe(true);
+    });
+
+    it('removes a non-primary contact without changing who the main one is', () => {
+      const added = useAppStore.getState().addContact('cl_abc', { name: 'Temporary Contact' });
+      const mainId = primaryOf('cl_abc').id;
+      useAppStore.getState().removeContact(added.id);
+      expect(contactsOf('cl_abc').some((c) => c.id === added.id)).toBe(false);
+      expect(primaryOf('cl_abc').id).toBe(mainId);
+    });
+
+    it('refuses to remove a client’s last contact', () => {
+      const contacts = contactsOf('cl_abc');
+      for (const c of contacts.slice(1)) useAppStore.getState().removeContact(c.id);
+      expect(contactsOf('cl_abc')).toHaveLength(1);
+
+      useAppStore.getState().removeContact(contactsOf('cl_abc')[0].id);
+      expect(contactsOf('cl_abc')).toHaveLength(1);
+    });
   });
 
   describe('renameUser', () => {
@@ -227,6 +329,44 @@ describe('application store — primary workflow', () => {
 
       const contactAfter = useAppStore.getState().data.contacts.find((c) => c.id === client.primaryContactId)!;
       expect(contactAfter.name).toBe(contactBefore.name);
+    });
+
+    it('applies a batch of clients as one change, so the background sync saves once', () => {
+      useAppStore.getState().importClients([
+        { name: 'Batch One Ltd', companyNumber: '31313131' },
+        { name: 'Batch Two Ltd', companyNumber: '32323232' },
+      ]);
+      const clients = useAppStore.getState().data.clients;
+      const one = clients.find((c) => c.name === 'Batch One Ltd')!;
+      const two = clients.find((c) => c.name === 'Batch Two Ltd')!;
+      const auditsBefore = useAppStore.getState().data.auditEvents.length;
+
+      const result = useAppStore.getState().refreshClientsFromCompaniesHouse([
+        {
+          clientId: one.id,
+          profile: profileFor('31313131', 'One Road, London'),
+          people: { directors: [chPerson('Director One')], pscs: [], source: 'companies_house' },
+        },
+        { clientId: two.id, profile: profileFor('32323232', 'Two Road, Leeds'), people: null },
+        { clientId: 'cl_does_not_exist', profile: profileFor('99999999', 'Nowhere'), people: null },
+      ]);
+
+      expect(result).toEqual({ clientsUpdated: 2, peopleAdded: 1 });
+      const after = useAppStore.getState().data;
+      expect(after.clients.find((c) => c.id === one.id)!.registeredOffice?.formatted).toBe('One Road, London');
+      expect(after.clients.find((c) => c.id === two.id)!.registeredOffice?.formatted).toBe('Two Road, Leeds');
+      expect(after.clients.find((c) => c.id === one.id)!.companiesHouseSyncedAt).toBeTruthy();
+      // One audit entry per client actually refreshed — the unknown id is skipped.
+      expect(after.auditEvents.length - auditsBefore).toBe(2);
+    });
+
+    it('stamps companiesHouseSyncedAt so staleness can be judged later', () => {
+      const before = useAppStore.getState().data.clients.find((c) => c.id === 'cl_abc')!.companiesHouseSyncedAt;
+      expect(before).toBeUndefined();
+      useAppStore.getState().refreshClientFromCompaniesHouse('cl_abc', profileFor('09876543', 'Synced Road'), null);
+      const after = useAppStore.getState().data.clients.find((c) => c.id === 'cl_abc')!.companiesHouseSyncedAt;
+      expect(after).toBeTruthy();
+      expect(Date.now() - new Date(after!).getTime()).toBeLessThan(5000);
     });
 
     it('is a no-op when both profile and people are null', () => {

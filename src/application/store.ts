@@ -118,6 +118,18 @@ export interface AppState {
   importClients(rows: ClientRosterRow[]): { created: number; skipped: string[] };
   /** Re-pulls a client's Companies House data. Updates company fields and adds any director/PSC not already linked — never removes an existing role. */
   refreshClientFromCompaniesHouse(clientId: string, profile: CompanyProfile | null, people: CompanyPeopleResponse | null): { peopleAdded: number };
+  /** Same, for a batch — applied as a single change so the background sync doesn't fire one whole-snapshot save per client. */
+  refreshClientsFromCompaniesHouse(
+    updates: { clientId: string; profile: CompanyProfile | null; people: CompanyPeopleResponse | null }[],
+  ): { clientsUpdated: number; peopleAdded: number };
+  /** Edits a contact's details (name, role, email, phone, WhatsApp). */
+  updateContact(contactId: string, patch: Partial<Pick<Contact, 'name' | 'role' | 'email' | 'phone' | 'whatsapp'>>): void;
+  /** Adds another contact to a client. The first contact added to a client with none becomes its primary. */
+  addContact(clientId: string, input: { name: string; role?: string; email?: string; phone?: string; whatsapp?: string }): Contact;
+  /** Removes a contact. A client's last remaining contact can't be removed — something has to be there to chase. */
+  removeContact(contactId: string): void;
+  /** Makes an existing contact the one reminders go to. */
+  setPrimaryContact(clientId: string, contactId: string): void;
   updateIdentifier(clientId: string, kind: ClientIdentifier['kind'], value: string): void;
   recordIdentifierReveal(clientId: string, kind: ClientIdentifier['kind']): void;
   updatePersonRoleVerification(roleId: string, status: IdentityVerificationStatus, personalCodeCaptured?: boolean): void;
@@ -154,6 +166,78 @@ function persist(get: () => AppState): void {
     console.error('Persist failed', err);
     get().toast({ title: "We couldn't save that change", description: 'It is still on screen. Try the action again.', tone: 'error' });
   });
+}
+
+/**
+ * Merges one client's Companies House lookup into the practice data, and
+ * returns how many directors/PSCs were newly linked. Shared by the single
+ * (manual Refresh button) and batch (background sync) entry points so both
+ * behave identically.
+ */
+function applyCompaniesHouseRefresh(
+  d: PracticeData,
+  ctx: MutationContext,
+  clientId: string,
+  profile: CompanyProfile | null,
+  people: CompanyPeopleResponse | null,
+): number {
+  const client = d.clients.find((c) => c.id === clientId);
+  if (!client) return 0;
+  let peopleAdded = 0;
+
+  if (profile) {
+    client.registeredOffice = profile.registeredOfficeAddress ?? client.registeredOffice;
+    client.companiesHouseStatus = profile.companyStatus ?? client.companiesHouseStatus;
+    client.sicCodes = profile.sicCodes.length > 0 ? profile.sicCodes : client.sicCodes;
+    client.incorporatedOn = profile.dateOfCreation ?? client.incorporatedOn;
+    client.previousNames = profile.previousNames && profile.previousNames.length > 0 ? profile.previousNames : client.previousNames;
+    client.companiesHouseSyncedAt = nowIso();
+  }
+
+  if (people) {
+    // Only ever additive: a director/PSC Companies House no longer lists (resigned,
+    // ceased) keeps their existing role here rather than being silently removed — the
+    // practice's own identity-verification history on that role shouldn't just vanish.
+    const existingRoleKeys = new Set(
+      d.personRoles
+        .filter((r) => r.clientId === clientId)
+        .map((r) => `${(d.people.find((p) => p.id === r.personId)?.fullName ?? '').trim().toUpperCase()}|${r.kind}`),
+    );
+    const entries: { name: string; kind: PersonRoleKind; naturesOfControl?: string[] }[] = [
+      ...people.directors.map((p) => ({ name: p.name, kind: 'director' as const })),
+      ...people.pscs.map((p) => ({ name: p.name, kind: 'psc' as const, naturesOfControl: p.naturesOfControl })),
+    ];
+    for (const entry of entries) {
+      const key = entry.name.trim().toUpperCase();
+      if (existingRoleKeys.has(`${key}|${entry.kind}`)) continue;
+      existingRoleKeys.add(`${key}|${entry.kind}`);
+      const existingPerson = d.people.find((p) => p.fullName.trim().toUpperCase() === key);
+      const personId = existingPerson?.id ?? newId('p');
+      if (!existingPerson) d.people.push({ id: personId, practiceId: d.practice.id, fullName: entry.name });
+      d.personRoles.push({
+        id: newId('pr'),
+        practiceId: d.practice.id,
+        personId,
+        clientId,
+        kind: entry.kind,
+        identityVerification: 'not_started',
+        personalCodeCaptured: false,
+        evidenceStatus: 'none',
+        naturesOfControl: entry.naturesOfControl,
+      });
+      peopleAdded += 1;
+    }
+    // A client imported before any director data was available gets a placeholder
+    // primary contact name — replace it now that a real director's name is known.
+    if (people.directors.length > 0) {
+      const contact = d.contacts.find((c) => c.id === client.primaryContactId);
+      if (contact && contact.name === PLACEHOLDER_CONTACT_NAME) contact.name = people.directors[0].name;
+    }
+  }
+
+  ctx.activity('client_updated', `${client.name} refreshed from Companies House${peopleAdded > 0 ? ` — ${peopleAdded} new ${peopleAdded === 1 ? 'person' : 'people'} added` : ''}.`, undefined, clientId);
+  ctx.audit('client.companies_house_refresh', 'client', clientId, undefined, { peopleAdded });
+  return peopleAdded;
 }
 
 /** Retries a transient load failure (e.g. a momentary network or server hiccup) before giving up. */
@@ -664,61 +748,99 @@ export const useAppStore = create<AppState>((set, get) => {
     refreshClientFromCompaniesHouse(clientId, profile, people) {
       let peopleAdded = 0;
       mutate((d, ctx) => {
-        const client = d.clients.find((c) => c.id === clientId);
-        if (!client) return;
-
-        if (profile) {
-          client.registeredOffice = profile.registeredOfficeAddress ?? client.registeredOffice;
-          client.companiesHouseStatus = profile.companyStatus ?? client.companiesHouseStatus;
-          client.sicCodes = profile.sicCodes.length > 0 ? profile.sicCodes : client.sicCodes;
-          client.incorporatedOn = profile.dateOfCreation ?? client.incorporatedOn;
-          client.previousNames = profile.previousNames && profile.previousNames.length > 0 ? profile.previousNames : client.previousNames;
-        }
-
-        if (people) {
-          // Only ever additive: a director/PSC Companies House no longer lists (resigned,
-          // ceased) keeps their existing role here rather than being silently removed — the
-          // practice's own identity-verification history on that role shouldn't just vanish.
-          const existingRoleKeys = new Set(
-            d.personRoles
-              .filter((r) => r.clientId === clientId)
-              .map((r) => `${(d.people.find((p) => p.id === r.personId)?.fullName ?? '').trim().toUpperCase()}|${r.kind}`),
-          );
-          const entries: { name: string; kind: PersonRoleKind; naturesOfControl?: string[] }[] = [
-            ...people.directors.map((p) => ({ name: p.name, kind: 'director' as const })),
-            ...people.pscs.map((p) => ({ name: p.name, kind: 'psc' as const, naturesOfControl: p.naturesOfControl })),
-          ];
-          for (const entry of entries) {
-            const key = entry.name.trim().toUpperCase();
-            if (existingRoleKeys.has(`${key}|${entry.kind}`)) continue;
-            const existingPerson = d.people.find((p) => p.fullName.trim().toUpperCase() === key);
-            const personId = existingPerson?.id ?? newId('p');
-            if (!existingPerson) d.people.push({ id: personId, practiceId: d.practice.id, fullName: entry.name });
-            d.personRoles.push({
-              id: newId('pr'),
-              practiceId: d.practice.id,
-              personId,
-              clientId,
-              kind: entry.kind,
-              identityVerification: 'not_started',
-              personalCodeCaptured: false,
-              evidenceStatus: 'none',
-              naturesOfControl: entry.naturesOfControl,
-            });
-            peopleAdded += 1;
-          }
-          // A client imported before any director data was available gets a placeholder
-          // primary contact name — replace it now that a real director's name is known.
-          if (people.directors.length > 0) {
-            const contact = d.contacts.find((c) => c.id === client.primaryContactId);
-            if (contact && contact.name === PLACEHOLDER_CONTACT_NAME) contact.name = people.directors[0].name;
-          }
-        }
-
-        ctx.activity('client_updated', `${client.name} refreshed from Companies House${peopleAdded > 0 ? ` — ${peopleAdded} new ${peopleAdded === 1 ? 'person' : 'people'} added` : ''}.`, undefined, clientId);
-        ctx.audit('client.companies_house_refresh', 'client', clientId, undefined, { peopleAdded });
+        peopleAdded = applyCompaniesHouseRefresh(d, ctx, clientId, profile, people);
       });
       return { peopleAdded };
+    },
+
+    refreshClientsFromCompaniesHouse(updates) {
+      let clientsUpdated = 0;
+      let peopleAdded = 0;
+      // One mutation for the whole batch: each mutation persists the entire practice
+      // snapshot, so applying these one at a time would fire a burst of overlapping
+      // whole-document saves that can land out of order and lose each other's writes.
+      mutate((d, ctx) => {
+        for (const update of updates) {
+          if (!d.clients.some((c) => c.id === update.clientId)) continue;
+          peopleAdded += applyCompaniesHouseRefresh(d, ctx, update.clientId, update.profile, update.people);
+          clientsUpdated += 1;
+        }
+      });
+      return { clientsUpdated, peopleAdded };
+    },
+
+    updateContact(contactId, patch) {
+      mutate((d, ctx) => {
+        const contact = d.contacts.find((c) => c.id === contactId);
+        if (!contact) return;
+        const before = { ...contact };
+        // Name and role always hold a value, so a blank one leaves them as they were.
+        // Email, phone and WhatsApp are optional, so clearing the field clears the value.
+        if (patch.name?.trim()) contact.name = patch.name.trim();
+        if (patch.role?.trim()) contact.role = patch.role.trim();
+        for (const key of ['email', 'phone', 'whatsapp'] as const) {
+          if (key in patch) contact[key] = patch[key]?.trim() || undefined;
+        }
+        const client = d.clients.find((c) => c.id === contact.clientId);
+        ctx.activity('client_updated', `${contact.name}'s contact details updated for ${client?.name}.`, undefined, contact.clientId);
+        ctx.audit('contact.update', 'contact', contactId, before, { ...contact });
+      });
+    },
+
+    addContact(clientId, input) {
+      const created: Contact = {
+        id: newId('ct'),
+        practiceId: get().data.practice.id,
+        clientId,
+        name: input.name.trim(),
+        role: input.role?.trim() || 'Contact',
+        email: input.email?.trim() || undefined,
+        phone: input.phone?.trim() || undefined,
+        whatsapp: input.whatsapp?.trim() || undefined,
+        isPrimary: false,
+      };
+      mutate((d, ctx) => {
+        const client = d.clients.find((c) => c.id === clientId);
+        if (!client) return;
+        const hasPrimary = d.contacts.some((c) => c.clientId === clientId && c.isPrimary);
+        created.isPrimary = !hasPrimary;
+        d.contacts.push(created);
+        if (created.isPrimary) client.primaryContactId = created.id;
+        ctx.activity('client_updated', `${created.name} added as a contact for ${client.name}.`, undefined, clientId);
+        ctx.audit('contact.create', 'contact', created.id, undefined, { name: created.name, role: created.role });
+      });
+      return created;
+    },
+
+    removeContact(contactId) {
+      mutate((d, ctx) => {
+        const contact = d.contacts.find((c) => c.id === contactId);
+        if (!contact) return;
+        const siblings = d.contacts.filter((c) => c.clientId === contact.clientId && c.id !== contactId);
+        if (siblings.length === 0) return;
+        d.contacts = d.contacts.filter((c) => c.id !== contactId);
+        const client = d.clients.find((c) => c.id === contact.clientId);
+        // Removing the primary promotes the next contact rather than leaving the client with none.
+        if (client && client.primaryContactId === contactId) {
+          siblings[0].isPrimary = true;
+          client.primaryContactId = siblings[0].id;
+        }
+        ctx.activity('client_updated', `${contact.name} removed as a contact for ${client?.name}.`, undefined, contact.clientId);
+        ctx.audit('contact.delete', 'contact', contactId, { name: contact.name }, undefined);
+      });
+    },
+
+    setPrimaryContact(clientId, contactId) {
+      mutate((d, ctx) => {
+        const client = d.clients.find((c) => c.id === clientId);
+        const contact = d.contacts.find((c) => c.id === contactId && c.clientId === clientId);
+        if (!client || !contact) return;
+        for (const c of d.contacts.filter((x) => x.clientId === clientId)) c.isPrimary = c.id === contactId;
+        const before = client.primaryContactId;
+        client.primaryContactId = contactId;
+        ctx.activity('client_updated', `${contact.name} is now the main contact for ${client.name}.`, undefined, clientId);
+        ctx.audit('contact.set_primary', 'client', clientId, { primaryContactId: before }, { primaryContactId: contactId });
+      });
     },
 
     updateIdentifier(clientId, kind, value) {

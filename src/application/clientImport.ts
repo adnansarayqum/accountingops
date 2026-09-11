@@ -124,6 +124,9 @@ export function buildImportedClientRecords(rows: ClientRosterRow[], practiceId: 
       sicCodes: row.sicCodes,
       incorporatedOn: row.incorporatedOn,
       previousNames: row.previousNames,
+      // Only stamp rows that actually carry a live lookup — a row that fell back to
+      // spreadsheet-only data has never been synced, and should read that way.
+      companiesHouseSyncedAt: row.companiesHouseStatus || row.directors ? nowIso() : undefined,
     });
 
     // Companies House's public register gives a director's name but never a phone number or

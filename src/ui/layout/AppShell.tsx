@@ -9,6 +9,7 @@ import { Avatar } from '../components/Avatar';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { useAppStore } from '../../application/store';
 import { useData } from '../../application/selectors';
+import { useCompaniesHouseSync } from '../../application/useCompaniesHouseSync';
 import { formatDate } from '../../domain/dates';
 
 export function AppShell() {
@@ -19,6 +20,8 @@ export function AppShell() {
   const today = useAppStore((s) => s.today);
   const currentUserId = useAppStore((s) => s.currentUserId);
   const me = data.users.find((u) => u.id === currentUserId);
+
+  useCompaniesHouseSync();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

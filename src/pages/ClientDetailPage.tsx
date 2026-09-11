@@ -16,9 +16,10 @@ import { NotFoundPage } from './NotFoundPage';
 import { useAppStore } from '../application/store';
 import { useData, useDerived, useToday } from '../application/selectors';
 import { CHANNEL_LABELS, CLIENT_TYPE_LABELS, IDENTIFIER_LABELS, SERVICES } from '../domain/catalog';
-import { formatAgo, formatDate, formatDateTime } from '../domain/dates';
+import { formatAgo, formatDate, formatDateTime, formatSince } from '../domain/dates';
 import type { Channel, IdentifierKind, Job } from '../domain/types';
 import { cn } from '../ui/cn';
+import { ContactsCard } from '../ui/components/ContactsCard';
 import { getCompaniesHouseStatus, getCompanyPeople, getCompanyProfile } from '../integrations/companiesHouse';
 
 const ID_ORDER: IdentifierKind[] = ['utr', 'nino', 'company_number', 'vat_number', 'paye_reference', 'accounts_office_ref', 'ch_auth_code', 'personal_code', 'gateway_credentials'];
@@ -44,7 +45,6 @@ export function ClientDetailPage() {
   if (!client) return <NotFoundPage />;
 
   const contact = derived.primaryContactByClient.get(client.id);
-  const contacts = data.contacts.filter((c) => c.clientId === client.id);
   const owner = derived.userById.get(client.ownerUserId);
   const backup = client.backupOwnerUserId ? derived.userById.get(client.backupOwnerUserId) : undefined;
   const identifiers = data.identifiers.filter((i) => i.clientId === client.id).sort((a, b) => ID_ORDER.indexOf(a.kind) - ID_ORDER.indexOf(b.kind));
@@ -301,7 +301,16 @@ export function ClientDetailPage() {
               <Card>
                 <CardHeader
                   title="Companies House"
-                  description={client.incorporatedOn ? `Incorporated ${formatDate(client.incorporatedOn)}` : undefined}
+                  description={
+                    <>
+                      {client.incorporatedOn ? `Incorporated ${formatDate(client.incorporatedOn)} · ` : ''}
+                      {client.companiesHouseSyncedAt ? (
+                        <span title={formatDateTime(client.companiesHouseSyncedAt)}>Synced {formatSince(client.companiesHouseSyncedAt)}</span>
+                      ) : (
+                        <span className="text-amber-700">Never synced</span>
+                      )}
+                    </>
+                  }
                   action={
                     <div className="flex items-center gap-2">
                       {client.companiesHouseStatus && <Badge tone={client.companiesHouseStatus === 'active' ? 'green' : 'amber'}>{client.companiesHouseStatus}</Badge>}
@@ -411,23 +420,7 @@ export function ClientDetailPage() {
               </Card>
             )}
 
-            {contacts.length > 1 && (
-              <Card>
-                <CardHeader title="Other contacts" />
-                <CardBody className="pt-0">
-                  <ul className="divide-y divide-slate-100">
-                    {contacts.filter((c) => !c.isPrimary).map((c) => (
-                      <li key={c.id} className="py-2">
-                        <p className="text-[13px] font-medium text-slate-900">{c.name}</p>
-                        <p className="text-xs text-slate-500">
-                          {c.role} · {c.email}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                </CardBody>
-              </Card>
-            )}
+            <ContactsCard clientId={client.id} />
           </div>
         </div>
       )}
