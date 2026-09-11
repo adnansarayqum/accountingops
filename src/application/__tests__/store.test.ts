@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { configureRepository, useAppStore } from '../store';
+import { PLACEHOLDER_CONTACT_NAME } from '../clientImport';
 import { MemoryRepository } from '../persistence/memoryRepository';
 import { computeDerived } from '../selectors';
 import { buildFixtureData } from '../../testing/fixtures';
@@ -118,5 +119,99 @@ describe('application store — primary workflow', () => {
   it('records an audit event when an identifier is revealed', () => {
     useAppStore.getState().recordIdentifierReveal('cl_abc', 'utr');
     expect(useAppStore.getState().data.auditEvents[0].action).toBe('identifier.reveal');
+  });
+
+  describe('refreshClientFromCompaniesHouse', () => {
+    it('updates company fields from a fresh profile', () => {
+      const { peopleAdded } = useAppStore.getState().refreshClientFromCompaniesHouse(
+        'cl_abc',
+        {
+          companyNumber: '00000001',
+          companyName: 'ABC Ltd',
+          companyStatus: 'active',
+          companyType: 'ltd',
+          dateOfCreation: '2010-01-01',
+          sicCodes: ['62012'],
+          previousNames: ['OLD ABC LTD'],
+          registeredOfficeAddress: { formatted: '1 New Address, London' },
+          accountingReferenceDate: null,
+          nextAccountsDueOn: null,
+          nextAccountsPeriodEndOn: null,
+          nextConfirmationStatementDueOn: null,
+          source: 'companies_house',
+        },
+        null,
+      );
+      expect(peopleAdded).toBe(0);
+      const client = useAppStore.getState().data.clients.find((c) => c.id === 'cl_abc')!;
+      expect(client.registeredOffice?.formatted).toBe('1 New Address, London');
+      expect(client.companiesHouseStatus).toBe('active');
+      expect(client.sicCodes).toEqual(['62012']);
+      expect(client.previousNames).toEqual(['OLD ABC LTD']);
+    });
+
+    it('adds a new director without duplicating an already-linked person and role', () => {
+      // cl_abc already has Dave Thompson as both director and PSC (see testing/fixtures.ts).
+      const before = useAppStore.getState().data;
+      const peopleBefore = before.people.length;
+      const rolesBefore = before.personRoles.filter((r) => r.clientId === 'cl_abc').length;
+
+      const { peopleAdded } = useAppStore.getState().refreshClientFromCompaniesHouse('cl_abc', null, {
+        directors: [{ name: 'Dave Thompson', role: 'director', appointedOn: null, dateOfBirth: null, nationality: null, occupation: null, naturesOfControl: [] }],
+        pscs: [{ name: 'Brand New Person', role: 'psc', appointedOn: null, dateOfBirth: null, nationality: null, occupation: null, naturesOfControl: ['Owns 75-100% of shares'] }],
+        source: 'companies_house',
+      });
+
+      expect(peopleAdded).toBe(1);
+      const after = useAppStore.getState().data;
+      expect(after.people.length).toBe(peopleBefore + 1);
+      const clientRoles = after.personRoles.filter((r) => r.clientId === 'cl_abc');
+      expect(clientRoles.length).toBe(rolesBefore + 1);
+      const newPerson = after.people.find((p) => p.fullName === 'Brand New Person')!;
+      const newRole = clientRoles.find((r) => r.personId === newPerson.id)!;
+      expect(newRole.kind).toBe('psc');
+      expect(newRole.naturesOfControl).toEqual(['Owns 75-100% of shares']);
+      expect(newRole.identityVerification).toBe('not_started');
+    });
+
+    it('replaces a placeholder primary-contact name with the first director once one is known', () => {
+      useAppStore.getState().importClients([{ name: 'Placeholder Contact Ltd', companyNumber: '55554444' }]);
+      const client = useAppStore.getState().data.clients.find((c) => c.name === 'Placeholder Contact Ltd')!;
+      const contactBefore = useAppStore.getState().data.contacts.find((c) => c.id === client.primaryContactId)!;
+      expect(contactBefore.name).toBe(PLACEHOLDER_CONTACT_NAME);
+
+      useAppStore.getState().refreshClientFromCompaniesHouse(client.id, null, {
+        directors: [{ name: 'Real Director Name', role: 'director', appointedOn: null, dateOfBirth: null, nationality: null, occupation: null, naturesOfControl: [] }],
+        pscs: [],
+        source: 'companies_house',
+      });
+
+      const contactAfter = useAppStore.getState().data.contacts.find((c) => c.id === client.primaryContactId)!;
+      expect(contactAfter.name).toBe('Real Director Name');
+    });
+
+    it('does not overwrite a contact name the practice has already filled in', () => {
+      // cl_abc's primary contact already has a real name in the fixture, not the placeholder.
+      const client = useAppStore.getState().data.clients.find((c) => c.id === 'cl_abc')!;
+      const contactBefore = useAppStore.getState().data.contacts.find((c) => c.id === client.primaryContactId)!;
+      expect(contactBefore.name).not.toBe(PLACEHOLDER_CONTACT_NAME);
+
+      useAppStore.getState().refreshClientFromCompaniesHouse('cl_abc', null, {
+        directors: [{ name: 'Someone Else Entirely', role: 'director', appointedOn: null, dateOfBirth: null, nationality: null, occupation: null, naturesOfControl: [] }],
+        pscs: [],
+        source: 'companies_house',
+      });
+
+      const contactAfter = useAppStore.getState().data.contacts.find((c) => c.id === client.primaryContactId)!;
+      expect(contactAfter.name).toBe(contactBefore.name);
+    });
+
+    it('is a no-op when both profile and people are null', () => {
+      const before = useAppStore.getState().data;
+      const { peopleAdded } = useAppStore.getState().refreshClientFromCompaniesHouse('cl_abc', null, null);
+      expect(peopleAdded).toBe(0);
+      expect(useAppStore.getState().data.people.length).toBe(before.people.length);
+      expect(useAppStore.getState().data.personRoles.length).toBe(before.personRoles.length);
+    });
   });
 });

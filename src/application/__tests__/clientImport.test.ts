@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildImportedClientRecords, mergeCompanyPeople, mergeCompanyProfile, type ClientRosterRow } from '../clientImport';
+import { buildImportedClientRecords, mergeCompanyPeople, mergeCompanyProfile, PLACEHOLDER_CONTACT_NAME, type ClientRosterRow } from '../clientImport';
 import type { CompanyPeopleResponse, CompanyPerson, CompanyProfile } from '../../integrations/companiesHouseTypes';
 
 const today = '2026-09-11';
@@ -123,6 +123,22 @@ describe('buildImportedClientRecords', () => {
     const built = buildImportedClientRecords([row], practiceId, ownerUserId, today);
     expect(built.people).toHaveLength(0);
     expect(built.personRoles).toHaveLength(0);
+  });
+
+  it('names the primary contact after the first director, instead of a generic placeholder', () => {
+    const row: ClientRosterRow = {
+      name: 'Named Contact Ltd',
+      companyNumber: '11112222',
+      directors: [fakePerson({ name: 'Priya Patel', role: 'director' }), fakePerson({ name: 'Second Director', role: 'director' })],
+    };
+    const built = buildImportedClientRecords([row], practiceId, ownerUserId, today);
+    expect(built.contacts[0].name).toBe('Priya Patel');
+  });
+
+  it('falls back to the placeholder contact name when no directors were found', () => {
+    const row: ClientRosterRow = { name: 'No Directors Ltd', companyNumber: '33334444' };
+    const built = buildImportedClientRecords([row], practiceId, ownerUserId, today);
+    expect(built.contacts[0].name).toBe(PLACEHOLDER_CONTACT_NAME);
   });
 });
 

@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { buildEmptyPracticeData, OWNER_USER_ID } from './emptyState';
-import { buildImportedClientRecords, type ClientRosterRow } from './clientImport';
+import { buildImportedClientRecords, PLACEHOLDER_CONTACT_NAME, type ClientRosterRow } from './clientImport';
 import type { AuthUser } from './auth';
+import type { CompanyPeopleResponse, CompanyProfile } from '../integrations/companiesHouseTypes';
 import { nowIso, todayIso } from '../domain/dates';
 import { CHANNEL_LABELS, JOB_STATUS_LABELS, SERVICES, FILING_DESTINATION } from '../domain/catalog';
 import {
@@ -29,6 +30,7 @@ import type {
   JobStatus,
   Notification,
   OnboardingStage,
+  PersonRoleKind,
   PracticeData,
   RegisteredAddress,
   ServiceCode,
@@ -114,6 +116,8 @@ export interface AppState {
   }): Client;
   /** Bulk-add clients from an existing roster (e.g. an imported spreadsheet). Skips rows whose company number is already on file. */
   importClients(rows: ClientRosterRow[]): { created: number; skipped: string[] };
+  /** Re-pulls a client's Companies House data. Updates company fields and adds any director/PSC not already linked — never removes an existing role. */
+  refreshClientFromCompaniesHouse(clientId: string, profile: CompanyProfile | null, people: CompanyPeopleResponse | null): { peopleAdded: number };
   updateIdentifier(clientId: string, kind: ClientIdentifier['kind'], value: string): void;
   recordIdentifierReveal(clientId: string, kind: ClientIdentifier['kind']): void;
   updatePersonRoleVerification(roleId: string, status: IdentityVerificationStatus, personalCodeCaptured?: boolean): void;
@@ -651,6 +655,66 @@ export const useAppStore = create<AppState>((set, get) => {
         ctx.audit('client.import', 'client', 'bulk', undefined, { count: created, names: built.clients.map((c) => c.name) });
       });
       return { created, skipped };
+    },
+
+    refreshClientFromCompaniesHouse(clientId, profile, people) {
+      let peopleAdded = 0;
+      mutate((d, ctx) => {
+        const client = d.clients.find((c) => c.id === clientId);
+        if (!client) return;
+
+        if (profile) {
+          client.registeredOffice = profile.registeredOfficeAddress ?? client.registeredOffice;
+          client.companiesHouseStatus = profile.companyStatus ?? client.companiesHouseStatus;
+          client.sicCodes = profile.sicCodes.length > 0 ? profile.sicCodes : client.sicCodes;
+          client.incorporatedOn = profile.dateOfCreation ?? client.incorporatedOn;
+          client.previousNames = profile.previousNames && profile.previousNames.length > 0 ? profile.previousNames : client.previousNames;
+        }
+
+        if (people) {
+          // Only ever additive: a director/PSC Companies House no longer lists (resigned,
+          // ceased) keeps their existing role here rather than being silently removed — the
+          // practice's own identity-verification history on that role shouldn't just vanish.
+          const existingRoleKeys = new Set(
+            d.personRoles
+              .filter((r) => r.clientId === clientId)
+              .map((r) => `${(d.people.find((p) => p.id === r.personId)?.fullName ?? '').trim().toUpperCase()}|${r.kind}`),
+          );
+          const entries: { name: string; kind: PersonRoleKind; naturesOfControl?: string[] }[] = [
+            ...people.directors.map((p) => ({ name: p.name, kind: 'director' as const })),
+            ...people.pscs.map((p) => ({ name: p.name, kind: 'psc' as const, naturesOfControl: p.naturesOfControl })),
+          ];
+          for (const entry of entries) {
+            const key = entry.name.trim().toUpperCase();
+            if (existingRoleKeys.has(`${key}|${entry.kind}`)) continue;
+            const existingPerson = d.people.find((p) => p.fullName.trim().toUpperCase() === key);
+            const personId = existingPerson?.id ?? newId('p');
+            if (!existingPerson) d.people.push({ id: personId, practiceId: d.practice.id, fullName: entry.name });
+            d.personRoles.push({
+              id: newId('pr'),
+              practiceId: d.practice.id,
+              personId,
+              clientId,
+              kind: entry.kind,
+              identityVerification: 'not_started',
+              personalCodeCaptured: false,
+              evidenceStatus: 'none',
+              naturesOfControl: entry.naturesOfControl,
+            });
+            peopleAdded += 1;
+          }
+          // A client imported before any director data was available gets a placeholder
+          // primary contact name — replace it now that a real director's name is known.
+          if (people.directors.length > 0) {
+            const contact = d.contacts.find((c) => c.id === client.primaryContactId);
+            if (contact && contact.name === PLACEHOLDER_CONTACT_NAME) contact.name = people.directors[0].name;
+          }
+        }
+
+        ctx.activity('client_updated', `${client.name} refreshed from Companies House${peopleAdded > 0 ? ` — ${peopleAdded} new ${peopleAdded === 1 ? 'person' : 'people'} added` : ''}.`, undefined, clientId);
+        ctx.audit('client.companies_house_refresh', 'client', clientId, undefined, { peopleAdded });
+      });
+      return { peopleAdded };
     },
 
     updateIdentifier(clientId, kind, value) {

@@ -69,6 +69,9 @@ export function mergeCompanyPeople(row: ClientRosterRow, people: CompanyPeopleRe
   return { ...row, directors: people.directors, pscs: people.pscs };
 }
 
+/** Placeholder primary-contact name for an imported client with no director data to name it from. Exported so a later Companies House refresh can recognise and replace it. */
+export const PLACEHOLDER_CONTACT_NAME = 'Main contact — details needed';
+
 export interface BuiltClientImport {
   clients: Client[];
   contacts: Contact[];
@@ -123,11 +126,15 @@ export function buildImportedClientRecords(rows: ClientRosterRow[], practiceId: 
       previousNames: row.previousNames,
     });
 
+    // Companies House's public register gives a director's name but never a phone number or
+    // email — there's no "main contact" concept to pull. Using the first director's name here
+    // beats a generic placeholder, but the practice still needs to add real contact details.
+    const primaryDirectorName = row.directors?.[0]?.name;
     contacts.push({
       id: contactId,
       practiceId,
       clientId,
-      name: 'Main contact — details needed',
+      name: primaryDirectorName ?? PLACEHOLDER_CONTACT_NAME,
       role: 'Director',
       isPrimary: true,
     });
