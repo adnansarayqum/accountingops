@@ -151,8 +151,13 @@ test.describe('import clients', () => {
     await expect(page).toHaveURL(/\/clients$/);
     await page.getByRole('link', { name: 'Harbourline Consulting Ltd' }).first().click();
     await expect(page.getByText('Directors & PSCs')).toBeVisible();
-    // Jane Harbour holds both roles for this company, so she appears twice — once per role.
-    await expect(page.getByText('Jane Harbour')).toHaveCount(2);
+    // Jane Harbour appears three times: as the primary contact (named after the first
+    // director, instead of the usual placeholder) and once per role on the Directors & PSCs
+    // card (director + PSC, since she holds both for this company).
+    await expect(page.getByText('Jane Harbour')).toHaveCount(3);
+    await expect(page.getByText('Primary contact')).toBeVisible();
+    const rolesCard = page.locator('div.card', { has: page.getByRole('heading', { name: 'Directors & PSCs' }) });
+    await expect(rolesCard.getByText('Jane Harbour')).toHaveCount(2);
     await expect(page.getByText('director', { exact: true })).toBeVisible();
     await expect(page.getByText('PSC', { exact: true })).toBeVisible();
     await expect(page.getByText('Owns 75-100% of shares')).toBeVisible();

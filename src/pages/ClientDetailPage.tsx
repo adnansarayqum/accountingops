@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Mail, MessageCircle, MessageSquare, Phone, Globe, Send, ArrowUpRight, ArrowDownLeft, ShieldCheck, ShieldAlert, ShieldQuestion, Pencil, Check, X } from 'lucide-react';
+import { Mail, MessageCircle, MessageSquare, Phone, Globe, Send, ArrowUpRight, ArrowDownLeft, ShieldCheck, ShieldAlert, ShieldQuestion, Pencil, Check, X, RefreshCw } from 'lucide-react';
 import { PageHeader } from '../ui/components/PageHeader';
 import { Card, CardBody, CardHeader } from '../ui/components/Card';
 import { Badge, DueBadge, ResponsivenessBadge, StatusBadge, WaitingOnBadge } from '../ui/components/Badge';
@@ -19,6 +19,7 @@ import { CHANNEL_LABELS, CLIENT_TYPE_LABELS, IDENTIFIER_LABELS, SERVICES } from 
 import { formatAgo, formatDate, formatDateTime } from '../domain/dates';
 import type { Channel, IdentifierKind, Job } from '../domain/types';
 import { cn } from '../ui/cn';
+import { getCompaniesHouseStatus, getCompanyPeople, getCompanyProfile } from '../integrations/companiesHouse';
 
 const ID_ORDER: IdentifierKind[] = ['utr', 'nino', 'company_number', 'vat_number', 'paye_reference', 'accounts_office_ref', 'ch_auth_code', 'personal_code', 'gateway_credentials'];
 
@@ -29,12 +30,14 @@ export function ClientDetailPage() {
   const today = useToday();
   const updateClient = useAppStore((s) => s.updateClient);
   const updateIdentifier = useAppStore((s) => s.updateIdentifier);
+  const refreshClientFromCompaniesHouse = useAppStore((s) => s.refreshClientFromCompaniesHouse);
   const toast = useAppStore((s) => s.toast);
   const [composerJob, setComposerJob] = useState<Job | null>(null);
   const [tab, setTab] = useState<'overview' | 'requests' | 'comms' | 'activity'>('overview');
   const [editing, setEditing] = useState(false);
   const [editingId, setEditingId] = useState<IdentifierKind | null>(null);
   const [idValue, setIdValue] = useState('');
+  const [refreshingCh, setRefreshingCh] = useState(false);
 
   const client = derived.clientById.get(clientId ?? '');
   const views = useMemo(() => derived.jobViews.filter((v) => v.client.id === clientId), [derived, clientId]);
@@ -62,6 +65,32 @@ export function ClientDetailPage() {
     client.type === 'limited_company'
       ? ['utr', 'company_number', 'vat_number', 'paye_reference', 'accounts_office_ref', 'ch_auth_code', 'personal_code', 'gateway_credentials']
       : ['utr', 'nino', 'vat_number', 'paye_reference', 'personal_code', 'gateway_credentials'];
+  const companyNumber = identifiers.find((i) => i.kind === 'company_number')?.value;
+
+  const refreshFromCompaniesHouse = async () => {
+    if (!companyNumber) return;
+    setRefreshingCh(true);
+    try {
+      const status = await getCompaniesHouseStatus();
+      if (!status.configured) {
+        toast({ title: 'No live Companies House data', description: 'No API key is configured — see docs/INTEGRATIONS.md.', tone: 'error' });
+        return;
+      }
+      const [profile, people] = await Promise.all([getCompanyProfile(companyNumber), getCompanyPeople(companyNumber)]);
+      if (!profile || profile.source !== 'companies_house') {
+        toast({ title: "Couldn't refresh", description: 'The Companies House lookup failed for this company number.', tone: 'error' });
+        return;
+      }
+      const { peopleAdded } = refreshClientFromCompaniesHouse(client.id, profile, people);
+      toast({
+        title: 'Refreshed from Companies House',
+        description: peopleAdded > 0 ? `${peopleAdded} new ${peopleAdded === 1 ? 'person' : 'people'} added.` : 'Company details are up to date.',
+        tone: 'success',
+      });
+    } finally {
+      setRefreshingCh(false);
+    }
+  };
 
   const ChannelIcon = { email: Mail, whatsapp: MessageCircle, sms: MessageSquare, phone: Phone, portal: Globe };
 
@@ -268,14 +297,29 @@ export function ClientDetailPage() {
               </CardBody>
             </Card>
 
-            {client.registeredOffice && (
+            {companyNumber && (
               <Card>
-                <CardHeader title="Companies House" description={client.incorporatedOn ? `Incorporated ${formatDate(client.incorporatedOn)}` : undefined} action={client.companiesHouseStatus && <Badge tone={client.companiesHouseStatus === 'active' ? 'green' : 'amber'}>{client.companiesHouseStatus}</Badge>} />
+                <CardHeader
+                  title="Companies House"
+                  description={client.incorporatedOn ? `Incorporated ${formatDate(client.incorporatedOn)}` : undefined}
+                  action={
+                    <div className="flex items-center gap-2">
+                      {client.companiesHouseStatus && <Badge tone={client.companiesHouseStatus === 'active' ? 'green' : 'amber'}>{client.companiesHouseStatus}</Badge>}
+                      <Button variant="secondary" size="sm" icon={<RefreshCw className={cn('h-3.5 w-3.5', refreshingCh && 'animate-spin')} />} onClick={refreshFromCompaniesHouse} disabled={refreshingCh} data-testid="refresh-companies-house">
+                        {refreshingCh ? 'Refreshing…' : 'Refresh'}
+                      </Button>
+                    </div>
+                  }
+                />
                 <CardBody className="pt-0 text-[13px] text-slate-700 space-y-2">
-                  <div>
-                    <p className="text-xs font-medium text-slate-500">Registered office</p>
-                    <p>{client.registeredOffice.formatted}</p>
-                  </div>
+                  {client.registeredOffice ? (
+                    <div>
+                      <p className="text-xs font-medium text-slate-500">Registered office</p>
+                      <p>{client.registeredOffice.formatted}</p>
+                    </div>
+                  ) : (
+                    <p className="text-slate-500">No Companies House data yet — click Refresh to pull it in.</p>
+                  )}
                   {client.sicCodes && client.sicCodes.length > 0 && (
                     <div>
                       <p className="text-xs font-medium text-slate-500">SIC codes</p>
