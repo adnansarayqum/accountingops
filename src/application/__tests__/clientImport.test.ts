@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildImportedClientRecords, mergeCompanyProfile, type ClientRosterRow } from '../clientImport';
-import type { CompanyProfile } from '../../integrations/companiesHouseTypes';
+import { buildImportedClientRecords, mergeCompanyPeople, mergeCompanyProfile, type ClientRosterRow } from '../clientImport';
+import type { CompanyPeopleResponse, CompanyPerson, CompanyProfile } from '../../integrations/companiesHouseTypes';
 
 const today = '2026-09-11';
 const practiceId = 'prac_test';
@@ -84,6 +84,69 @@ describe('buildImportedClientRecords', () => {
     expect(client.sicCodes).toEqual(['62012']);
     expect(client.incorporatedOn).toBe('2018-05-01');
   });
+
+  it('creates one Person plus one PersonRole per director and per PSC', () => {
+    const row: ClientRosterRow = {
+      name: 'People Ltd',
+      companyNumber: '55556666',
+      directors: [fakePerson({ name: 'Jane Smith', role: 'director' })],
+      pscs: [fakePerson({ name: 'John Jones', role: 'psc' })],
+    };
+    const built = buildImportedClientRecords([row], practiceId, ownerUserId, today);
+    const client = built.clients[0];
+
+    expect(built.people.map((p) => p.fullName).sort()).toEqual(['Jane Smith', 'John Jones']);
+    expect(built.personRoles).toHaveLength(2);
+    expect(built.personRoles.every((r) => r.clientId === client.id)).toBe(true);
+    expect(built.personRoles.every((r) => r.identityVerification === 'not_started')).toBe(true);
+    expect(built.personRoles.every((r) => r.personalCodeCaptured === false)).toBe(true);
+    const roleKinds = built.personRoles.map((r) => r.kind).sort();
+    expect(roleKinds).toEqual(['director', 'psc']);
+  });
+
+  it('shares one Person between a director and PSC role for the same name', () => {
+    const row: ClientRosterRow = {
+      name: 'Sole Director Ltd',
+      companyNumber: '77778888',
+      directors: [fakePerson({ name: 'Alex Carter', role: 'director' })],
+      pscs: [fakePerson({ name: 'Alex Carter', role: 'psc' })],
+    };
+    const built = buildImportedClientRecords([row], practiceId, ownerUserId, today);
+    expect(built.people).toHaveLength(1);
+    expect(built.personRoles).toHaveLength(2);
+    expect(built.personRoles.every((r) => r.personId === built.people[0].id)).toBe(true);
+    expect(built.personRoles.map((r) => r.kind).sort()).toEqual(['director', 'psc']);
+  });
+
+  it('creates no people when the row has no directors or PSCs', () => {
+    const row: ClientRosterRow = { name: 'No People Ltd', companyNumber: '99990000' };
+    const built = buildImportedClientRecords([row], practiceId, ownerUserId, today);
+    expect(built.people).toHaveLength(0);
+    expect(built.personRoles).toHaveLength(0);
+  });
+});
+
+function fakePerson(overrides: Partial<CompanyPerson> = {}): CompanyPerson {
+  return {
+    name: 'Sample Person',
+    role: 'director',
+    appointedOn: '2020-01-01',
+    dateOfBirth: { month: '5', year: '1980' },
+    nationality: 'British',
+    occupation: 'Director',
+    naturesOfControl: [],
+    ...overrides,
+  };
+}
+
+describe('mergeCompanyPeople', () => {
+  it('sets directors and PSCs from a Companies House people lookup', () => {
+    const row: ClientRosterRow = { name: 'Bare Ltd', companyNumber: '12345678' };
+    const people: CompanyPeopleResponse = { directors: [fakePerson({ name: 'Jane Smith' })], pscs: [fakePerson({ name: 'John Jones', role: 'psc' })], source: 'companies_house' };
+    const merged = mergeCompanyPeople(row, people);
+    expect(merged.directors).toEqual(people.directors);
+    expect(merged.pscs).toEqual(people.pscs);
+  });
 });
 
 function fakeProfile(overrides: Partial<CompanyProfile> = {}): CompanyProfile {
@@ -94,6 +157,7 @@ function fakeProfile(overrides: Partial<CompanyProfile> = {}): CompanyProfile {
     companyType: 'ltd',
     dateOfCreation: '2015-01-01',
     sicCodes: ['62012'],
+    previousNames: [],
     registeredOfficeAddress: { formatted: '1 Fake Street, London' },
     accountingReferenceDate: { day: '31', month: '12' },
     nextAccountsDueOn: '2027-09-30',
@@ -128,5 +192,15 @@ describe('mergeCompanyProfile', () => {
     expect(merged.confirmationStatementDue).toBe('2026-03-01');
     // sicCodes: an empty array from Companies House doesn't overwrite nothing with nothing more usefully than keeping undefined.
     expect(merged.sicCodes).toBeUndefined();
+  });
+
+  it('tolerates a profile with no previousNames field at all, rather than throwing', () => {
+    // A real server response always includes previousNames (mapCompanyProfile defaults it to
+    // []), but nothing enforces that at runtime for values coming over the wire — this must not
+    // throw just because a caller's mock or a malformed response omits the field entirely.
+    const row: ClientRosterRow = { name: 'No Field Ltd', companyNumber: '12345678' };
+    const { previousNames: _omit, ...profileWithoutPreviousNames } = fakeProfile();
+    expect(() => mergeCompanyProfile(row, profileWithoutPreviousNames as CompanyProfile)).not.toThrow();
+    expect(mergeCompanyProfile(row, profileWithoutPreviousNames as CompanyProfile).previousNames).toBeUndefined();
   });
 });

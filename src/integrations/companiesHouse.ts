@@ -8,8 +8,8 @@
  * fails outright — so onboarding never breaks, and the UI can always tell
  * the difference between a live lookup and a sample one.
  */
-import { mockCompanyProfile, mockSearchCompanies } from './companiesHouseMock';
-import type { CompanyProfile, CompanySearchResponse } from './companiesHouseTypes';
+import { mockCompanyPeople, mockCompanyProfile, mockSearchCompanies } from './companiesHouseMock';
+import type { CompanyPeopleResponse, CompanyProfile, CompanySearchResponse } from './companiesHouseTypes';
 
 const NOT_CONFIGURED_STATUSES = new Set([503]);
 
@@ -56,6 +56,19 @@ export async function getCompanyProfile(companyNumber: string): Promise<CompanyP
     return data ?? mockCompanyProfile(companyNumber);
   } catch {
     return mockCompanyProfile(companyNumber);
+  }
+}
+
+/** Active directors and individual PSCs for a company. */
+export async function getCompanyPeople(companyNumber: string): Promise<CompanyPeopleResponse> {
+  try {
+    const res = await fetch(`/api/companies-house/company/${encodeURIComponent(companyNumber)}/people`);
+    if (NOT_CONFIGURED_STATUSES.has(res.status)) return mockCompanyPeople();
+    if (!res.ok) return mockCompanyPeople();
+    const data = await safeJson<CompanyPeopleResponse>(res);
+    return data ?? mockCompanyPeople();
+  } catch {
+    return mockCompanyPeople();
   }
 }
 

@@ -120,3 +120,58 @@ describe('GET /company/:number', () => {
     expect(res.status).toBe(503);
   });
 });
+
+describe('GET /company/:number/people', () => {
+  it('returns 503 not_configured without a key', async () => {
+    delete process.env.COMPANIES_HOUSE_API_KEY;
+    const res = await localGet('/api/companies-house/company/14829301/people');
+    expect(res.status).toBe(503);
+  });
+
+  it('fetches officers and PSCs in parallel and maps both', async () => {
+    process.env.COMPANIES_HOUSE_API_KEY = 'test-key';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url) => {
+        if (url.includes('/officers')) {
+          return new Response(JSON.stringify({ items: [{ name: 'SMITH, Jane', officer_role: 'director', appointed_on: '2020-01-01' }] }), { status: 200 });
+        }
+        if (url.includes('/persons-with-significant-control')) {
+          return new Response(JSON.stringify({ items: [{ name: 'JONES, John', kind: 'individual-person-with-significant-control', notified_on: '2020-01-01' }] }), { status: 200 });
+        }
+        throw new Error(`unexpected url ${url}`);
+      }),
+    );
+    const res = await localGet('/api/companies-house/company/14829301/people');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.source).toBe('companies_house');
+    expect(body.directors).toHaveLength(1);
+    expect(body.directors[0].name).toBe('SMITH, Jane');
+    expect(body.pscs).toHaveLength(1);
+    expect(body.pscs[0].name).toBe('JONES, John');
+  });
+
+  it('treats a 404 on the PSC endpoint as no PSCs, not a failure', async () => {
+    process.env.COMPANIES_HOUSE_API_KEY = 'test-key';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url) => {
+        if (url.includes('/officers')) return new Response(JSON.stringify({ items: [] }), { status: 200 });
+        if (url.includes('/persons-with-significant-control')) return new Response('', { status: 404 });
+        throw new Error(`unexpected url ${url}`);
+      }),
+    );
+    const res = await localGet('/api/companies-house/company/14829301/people');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.pscs).toEqual([]);
+  });
+
+  it('maps a 404 on the officers endpoint (invalid company) to a 404 here', async () => {
+    process.env.COMPANIES_HOUSE_API_KEY = 'test-key';
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })));
+    const res = await localGet('/api/companies-house/company/00000001/people');
+    expect(res.status).toBe(404);
+  });
+});

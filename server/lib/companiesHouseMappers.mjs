@@ -42,6 +42,63 @@ function formatAddress(addr) {
   };
 }
 
+function mapDateOfBirth(dob) {
+  return dob ? { month: dob.month, year: dob.year } : null;
+}
+
+/** One active director from a company's officers list. */
+function mapOfficer(item) {
+  return {
+    name: item.name,
+    role: 'director',
+    appointedOn: item.appointed_on ?? null,
+    dateOfBirth: mapDateOfBirth(item.date_of_birth),
+    nationality: item.nationality ?? null,
+    occupation: item.occupation ?? null,
+    naturesOfControl: [],
+  };
+}
+
+/** Active directors from a company's officers list — resigned officers and non-director appointments (secretary, corporate director) are excluded. */
+export function mapOfficers(data) {
+  return (data.items ?? []).filter((item) => item.officer_role === 'director' && !item.resigned_on).map(mapOfficer);
+}
+
+const NATURE_OF_CONTROL_LABELS = {
+  'ownership-of-shares-25-to-50-percent': 'Owns 25-50% of shares',
+  'ownership-of-shares-50-to-75-percent': 'Owns 50-75% of shares',
+  'ownership-of-shares-75-to-100-percent': 'Owns 75-100% of shares',
+  'voting-rights-25-to-50-percent': 'Holds 25-50% of voting rights',
+  'voting-rights-50-to-75-percent': 'Holds 50-75% of voting rights',
+  'voting-rights-75-to-100-percent': 'Holds 75-100% of voting rights',
+  'right-to-appoint-and-remove-directors': 'Can appoint or remove directors',
+  'significant-influence-or-control': 'Significant influence or control',
+};
+
+/** Companies House's kebab-case control codes (e.g. "ownership-of-shares-75-to-100-percent") to a short human label. Codes for control held via a trust or firm carry an "-as-trust"/"-as-firm" suffix, stripped before matching. */
+function humanizeNatureOfControl(code) {
+  const base = code.replace(/-as-(trust|firm)$/, '');
+  return NATURE_OF_CONTROL_LABELS[base] ?? base.replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
+}
+
+/** One active individual person with significant control. */
+function mapPsc(item) {
+  return {
+    name: item.name,
+    role: 'psc',
+    appointedOn: item.notified_on ?? null,
+    dateOfBirth: mapDateOfBirth(item.date_of_birth),
+    nationality: item.nationality ?? null,
+    occupation: null,
+    naturesOfControl: (item.natures_of_control ?? []).map(humanizeNatureOfControl),
+  };
+}
+
+/** Active individual PSCs — ceased entries and corporate/legal-person PSCs are excluded, since only a natural person maps to this app's Person record. */
+export function mapPscs(data) {
+  return (data.items ?? []).filter((item) => item.kind === 'individual-person-with-significant-control' && !item.ceased_on).map(mapPsc);
+}
+
 /** Full company profile. */
 export function mapCompanyProfile(data) {
   return {
@@ -51,6 +108,7 @@ export function mapCompanyProfile(data) {
     companyType: data.type ?? null,
     dateOfCreation: data.date_of_creation ?? null,
     sicCodes: data.sic_codes ?? [],
+    previousNames: (data.previous_company_names ?? []).map((n) => n.name),
     registeredOfficeAddress: formatAddress(data.registered_office_address),
     accountingReferenceDate: data.accounts?.accounting_reference_date
       ? { day: data.accounts.accounting_reference_date.day, month: data.accounts.accounting_reference_date.month }

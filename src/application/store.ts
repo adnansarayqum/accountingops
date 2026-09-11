@@ -644,6 +644,8 @@ export const useAppStore = create<AppState>((set, get) => {
         d.obligations.push(...built.obligations);
         d.jobs.push(...built.jobs);
         d.requestItems.push(...built.requestItems);
+        d.people.push(...built.people);
+        d.personRoles.push(...built.personRoles);
         created = built.clients.length;
         ctx.activity('client_created', `${created} client${created === 1 ? '' : 's'} imported from a spreadsheet.`);
         ctx.audit('client.import', 'client', 'bulk', undefined, { count: created, names: built.clients.map((c) => c.name) });

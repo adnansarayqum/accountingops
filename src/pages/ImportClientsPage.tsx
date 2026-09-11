@@ -7,8 +7,8 @@ import { Button } from '../ui/components/Button';
 import { Badge } from '../ui/components/Badge';
 import { useAppStore } from '../application/store';
 import { formatDate } from '../domain/dates';
-import { mergeCompanyProfile, type ClientRosterRow } from '../application/clientImport';
-import { getCompaniesHouseStatus, getCompanyProfile } from '../integrations/companiesHouse';
+import { mergeCompanyPeople, mergeCompanyProfile, type ClientRosterRow } from '../application/clientImport';
+import { getCompaniesHouseStatus, getCompanyPeople, getCompanyProfile } from '../integrations/companiesHouse';
 
 type EnrichStatus = 'pending' | 'live' | 'unavailable';
 
@@ -59,7 +59,7 @@ export function ImportClientsPage() {
 
     let done = 0;
     const enriched = await mapWithConcurrency(parsedRows, 4, async (row, i) => {
-      const profile = await getCompanyProfile(row.companyNumber);
+      const [profile, people] = await Promise.all([getCompanyProfile(row.companyNumber), getCompanyPeople(row.companyNumber)]);
       done += 1;
       setEnrichProgress(done);
       setEnrichStatus((prev) => {
@@ -67,7 +67,9 @@ export function ImportClientsPage() {
         next[i] = profile ? 'live' : 'unavailable';
         return next;
       });
-      return profile ? mergeCompanyProfile(row, profile) : row;
+      let next = profile ? mergeCompanyProfile(row, profile) : row;
+      if (people.directors.length > 0 || people.pscs.length > 0) next = mergeCompanyPeople(next, people);
+      return next;
     });
 
     setRows(enriched);
@@ -169,7 +171,11 @@ export function ImportClientsPage() {
         <Card className="mt-4">
           <CardHeader
             title={`${rows.length} client${rows.length === 1 ? '' : 's'} ready to import`}
-            description={enriching ? `Looking up Companies House… ${enrichProgress} / ${rows.length}` : 'Each one gets a placeholder contact you can fill in afterwards, plus an accounts and/or confirmation-statement job where a date was given.'}
+            description={
+              enriching
+                ? `Looking up Companies House… ${enrichProgress} / ${rows.length}`
+                : 'Each one gets a placeholder contact you can fill in afterwards, an accounts and/or confirmation-statement job where a date was given, and any active directors/PSCs Companies House returned.'
+            }
           />
           <CardBody className="pt-0">
             <div className="overflow-x-auto">
@@ -179,6 +185,7 @@ export function ImportClientsPage() {
                     <th className="py-2 pr-3 font-medium">Client</th>
                     <th className="py-2 px-3 font-medium">Company no</th>
                     <th className="py-2 px-3 font-medium">Companies House</th>
+                    <th className="py-2 px-3 font-medium">Directors &amp; PSCs</th>
                     <th className="py-2 px-3 font-medium">Identifiers</th>
                     <th className="py-2 px-3 font-medium">Accounts due</th>
                     <th className="py-2 px-3 font-medium">CS due</th>
@@ -197,6 +204,13 @@ export function ImportClientsPage() {
                           </Badge>
                         )}
                         {enrichStatus[i] === 'unavailable' && <Badge tone="neutral">No live data</Badge>}
+                      </td>
+                      <td className="py-2 px-3 text-slate-700">
+                        {(r.directors?.length ?? 0) === 0 && (r.pscs?.length ?? 0) === 0
+                          ? '—'
+                          : [r.directors?.length ? `${r.directors.length} director${r.directors.length === 1 ? '' : 's'}` : null, r.pscs?.length ? `${r.pscs.length} PSC${r.pscs.length === 1 ? '' : 's'}` : null]
+                              .filter(Boolean)
+                              .join(', ')}
                       </td>
                       <td className="py-2 px-3">
                         <div className="flex flex-wrap gap-1">
