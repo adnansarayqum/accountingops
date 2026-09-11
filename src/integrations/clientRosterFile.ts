@@ -7,10 +7,13 @@ export interface ParsedRoster {
   warnings: string[];
 }
 
+/** The subset of ClientRosterRow a spreadsheet cell can actually fill in — excludes fields only a Companies House lookup populates (see mergeCompanyProfile). */
+type ParsableField = 'name' | 'companyNumber' | 'utr' | 'chAuthCode' | 'personalCode' | 'gatewayCredentials' | 'accountsPeriodEnd' | 'accountsDue' | 'confirmationStatementDue';
+
 // Header text → field, matched case-insensitively after trimming. Practices'
 // own spreadsheets vary a little in wording, so a few common synonyms are
 // accepted for each field.
-const HEADER_ALIASES: Record<string, keyof ClientRosterRow | 'skip'> = {
+const HEADER_ALIASES: Record<string, ParsableField | 'skip'> = {
   name: 'name',
   client: 'name',
   'client name': 'name',
@@ -62,7 +65,7 @@ export function mapRosterRecords(records: Record<string, unknown>[]): ParsedRost
   const rows: ClientRosterRow[] = [];
 
   for (const [index, record] of records.entries()) {
-    const mapped: Partial<ClientRosterRow> = {};
+    const mapped: Partial<Pick<ClientRosterRow, ParsableField>> = {};
     for (const [header, value] of Object.entries(record)) {
       const field = HEADER_ALIASES[header.trim().toLowerCase()];
       if (!field || field === 'skip') continue;

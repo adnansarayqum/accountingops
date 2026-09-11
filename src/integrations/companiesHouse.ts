@@ -35,6 +35,18 @@ export async function searchCompanies(query: string): Promise<CompanySearchRespo
   }
 }
 
+/** Whether the server has a real Companies House API key — vs. falling back to sample data for every lookup. */
+export async function getCompaniesHouseStatus(): Promise<{ configured: boolean }> {
+  try {
+    const res = await fetch('/api/companies-house/status');
+    if (!res.ok) return { configured: false };
+    const data = await safeJson<{ configured: boolean }>(res);
+    return data ?? { configured: false };
+  } catch {
+    return { configured: false };
+  }
+}
+
 export async function getCompanyProfile(companyNumber: string): Promise<CompanyProfile | null> {
   try {
     const res = await fetch(`/api/companies-house/company/${encodeURIComponent(companyNumber)}`);

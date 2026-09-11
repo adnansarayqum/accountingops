@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildImportedClientRecords, type ClientRosterRow } from '../clientImport';
+import { buildImportedClientRecords, mergeCompanyProfile, type ClientRosterRow } from '../clientImport';
+import type { CompanyProfile } from '../../integrations/companiesHouseTypes';
 
 const today = '2026-09-11';
 const practiceId = 'prac_test';
@@ -65,5 +66,67 @@ describe('buildImportedClientRecords', () => {
     expect(built.clients).toHaveLength(2);
     expect(built.clients.map((c) => c.name)).toEqual(['Alpha Ltd', 'Beta Ltd']);
     expect(built.jobs).toHaveLength(1);
+  });
+
+  it('carries Companies House enrichment fields through onto the created client', () => {
+    const row: ClientRosterRow = {
+      name: 'Enriched Ltd',
+      companyNumber: '99998888',
+      registeredOffice: { formatted: '1 High Street, London, EC1A 1AA' },
+      companiesHouseStatus: 'active',
+      sicCodes: ['62012'],
+      incorporatedOn: '2018-05-01',
+    };
+    const built = buildImportedClientRecords([row], practiceId, ownerUserId, today);
+    const client = built.clients[0];
+    expect(client.registeredOffice?.formatted).toBe('1 High Street, London, EC1A 1AA');
+    expect(client.companiesHouseStatus).toBe('active');
+    expect(client.sicCodes).toEqual(['62012']);
+    expect(client.incorporatedOn).toBe('2018-05-01');
+  });
+});
+
+function fakeProfile(overrides: Partial<CompanyProfile> = {}): CompanyProfile {
+  return {
+    companyNumber: '12345678',
+    companyName: 'Fake Ltd',
+    companyStatus: 'active',
+    companyType: 'ltd',
+    dateOfCreation: '2015-01-01',
+    sicCodes: ['62012'],
+    registeredOfficeAddress: { formatted: '1 Fake Street, London' },
+    accountingReferenceDate: { day: '31', month: '12' },
+    nextAccountsDueOn: '2027-09-30',
+    nextAccountsPeriodEndOn: '2026-12-31',
+    nextConfirmationStatementDueOn: '2026-08-01',
+    source: 'companies_house',
+    ...overrides,
+  };
+}
+
+describe('mergeCompanyProfile', () => {
+  it('fills in fields the spreadsheet never had (registered office, SIC codes, incorporation date)', () => {
+    const row: ClientRosterRow = { name: 'Bare Ltd', companyNumber: '12345678' };
+    const merged = mergeCompanyProfile(row, fakeProfile());
+    expect(merged.registeredOffice?.formatted).toBe('1 Fake Street, London');
+    expect(merged.companiesHouseStatus).toBe('active');
+    expect(merged.sicCodes).toEqual(['62012']);
+    expect(merged.incorporatedOn).toBe('2015-01-01');
+  });
+
+  it('overrides the spreadsheet’s own dates with Companies House’s — Companies House wins', () => {
+    const row: ClientRosterRow = { name: 'Stale Dates Ltd', companyNumber: '12345678', accountsPeriodEnd: '2020-01-01', accountsDue: '2020-06-01', confirmationStatementDue: '2020-03-01' };
+    const merged = mergeCompanyProfile(row, fakeProfile());
+    expect(merged.accountsPeriodEnd).toBe('2026-12-31');
+    expect(merged.accountsDue).toBe('2027-09-30');
+    expect(merged.confirmationStatementDue).toBe('2026-08-01');
+  });
+
+  it('keeps the spreadsheet value when Companies House has none for a field', () => {
+    const row: ClientRosterRow = { name: 'Partial Ltd', companyNumber: '12345678', confirmationStatementDue: '2026-03-01' };
+    const merged = mergeCompanyProfile(row, fakeProfile({ nextConfirmationStatementDueOn: null, sicCodes: [] }));
+    expect(merged.confirmationStatementDue).toBe('2026-03-01');
+    // sicCodes: an empty array from Companies House doesn't overwrite nothing with nothing more usefully than keeping undefined.
+    expect(merged.sicCodes).toBeUndefined();
   });
 });
