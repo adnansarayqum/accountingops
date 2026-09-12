@@ -6,6 +6,12 @@ import { configureRepository, useAppStore } from '../../../application/store';
 import { MemoryRepository } from '../../../application/persistence/memoryRepository';
 import { buildFixtureData } from '../../../testing/fixtures';
 import { getCompaniesHouseStatus, getCompanyPeople, lookupCompanyProfile } from '../../../integrations/companiesHouse';
+import { refreshAllClients } from '../../../application/refreshAllClients';
+
+vi.mock('../../../application/refreshAllClients', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../application/refreshAllClients')>();
+  return { ...actual, refreshAllClients: vi.fn(actual.refreshAllClients) };
+});
 
 vi.mock('../../../integrations/companiesHouse', () => ({
   getCompaniesHouseStatus: vi.fn(async () => ({ configured: true })),
@@ -82,6 +88,36 @@ describe('RefreshAllCompaniesHouseButton', () => {
     expect(toast.title).toMatch(/^\d+ clients refreshed — 1 couldn't be looked up$/);
     expect(toast.description).toContain('ABC Construction Ltd');
     expect(useAppStore.getState().data.clients.find((c) => c.id === 'cl_abc')?.companiesHouseSyncedAt).toBeUndefined();
+  });
+
+  it('counts down a rate-limit pause on the button instead of looking stuck', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let finish!: () => void;
+    vi.mocked(refreshAllClients).mockImplementationOnce(async (candidates, deps) => {
+      deps.onProgress?.({ done: 25, total: candidates.length, pausedUntil: Date.now() + 41_000 });
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      deps.onProgress?.({ done: candidates.length, total: candidates.length });
+      return { total: candidates.length, refreshed: candidates.length, failed: [], peopleAdded: 0, verificationsConfirmed: 0 };
+    });
+    try {
+      render(<RefreshAllCompaniesHouseButton />);
+      const button = await screen.findByTestId('refresh-all-companies-house');
+      await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(button);
+      await waitFor(() => expect(button).toHaveTextContent(/waiting 41s for Companies House's rate limit/));
+      await act(async () => {
+        vi.advanceTimersByTime(3_000);
+      });
+      expect(button).toHaveTextContent(/waiting 38s/);
+      await act(async () => {
+        finish();
+      });
+      await waitFor(() => expect(useAppStore.getState().toasts.at(-1)?.title).toBe('Refreshed from Companies House'));
+      expect(button).toHaveTextContent('Refresh all from Companies House');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('is disabled while practice data failed to load', async () => {

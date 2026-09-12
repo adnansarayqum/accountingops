@@ -60,6 +60,25 @@ describe('lookupCompanyProfile', () => {
     expect(await lookupCompanyProfile('14829301')).toEqual({ outcome: 'unavailable', profile: null });
   });
 
+  it('gives up on a lookup that never answers, reporting it unavailable', async () => {
+    // fetch is handed a timeout signal; a proxy that never replies is cut off by it.
+    const fetchSpy = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal;
+      expect(signal).toBeDefined();
+      if (signal?.aborted) reject(signal.reason);
+      signal?.addEventListener('abort', () => reject(signal.reason));
+    }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => AbortSignal.abort(new DOMException('timed out', 'TimeoutError')));
+    try {
+      expect(await lookupCompanyProfile('14829301')).toEqual({ outcome: 'unavailable', profile: null });
+      expect((await getCompanyPeople('14829301')).source).toBe('sample');
+      expect(timeout).toHaveBeenCalledTimes(2);
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
   it('returns the live profile on success', async () => {
     const live = { companyNumber: '14829301', companyName: 'LIVE LTD', source: 'companies_house' };
     answer(200, live);

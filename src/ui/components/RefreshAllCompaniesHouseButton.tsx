@@ -18,6 +18,20 @@ export function RefreshAllCompaniesHouseButton() {
   const toast = useAppStore((s) => s.toast);
   const [configured, setConfigured] = useState(false);
   const [progress, setProgress] = useState<RefreshAllProgress | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+
+  // Count down a rate-limit pause on the button itself, so it never looks stuck.
+  useEffect(() => {
+    const until = progress?.pausedUntil;
+    if (!until) {
+      setSecondsLeft(null);
+      return;
+    }
+    const tick = () => setSecondsLeft(Math.max(0, Math.ceil((until - Date.now()) / 1000)));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [progress?.pausedUntil]);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,7 +87,11 @@ export function RefreshAllCompaniesHouseButton() {
 
   return (
     <Button variant="secondary" icon={<RefreshCw className={cn('h-4 w-4', progress && 'animate-spin')} />} onClick={() => void run()} disabled={progress !== null || loadFailed} data-testid="refresh-all-companies-house" aria-live="polite">
-      {progress ? `Refreshing ${progress.done} of ${progress.total}…` : 'Refresh all from Companies House'}
+      {!progress
+        ? 'Refresh all from Companies House'
+        : secondsLeft !== null
+          ? `Refreshing ${progress.done} of ${progress.total} · waiting ${secondsLeft}s for Companies House's rate limit`
+          : `Refreshing ${progress.done} of ${progress.total}…`}
     </Button>
   );
 }

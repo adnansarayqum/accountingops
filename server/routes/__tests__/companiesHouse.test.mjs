@@ -107,6 +107,18 @@ describe('GET /search', () => {
     expect(JSON.stringify(body)).not.toContain('test-key');
   });
 
+  it('cuts off an upstream that never answers with a 504, and always sends a timeout signal', async () => {
+    process.env.COMPANIES_HOUSE_API_KEY = 'test-key';
+    const fetchSpy = vi.fn(async (_url, init) => {
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    const res = await localGet('/api/companies-house/company/14829301');
+    expect(res.status).toBe(504);
+    expect(await res.json()).toEqual({ error: 'upstream_timeout' });
+  });
+
   it('maps an upstream rate limit to 429', async () => {
     process.env.COMPANIES_HOUSE_API_KEY = 'test-key';
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 429 })));

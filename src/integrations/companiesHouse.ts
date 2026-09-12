@@ -57,9 +57,16 @@ export interface CompanyLookupResult {
 }
 
 /** A profile lookup that reports what happened instead of quietly substituting sample data. */
+/** A lookup that hangs (a proxy or upstream that never answers) must not hang the page or a refresh-all; the proxy's own upstream timeout is shorter than this. */
+const LOOKUP_TIMEOUT_MS = 30_000;
+
+function lookupTimeout(): AbortSignal | undefined {
+  return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(LOOKUP_TIMEOUT_MS) : undefined;
+}
+
 export async function lookupCompanyProfile(companyNumber: string): Promise<CompanyLookupResult> {
   try {
-    const res = await fetch(`/api/companies-house/company/${encodeURIComponent(companyNumber)}`);
+    const res = await fetch(`/api/companies-house/company/${encodeURIComponent(companyNumber)}`, { signal: lookupTimeout() });
     if (NOT_CONFIGURED_STATUSES.has(res.status)) return { outcome: 'not_configured', profile: null };
     if (res.status === 404) return { outcome: 'not_found', profile: null };
     if (res.status === 429) return { outcome: 'rate_limited', profile: null };
@@ -79,7 +86,7 @@ export async function getCompanyProfile(companyNumber: string): Promise<CompanyP
 /** Active directors and individual PSCs for a company. */
 export async function getCompanyPeople(companyNumber: string): Promise<CompanyPeopleResponse> {
   try {
-    const res = await fetch(`/api/companies-house/company/${encodeURIComponent(companyNumber)}/people`);
+    const res = await fetch(`/api/companies-house/company/${encodeURIComponent(companyNumber)}/people`, { signal: lookupTimeout() });
     if (NOT_CONFIGURED_STATUSES.has(res.status)) return mockCompanyPeople();
     if (!res.ok) return mockCompanyPeople();
     const data = await safeJson<CompanyPeopleResponse>(res);
