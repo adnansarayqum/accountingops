@@ -150,10 +150,24 @@ Attention page's full cards so the two can't drift on what an action does.
 
 The right rail splits by axis rather than by data source: workload (a donut
 whose centre is the total its own legend adds up to), the next statutory
-dates, identity verification, ready to file, activity. The navigation rail
-is a fixed dark surface in both themes (`--color-nav-*` in `index.css`) —
-unlike the slate ramp it does not invert, since a pale rail loses the anchor
-it gives the page.
+dates, identity verification, ready to file, activity. It sits beside the
+main column from `lg` (1024px) up, so a small laptop gets the two-column
+composition and not just a 1280px+ desktop. The navigation rail is a fixed
+dark surface in both themes (`--color-nav-*` in `index.css`) — unlike the
+slate ramp it does not invert, since a pale rail loses the anchor it gives
+the page.
+
+Needs attention is the only raised surface on the page (a ring and a
+stronger shadow); everything below it is deliberately flatter, so the
+hierarchy reads as problems → statutory deadlines → client blockers →
+analytics rather than four equal boxes. The attention table's five columns
+hold from `lg` up and collapse to stacked rows below it: squeezed into a
+tablet width every column truncates, and a stacked row beats five columns
+of "Awaiting re…". Client and job names wrap rather than truncate — they
+are how a row is recognised — while the status cell names both axes at
+once (the job's stage, and who holds the next move), since `Job.status` and
+`Job.waitingOn` are independent and the dashboard's "Waiting on client"
+count reads like it should match the status badge when it never does.
 
 There is no time-series data anywhere in the model, so the dashboard shows
 no sparklines or trend arrows: a trend line here could only be invented.
