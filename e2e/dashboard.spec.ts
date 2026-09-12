@@ -6,10 +6,26 @@ test.describe('dashboard — due soon split by service', () => {
     await seedFixture(page);
   });
 
+  test('shows a status tile per service, leading with what is overdue or due soon', async ({ page }) => {
+    const tiles = page.getByTestId('service-tiles');
+    await expect(tiles).toBeVisible();
+    await expect(tiles.getByRole('heading', { level: 2 })).toHaveText('By service — overdue, and due within 14 days');
+
+    // Accounts has an overdue job in the fixture, so it sorts first and reads as overdue.
+    const accounts = tiles.getByRole('link', { name: /Accounts due/ });
+    await expect(accounts).toContainText('overdue');
+    await expect(page.getByTestId('service-tile-grid').getByRole('link').first()).toContainText('Accounts due');
+
+    // Every tile links to that service's jobs.
+    await accounts.click();
+    await expect(page).toHaveURL(/\/jobs\?service=annual_accounts/);
+    await expect(page.getByLabel('Service')).toHaveValue('annual_accounts');
+  });
+
   test('splits due-soon jobs into separate boxes per service instead of one combined list, and surfaces identity verification separately', async ({ page }) => {
     await expect(page.getByRole('heading', { name: 'Due soon' })).toBeVisible();
     // The old combined-list card is gone.
-    await expect(page.getByRole('heading', { name: 'Due in the next 14 days' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Due in the next 14 days', exact: true })).toHaveCount(0);
 
     const dueSoonSection = page.locator('section', { has: page.getByRole('heading', { name: 'Due soon' }) });
     // The fixture's due-soon jobs span Self Assessment, VAT, Payroll and Accounts — each gets

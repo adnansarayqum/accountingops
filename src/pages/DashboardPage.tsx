@@ -10,9 +10,20 @@ import { Badge, DueBadge } from '../ui/components/Badge';
 import { Input } from '../ui/components/Form';
 import { Button } from '../ui/components/Button';
 import { useData, useDerived, useToday } from '../application/selectors';
-import { groupDueSoonByService } from '../application/dashboardGroups';
+import { groupDueSoonByService, serviceStatuses, type ServiceStatus } from '../application/dashboardGroups';
 import { EXAMPLE_QUESTIONS } from '../application/assistant/router';
 import { formatAgo, formatDate, weekdayName } from '../domain/dates';
+
+/** The line under a service tile: what's overdue, what's due soon, and how much is open in total. */
+function serviceTileHint(status: ServiceStatus, dueSoonDays: number): string {
+  const parts =
+    status.overdue > 0
+      ? [`${status.overdue} overdue`, status.dueSoon > 0 ? `${status.dueSoon} due soon` : null]
+      : status.dueSoon > 0
+        ? [`due in the next ${dueSoonDays} days`]
+        : [status.nextDueInDays === null ? null : `next in ${status.nextDueInDays} day${status.nextDueInDays === 1 ? '' : 's'}`];
+  return [...parts, `${status.open} open`].filter(Boolean).join(' · ');
+}
 
 export function DashboardPage() {
   const derived = useDerived();
@@ -26,6 +37,7 @@ export function DashboardPage() {
   const dueSoonDays = derived.thresholds.dueSoonDays;
   const dueSoonViews = derived.jobViews.filter((v) => v.job.status !== 'filed' && v.daysUntilDue >= 0 && v.daysUntilDue <= dueSoonDays);
   const dueSoonGroups = groupDueSoonByService(dueSoonViews);
+  const byService = serviceStatuses(derived.jobViews, dueSoonDays);
   // Identity verification is its own axis, not one more reason a job might be flagged — split
   // out here rather than left to compete with (and sometimes lose to) a job's other attention rules.
   const identityDue = derived.attention.filter((a) => a.ruleCode === 'identity_incomplete');
@@ -42,6 +54,31 @@ export function DashboardPage() {
         <KpiCard label="Ready to file" value={m.readyToFile} hint="Approved and waiting to be submitted." to="/jobs?status=ready_to_file" icon={<FileCheck />} tone={m.readyToFile > 0 ? 'green' : 'neutral'} />
         <KpiCard label="On time" value={m.onTimePercent === null ? '—' : `${m.onTimePercent}%`} hint={`${m.completedOnTime} of ${m.completedOnTime + m.completedLate} filed jobs were on time.`} icon={<CheckCircle2 />} tone={m.onTimePercent !== null && m.onTimePercent < 80 ? 'amber' : 'green'} />
       </div>
+
+      {byService.length > 0 && (
+        <section aria-labelledby="by-service" className="mt-3" data-testid="service-tiles">
+          <div className="flex items-end justify-between mb-2">
+            <h2 id="by-service" className="text-[13px] font-medium text-slate-500">
+              By service — overdue, and due within {dueSoonDays} days
+            </h2>
+            <Link to="/jobs" className="text-xs font-medium text-primary-700 hover:underline">
+              All jobs
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3" data-testid="service-tile-grid">
+            {byService.map((status) => (
+              <KpiCard
+                key={status.serviceCode}
+                label={`${status.label} due`}
+                value={status.due}
+                hint={serviceTileHint(status, dueSoonDays)}
+                to={`/jobs?service=${status.serviceCode}`}
+                tone={status.overdue > 0 ? 'red' : status.dueSoon > 0 ? 'amber' : 'neutral'}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="mt-5 grid gap-5 xl:grid-cols-3">
         <div className="xl:col-span-2 space-y-5 min-w-0">
