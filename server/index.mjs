@@ -15,6 +15,7 @@ import practiceDataRouter from './routes/practiceData.mjs';
 import messagesRouter from './routes/messages.mjs';
 import { healthPayload } from './lib/health.mjs';
 import { securityHeaders } from './lib/securityHeaders.mjs';
+import { spaFallback } from './lib/spaFallback.mjs';
 import { isDatabaseConfigured } from './lib/db.mjs';
 import { ensureSeedUsers } from './lib/bootstrapUsers.mjs';
 
@@ -67,12 +68,9 @@ app.use('/api/practice-data', practiceDataRouter);
 
 app.use(express.static(dist, { index: false, maxAge: '1y', immutable: true, setHeaders: (res, filePath) => { if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache'); } }));
 
-// SPA fallback for client-side routes.
-app.get('/{*splat}', (req, res, next) => {
-  if (req.path.startsWith('/api/')) return next();
-  res.setHeader('Cache-Control', 'no-cache');
-  res.sendFile(path.join(dist, 'index.html'));
-});
+// SPA fallback for client-side routes; missing files and unknown API paths
+// fall through to the JSON 404 below (see lib/spaFallback.mjs).
+app.get('/{*splat}', spaFallback(dist));
 
 app.use((req, res) => res.status(404).json({ error: 'Not found', path: req.path }));
 

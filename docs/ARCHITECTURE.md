@@ -267,7 +267,10 @@ deletion policies, secrets in Railway variables only.
 Services:
 
 1. **web** — `npm ci && npm run build`, `npm start`, health check `/health`
-   (`railway.json`). Serves the SPA; API mounts under `/api`. `/health`
+   (`railway.json`). Serves the SPA; API mounts under `/api`. Client-side
+   routes get `index.html`; a missing file (a stale build's `/assets/…`,
+   a favicon that isn't there) gets a JSON 404, never HTML with a 200
+   (`server/lib/spaFallback.mjs`). `/health`
    stays 200 even when the database is unreachable — the payload says so —
    because restarting a healthy container doesn't fix a database.
 2. **postgres** — Railway plugin, referenced as `DATABASE_URL`. The three
