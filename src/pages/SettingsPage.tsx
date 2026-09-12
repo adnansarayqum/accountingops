@@ -10,6 +10,7 @@ import { MessagingStatusCard } from '../ui/components/MessagingStatusCard';
 import { DuplicatePeopleCard } from '../ui/components/DuplicatePeopleCard';
 import { CorporationTaxCard } from '../ui/components/CorporationTaxCard';
 import { HmrcConnectionCard } from '../ui/components/HmrcConnectionCard';
+import { BriefingEmailCard } from '../ui/components/BriefingEmailCard';
 import { useAppStore } from '../application/store';
 import { useData } from '../application/selectors';
 import { changePassword, logout, logoutEverywhere } from '../application/auth';
@@ -113,6 +114,7 @@ export function SettingsPage() {
       </Card>
 
       {authMode === 'server' && <AccountCard />}
+      {authMode === 'server' && <BriefingEmailCard />}
       {authMode === 'server' && <SnapshotHistoryCard />}
       <ThresholdsCard />
       <HmrcConnectionCard />

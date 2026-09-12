@@ -7,6 +7,7 @@ import messagesRouter from '../messages.mjs';
 import companiesHouseStreamRouter from '../companiesHouseStream.mjs';
 import hmrcRouter from '../hmrc.mjs';
 import portalRouter from '../portal.mjs';
+import briefingRouter from '../briefing.mjs';
 import { hashToken } from '../../lib/portal.mjs';
 import { connectionStatus, isExpiring, readTokens, withFreshToken, writeTokens } from '../../lib/hmrc/tokenStore.mjs';
 import { acknowledgeChanges, countPendingChanges, pendingChanges, readStreamState, recordChange, watchedCompanyNumbers, writeStreamState } from '../../lib/companiesHouseStreamStore.mjs';
@@ -71,6 +72,7 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     app.use('/api/companies-house', companiesHouseRouter);
     app.use('/api/hmrc', hmrcRouter);
     app.use('/api/portal', portalRouter);
+    app.use('/api/briefing', briefingRouter);
     app.use('/api/messages', messagesRouter);
     server = app.listen(0);
     await new Promise((resolve) => server.once('listening', resolve));
@@ -814,6 +816,42 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     });
   });
 
+  describe('morning briefing', () => {
+    let cookie;
+    beforeAll(async () => {
+      resetLoginLimits();
+      cookie = extractCookie(await postLogin(baseUrl, 'practice_data_test', 'FixtureUserPass1'));
+      expect(cookie).toBeTruthy();
+    });
+
+    it('needs a session', async () => {
+      expect((await fetch(`${baseUrl}/api/briefing`)).status).toBe(401);
+    });
+
+    it('starts off, saves an address and switch per user, and refuses to switch on without a usable address', async () => {
+      const initial = await (await fetch(`${baseUrl}/api/briefing`, { headers: { Cookie: cookie } })).json();
+      expect(initial).toMatchObject({ enabled: false, sendHour: 7 });
+
+      const bad = await fetch(`${baseUrl}/api/briefing`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify({ email: 'nope', enabled: true }) });
+      expect(bad.status).toBe(400);
+      expect(await bad.json()).toEqual({ error: 'invalid_email' });
+
+      const ok = await fetch(`${baseUrl}/api/briefing`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify({ email: ' adnan@example.co.uk ', enabled: true }) });
+      expect(await ok.json()).toMatchObject({ email: 'adnan@example.co.uk', enabled: true, lastSentOn: null });
+      expect(await (await fetch(`${baseUrl}/api/briefing`, { headers: { Cookie: cookie } })).json()).toMatchObject({ email: 'adnan@example.co.uk', enabled: true });
+    });
+
+    it('sends one now through the (simulated) provider, composed from the stored snapshot', async () => {
+      await query('delete from practice_snapshots');
+      await query('insert into practice_snapshots (practice_id, data, version) values ($1, $2, 1)', ['prac_main', JSON.stringify({ practice: { timezone: 'Europe/London' }, clients: [{ id: 'c', name: 'Acme Ltd' }], jobs: [{ id: 'j', clientId: 'c', name: '2025 Annual Accounts', status: 'ready_to_file', waitingOn: 'nothing', dueDate: '2030-01-01' }], communications: [] })]);
+      const res = await fetch(`${baseUrl}/api/briefing/send-now`, { method: 'POST', headers: { Cookie: cookie } });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toMatchObject({ sent: true, status: 'simulated', to: 'adnan@example.co.uk', counts: { ready: 1, overdue: 0 } });
+      await query('delete from practice_snapshots');
+    });
+  });
+
   describe('must-change-password gate', () => {
     let cookie;
 
@@ -1110,6 +1148,7 @@ describe('auth + practice-data routers without a configured database', () => {
       app.use('/api/companies-house/stream', companiesHouseStreamRouter);
       app.use('/api/hmrc', hmrcRouter);
       app.use('/api/portal', portalRouter);
+      app.use('/api/briefing', briefingRouter);
       const server = app.listen(0);
       await new Promise((resolve) => server.once('listening', resolve));
       const baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -1138,6 +1177,7 @@ describe('auth + practice-data routers without a configured database', () => {
       // off — as a 200, so the browser does not log an error on every page.
       expect(await (await fetch(`${baseUrl}/api/portal/status`)).json()).toMatchObject({ configured: false });
       expect((await fetch(`${baseUrl}/api/portal/p/${'a'.repeat(43)}`)).status).toBe(503);
+      expect((await fetch(`${baseUrl}/api/briefing`)).status).toBe(503);
       await new Promise((resolve) => server.close(resolve));
     } finally {
       if (original !== undefined) process.env.DATABASE_URL = original;
