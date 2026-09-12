@@ -84,22 +84,22 @@ export function DashboardPage() {
       </div>
 
       {/* 1 — headline numbers */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2.5">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
         <KpiCard label="Due in 30 days" value={m.dueIn30} hint="Open jobs with a statutory deadline in the next 30 days." to="/jobs?due=30" icon={<CalendarClock />} tone="blue" />
-        <KpiCard label="Overdue" value={m.overdue} hint={m.overdue === 0 ? 'Nothing has passed its deadline.' : 'Open jobs past their deadline.'} to="/jobs?due=overdue" icon={<AlertTriangle />} tone={m.overdue > 0 ? 'red' : 'neutral'} emphasis={m.overdue > 0} />
+        <KpiCard label="Overdue" value={m.overdue} hint={m.overdue === 0 ? 'Nothing has passed its deadline.' : 'Open jobs past their deadline.'} to="/jobs?due=overdue" icon={<AlertTriangle />} tone="red" emphasis={m.overdue > 0} />
         <KpiCard
           label="Waiting on client"
           value={m.waitingOnClient}
-          hint={`${waitingClients} client${waitingClients === 1 ? '' : 's'} are holding up work.`}
+          hint={`${waitingClients} client${waitingClients === 1 ? '' : 's'} hold the next move.`}
           to="/chasing"
           icon={<UserX />}
-          tone={m.waitingOnClient > 0 ? 'amber' : 'neutral'}
+          tone="amber"
           // The biggest blocker earns the deeper tint — but not while something is overdue,
           // which outranks it.
           emphasis={m.overdue === 0 && m.waitingOnClient > 0}
         />
-        <KpiCard label="Ready to file" value={m.readyToFile} hint="Approved and waiting to be submitted." to="/jobs?status=ready_to_file" icon={<FileCheck />} tone={m.readyToFile > 0 ? 'green' : 'neutral'} />
-        <KpiCard label="On time" value={m.onTimePercent === null ? '—' : `${m.onTimePercent}%`} hint={`${m.completedOnTime} of ${m.completedOnTime + m.completedLate} filed jobs were on time.`} icon={<CheckCircle2 />} tone={m.onTimePercent !== null && m.onTimePercent < 80 ? 'amber' : 'violet'} />
+        <KpiCard label="Ready to file" value={m.readyToFile} hint="Approved and waiting to be submitted." to="/jobs?status=ready_to_file" icon={<FileCheck />} tone="green" />
+        <KpiCard label="On time" value={m.onTimePercent === null ? '—' : `${m.onTimePercent}%`} hint={`${m.completedOnTime} of ${m.completedOnTime + m.completedLate} filed jobs were on time.`} icon={<CheckCircle2 />} tone="violet" />
       </div>
 
       {/* 2 — statutory deadlines by service */}
@@ -113,7 +113,7 @@ export function DashboardPage() {
               View all deadlines
             </Link>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5" data-testid="service-tile-grid">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2" data-testid="service-tile-grid">
             {byService.map((status) => {
               const Icon = SERVICE_ICONS[status.serviceCode];
               const tone: KpiTone = status.overdue > 0 ? 'red' : status.dueSoon > 0 ? 'amber' : 'neutral';
@@ -123,13 +123,15 @@ export function DashboardPage() {
         </section>
       )}
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-4">
-        <div className="xl:col-span-3 space-y-4 min-w-0">
-          {/* 3 — what needs a decision now */}
-          <Card>
+      <div className="mt-4 grid gap-4 lg:grid-cols-4 items-start">
+        <div className="lg:col-span-3 space-y-4 min-w-0">
+          {/* 3 — what needs a decision now. The one raised surface on the page:
+              everything below it is deliberately flatter and quieter. */}
+          <Card className="shadow-pop ring-1 ring-slate-900/5">
             <CardHeader
+              className="px-5 pt-4 pb-2.5"
               title={
-                <span className="flex items-center gap-2">
+                <span className="flex items-center gap-2 text-[17px]">
                   Needs attention <CountBadge count={derived.attention.length} />
                 </span>
               }
@@ -151,8 +153,8 @@ export function DashboardPage() {
 
           {/* Quick actions — every one goes somewhere real */}
           <Card>
-            <CardHeader title="Take action" description="Quick routes into the work these numbers point at." />
-            <CardBody className="pt-0 flex flex-wrap gap-2">
+            <CardHeader title="Quick actions" description="Quick actions to keep your practice moving." className="px-5 pt-3.5 pb-2.5" />
+            <CardBody className="pt-0 pb-4 flex flex-wrap gap-2">
               <QuickAction to="/chasing" icon={<BellRing />} label="Send client reminders" />
               <QuickAction to={`/jobs?due=${dueSoonDays}`} icon={<CalendarClock />} label="Review upcoming deadlines" />
               <QuickAction to="/inbox" icon={<Upload />} label="Review uploaded documents" />
@@ -162,15 +164,18 @@ export function DashboardPage() {
 
           {/* 4 — how the practice is running. Quieter than everything above it. */}
           <Card>
-            <CardHeader title="Operational efficiency" description="How smoothly the practice is running — no vanity metrics." />
-            <CardBody className="pt-0">
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-5">
-                <Stat label="Average client wait" value={m.averageClientWaitDays === null ? '—' : `${m.averageClientWaitDays} days`} hint="Mean time jobs have been waiting on clients." />
+            <CardHeader title="Operational efficiency" description="How smoothly the practice is running — no vanity metrics." className="px-5 pt-3.5 pb-2.5" />
+            <CardBody className="pt-0 pb-4">
+              {/* One row of six on a laptop. There is no time series behind any of these
+                  (see docs/ARCHITECTURE.md), so there are no sparklines to put beside
+                  them — a trend line here could only be invented. */}
+              <div className="grid grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-4">
+                <Stat label="Average client wait" value={m.averageClientWaitDays === null ? '—' : `${m.averageClientWaitDays}d`} hint="Mean time jobs have been waiting on clients." />
                 <Stat label="Jobs ready to file" value={m.readyToFile} hint="Approved and waiting to be submitted." />
                 <Stat label="Reminders this month" value={m.remindersThisMonth} hint="Automated and manual reminders sent this calendar month." />
                 <Stat label="Completed on time" value={m.onTimePercent === null ? '—' : `${m.completedOnTime}/${m.completedOnTime + m.completedLate}`} hint="Filed jobs submitted before their deadline." />
                 <Stat label="Ready before deadline" value={m.readyBeforeDeadline} hint="Jobs ready to file with time to spare." />
-                <Stat label="Jobs with no next action" value={m.jobsWithNoNextAction} hint="Open jobs where nobody knows what happens next. Should be zero." />
+                <Stat label="No next action" value={m.jobsWithNoNextAction} hint="Open jobs where nobody knows what happens next. Should be zero." />
               </div>
             </CardBody>
           </Card>
@@ -271,9 +276,13 @@ export function DashboardPage() {
                 <ul className="divide-y divide-slate-100">
                   {readyToFile.slice(0, 4).map((v) => (
                     <li key={v.job.id}>
-                      <Link to={`/jobs/${v.job.id}`} className="py-2 flex items-center justify-between gap-2 hover:text-primary-700">
-                        <span className="text-[13px] font-medium text-slate-800 truncate">
-                          {v.client.name} · {v.job.name}
+                      {/* Client and job on their own lines, as in Upcoming deadlines —
+                          one line joined by a dot truncates to "Peter & Anne Ashby · …",
+                          which drops the half that says what is ready. */}
+                      <Link to={`/jobs/${v.job.id}`} className="py-2 flex items-center justify-between gap-2 group">
+                        <span className="min-w-0">
+                          <span className="block text-[13px] font-medium text-slate-800 truncate group-hover:text-primary-700">{v.client.name}</span>
+                          <span className="block text-[11px] text-slate-500 truncate">{v.job.name}</span>
                         </span>
                         <DueBadge days={v.daysUntilDue} />
                       </Link>
@@ -298,7 +307,7 @@ export function DashboardPage() {
                 <p className="text-[13px] text-slate-500">Nothing recorded yet.</p>
               ) : (
                 <ul className="space-y-2.5">
-                  {data.activities.slice(0, 5).map((a) => (
+                  {data.activities.slice(0, 4).map((a) => (
                     <li key={a.id} className="text-[12.5px] text-slate-700 leading-snug">
                       {a.message}
                       <span className="block text-[10.5px] text-slate-400 mt-0.5">{formatAgo(a.occurredAt, today)}</span>

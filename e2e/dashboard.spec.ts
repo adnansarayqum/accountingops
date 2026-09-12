@@ -32,9 +32,9 @@ test.describe('dashboard — key deadlines and attention triage', () => {
   test('triages the top attention items in a table, with the real recommended action per row', async ({ page }) => {
     const table = page.getByTestId('attention-table');
     await expect(table).toBeVisible();
-    // Five columns on a desktop; below `sm` the table collapses to stacked rows
-    // and drops the header, since five columns don't fit on a phone.
-    const wide = (page.viewportSize()?.width ?? 0) >= 640;
+    // Five columns on a desktop; below `lg` the table collapses to stacked rows
+    // and drops the header, since five columns only truncate at tablet width.
+    const wide = (page.viewportSize()?.width ?? 0) >= 1024;
     if (wide) await expect(table.getByRole('columnheader')).toHaveText(['Client', 'Job', 'Due date', 'Status', 'Action', 'More']);
     else await expect(table.getByRole('columnheader')).toHaveCount(0);
 
@@ -80,7 +80,7 @@ test.describe('dashboard — key deadlines and attention triage', () => {
   });
 
   test('every quick action goes to a route that exists', async ({ page }) => {
-    const takeAction = page.locator('div.card', { has: page.getByRole('heading', { name: 'Take action' }) });
+    const takeAction = page.locator('div.card', { has: page.getByRole('heading', { name: 'Quick actions' }) });
     for (const [name, url] of [
       ['Send client reminders', /\/chasing$/],
       ['Review upcoming deadlines', /\/jobs\?due=14/],
