@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import companiesHouseRouter from './routes/companiesHouse.mjs';
 import companiesHouseStreamRouter from './routes/companiesHouseStream.mjs';
 import hmrcRouter from './routes/hmrc.mjs';
+import portalRouter from './routes/portal.mjs';
 import authRouter from './routes/auth.mjs';
 import practiceDataRouter from './routes/practiceData.mjs';
 import messagesRouter from './routes/messages.mjs';
@@ -64,6 +65,7 @@ app.get('/health', async (_req, res) => {
 app.use('/api/companies-house/stream', companiesHouseStreamRouter);
 app.use('/api/companies-house', companiesHouseRouter);
 app.use('/api/hmrc', hmrcRouter);
+app.use('/api/portal', portalRouter);
 app.use('/api/messages', messagesRouter);
 
 // Authentication and shared practice-data persistence. Both return 503 when

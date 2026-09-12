@@ -10,6 +10,7 @@ import { Select, Field, Input } from '../ui/components/Form';
 import { Modal } from '../ui/components/Modal';
 import { DocumentChecklist } from '../ui/components/DocumentChecklist';
 import { ReminderComposer } from '../ui/components/ReminderComposer';
+import { ClientLinkCard } from '../ui/components/ClientLinkCard';
 import { NotFoundPage } from './NotFoundPage';
 import { useAppStore } from '../application/store';
 import { useData, useDerived, useToday } from '../application/selectors';
@@ -176,6 +177,8 @@ export function JobDetailPage() {
               <DocumentChecklist job={job} items={items} />
             </CardBody>
           </Card>
+
+          <ClientLinkCard job={job} />
 
           <Card>
             <CardHeader title="Approvals & filing" description="Explicit checkpoints. Filing is simulated — no submission is sent to HMRC or Companies House." />

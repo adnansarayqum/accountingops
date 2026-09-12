@@ -3,6 +3,7 @@ import { buildEmptyPracticeData, OWNER_USER_ID } from './emptyState';
 import { buildImportedClientRecords, PLACEHOLDER_CONTACT_NAME, type ClientRosterRow } from './clientImport';
 import type { AuthUser } from './auth';
 import type { CompanyPeopleResponse, CompanyProfile } from '../integrations/companiesHouseTypes';
+import type { PortalActivity } from '../integrations/portal';
 import { nowIso, todayIso } from '../domain/dates';
 import { normaliseCompanyNumber } from '../domain/companyNumber';
 import { birthMonthYearOf, isSamePerson, normalisePersonName, personNameKey } from '../domain/personNames';
@@ -100,7 +101,16 @@ export interface AppState {
   fileJob(jobId: string): { nextJob?: Job };
 
   // information requests & documents
-  markItemReceived(itemId: string, opts?: { fileName?: string; source?: Document['source'] }): void;
+  markItemReceived(itemId: string, opts?: { fileName?: string; source?: Document['source']; sizeKb?: number; portalUploadId?: string }): void;
+  /**
+   * Applies what clients did through the portal — uploads and approval
+   * decisions — through the same actions an accountant would use, so every
+   * rule (completeness, auto-transitions, an approval moving the job on)
+   * runs exactly once, where it is defined. Returns the ids it handled so
+   * the caller can acknowledge them; anything it could not match (a job
+   * since deleted, say) is returned too, so it is not offered forever.
+   */
+  applyPortalActivity(activity: PortalActivity[]): { applied: string[]; skipped: string[] };
   markItemMissing(itemId: string): void;
   addRequestItem(jobId: string, label: string): void;
 
@@ -681,7 +691,8 @@ export const useAppStore = create<AppState>((set, get) => {
           documentType: item.documentType,
           receivedAt: nowIso(),
           source: opts?.source ?? 'upload',
-          sizeKb: 240,
+          sizeKb: opts?.sizeKb ?? 240,
+          portalUploadId: opts?.portalUploadId,
         };
         d.documents.push(doc);
         item.status = 'received';
@@ -708,6 +719,41 @@ export const useAppStore = create<AppState>((set, get) => {
         const job = d.jobs.find((j) => j.id === item.jobId);
         if (job) applyCompletenessEffects(d, ctx, job);
       });
+    },
+
+    applyPortalActivity(activity) {
+      const applied: string[] = [];
+      const skipped: string[] = [];
+      for (const entry of activity) {
+        const d = get().data;
+        const job = d.jobs.find((j) => j.id === entry.jobId && j.clientId === entry.clientId);
+        if (!job) {
+          skipped.push(entry.id);
+          continue;
+        }
+        if (entry.kind === 'upload') {
+          const item = entry.requestItemId ? d.requestItems.find((i) => i.id === entry.requestItemId && i.jobId === job.id) : undefined;
+          if (item) {
+            if (item.status !== 'received') get().markItemReceived(item.id, { fileName: entry.fileName ?? undefined, source: 'portal', sizeKb: entry.sizeKb ?? undefined, portalUploadId: entry.uploadId ?? undefined });
+          } else {
+            // A file sent against no particular request still belongs on the
+            // job — it is recorded as a document, and the accountant decides
+            // what it satisfies.
+            mutate((data, ctx) => {
+              const client = data.clients.find((c) => c.id === job.clientId);
+              data.documents.push({ id: newId('doc'), practiceId: data.practice.id, clientId: job.clientId, jobId: job.id, fileName: entry.fileName ?? 'document', documentType: 'Other', receivedAt: nowIso(), source: 'portal', sizeKb: entry.sizeKb ?? 1, portalUploadId: entry.uploadId ?? undefined });
+              ctx.activity('document_received', `${entry.fileName ?? 'A file'} uploaded by ${client?.name} through the portal for ${job.name}.`, job);
+            });
+          }
+          applied.push(entry.id);
+        } else if (entry.kind === 'approval' && (entry.decision === 'approved' || entry.decision === 'rejected')) {
+          get().recordApproval(job.id, 'client', entry.decision, `${entry.actorName ?? 'Client'} (via portal)`, entry.note ?? undefined);
+          applied.push(entry.id);
+        } else {
+          skipped.push(entry.id);
+        }
+      }
+      return { applied, skipped };
     },
 
     addRequestItem(jobId, label) {

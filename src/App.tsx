@@ -26,10 +26,25 @@ import { ActivityPage } from './pages/ActivityPage';
 import { AskPage } from './pages/AskPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { PortalPage } from './pages/PortalPage';
 
 type AuthPhase = 'checking' | 'local' | 'unauthenticated' | 'must_change_password' | 'authenticated' | 'unavailable';
 
+/**
+ * The public client portal is routed before any of the app's auth gating:
+ * it has no session, loads no practice data, and must work for a person
+ * who has never signed in. Everything else goes through the gated app.
+ */
 export default function App() {
+  return (
+    <Routes>
+      <Route path="/portal/:token" element={<PortalPage />} />
+      <Route path="*" element={<AuthenticatedApp />} />
+    </Routes>
+  );
+}
+
+function AuthenticatedApp() {
   const ready = useAppStore((s) => s.ready);
   const init = useAppStore((s) => s.init);
   const [authPhase, setAuthPhase] = useState<AuthPhase>('checking');

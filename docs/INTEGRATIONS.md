@@ -278,6 +278,42 @@ If a real need shows up later, the right shape is narrow and read-only —
 e.g. "does a client with this name already exist in Xero?" for onboarding
 deduplication — not a ledger sync. No code exists for this today.
 
+## Client portal — live, needs a database
+
+The practice's biggest number is *client-blocked jobs*, and until now the
+app gave a client nowhere to unblock one: every document arrived by email,
+every approval was typed in after a phone call. The portal is a per-job
+link a client can act on with no account.
+
+**Blast radius first.** A link is for one job, one client, one purpose
+(upload *or* approve), and expires. The token is 32 random bytes; the
+server keeps only its SHA-256, so the URL is shown exactly once at creation
+and a lost link is revoked and remade. Every way a link can be wrong —
+guessed, expired, revoked, already used — is the same 404, so probing
+learns nothing. The public route is rate limited by address, and the
+client's view is built server-side from the snapshot with only what the
+client needs: no identifiers, no other jobs, no notes, no staff names
+(`server/lib/portal.mjs` is the whole rule set, tested without a database).
+
+**Uploads** are capped at 10 MB and twelve files per link, to a list of
+document types a client plausibly sends (no executables), with the size
+checked from the declared base64 length *before* the body is decoded. The
+bytes live in Postgres for now — the documented target is object storage —
+and only a signed-in user can read them back. **Approval** links are
+single-use: the first decision wins and the link is dead afterwards, and a
+name is required so the record says who approved.
+
+**Nothing writes the practice snapshot from the public route.** A client's
+upload or decision is queued (`portal_activity`), and the app applies it
+through the same store actions an accountant uses (`markItemReceived`,
+`recordApproval`), so completeness, auto-transitions and "approved → ready
+to file" run exactly once, where they are defined
+(`src/application/usePortalActivity.ts`). No confirmation step: these are
+the client's own actions on their own job.
+
+Without a database the router answers 503 and the Client link card on the
+job page renders nothing, so the browser-only mode is unchanged.
+
 ## Security notes
 
 - API keys live only in environment variables read server-side
