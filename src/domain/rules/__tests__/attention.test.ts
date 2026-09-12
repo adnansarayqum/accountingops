@@ -64,3 +64,25 @@ describe('attention rules against the fixture dataset', () => {
     expect(evaluateAttention(c).some((i) => i.jobId === 'job_abc_accounts')).toBe(false);
   });
 });
+
+describe('identity verification reasons', () => {
+  it('says how many verification statements Companies House expects, and by when, once a refresh has recorded it', () => {
+    const d = buildFixtureData(today);
+    // Greenfield's confirmation statement is due in 18 days; Olivia's two roles are not started.
+    const olivia = d.personRoles.filter((r) => r.personId === 'p_olivia');
+    expect(olivia).toHaveLength(2);
+    for (const role of olivia) role.companiesHouseVerification = { checkedAt: '2026-09-11T08:00:00Z', verifiedOn: null, dueOn: role.kind === 'psc' ? '2026-09-28' : '2026-10-05' };
+    const item = evaluateAttention(ctx({ personRoles: d.personRoles })).find((i) => i.jobId === 'job_greenfield_cs');
+    expect(item?.ruleCode).toBe('identity_incomplete');
+    expect(item?.reasons).toEqual([
+      '2 directors/PSCs still need identity verification.',
+      'Companies House expects 2 verification statements by 28 Sep 2026.',
+      'Companies House will reject the filing without it.',
+    ]);
+  });
+
+  it('keeps the plain reason when Companies House has published no dates', () => {
+    const item = evaluateAttention(ctx()).find((i) => i.jobId === 'job_greenfield_cs');
+    expect(item?.reasons).toEqual(['2 directors/PSCs still need identity verification.', 'Companies House will reject the filing without it.']);
+  });
+});

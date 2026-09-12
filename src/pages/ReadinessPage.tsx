@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldCheck, ShieldAlert, ShieldQuestion } from 'lucide-react';
+import { ExternalLink, ShieldCheck, ShieldAlert, ShieldQuestion } from 'lucide-react';
 import { PageHeader } from '../ui/components/PageHeader';
 import { Card, CardBody, CardHeader } from '../ui/components/Card';
 import { Tabs } from '../ui/components/Tabs';
@@ -8,7 +8,8 @@ import { Badge } from '../ui/components/Badge';
 import { Select } from '../ui/components/Form';
 import { useAppStore } from '../application/store';
 import { useData, useDerived } from '../application/selectors';
-import { evaluateIdentityReadiness, evaluateMtd } from '../domain/rules';
+import { describeCompaniesHouseVerification, evaluateIdentityReadiness, evaluateMtd } from '../domain/rules';
+import { normaliseCompanyNumber } from '../domain/companyNumber';
 import { formatDate } from '../domain/dates';
 import type { IdentityVerificationStatus, MtdStatus } from '../domain/types';
 import { cn } from '../ui/cn';
@@ -26,6 +27,10 @@ export function ReadinessPage() {
 
   const mtdRows = data.mtdReadiness.map((r) => ({ r, client: derived.clientById.get(r.clientId)!, ev: evaluateMtd(r) })).filter((x) => x.client);
   const identityRows = data.clients.filter((c) => c.type === 'limited_company').map((c) => evaluateIdentityReadiness(c, data.personRoles, data.people)).filter((x) => x.total > 0).sort((a, b) => Number(a.status === 'ready') - Number(b.status === 'ready'));
+  const companyNumberOf = (clientId: string) => {
+    const stored = data.identifiers.find((i) => i.clientId === clientId && i.kind === 'company_number')?.value;
+    return stored ? normaliseCompanyNumber(stored) : undefined;
+  };
 
   return (
     <div className="animate-in">
@@ -55,6 +60,17 @@ export function ReadinessPage() {
               />
               <CardBody className="pt-0">
                 {row.confirmationStatementBlocked && <p className="mb-2 text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/30 rounded-md px-2.5 py-1.5">Confirmation statement cannot be filed until every director and PSC is verified.</p>}
+                {companyNumberOf(row.client.id) && (
+                  <a
+                    href={`https://find-and-update.company-information.service.gov.uk/company/${companyNumberOf(row.client.id)}/officers`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mb-2 inline-flex items-center gap-1 text-xs font-medium text-primary-700 hover:underline"
+                    data-testid={`check-on-companies-house-${row.client.id}`}
+                  >
+                    Check on Companies House <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                  </a>
+                )}
                 <ul className="divide-y divide-slate-100">
                   {row.roles.map(({ role, person }) => {
                     const Icon = role.identityVerification === 'verified' ? ShieldCheck : role.identityVerification === 'in_progress' ? ShieldQuestion : ShieldAlert;
@@ -66,10 +82,16 @@ export function ReadinessPage() {
                           <p className="text-xs text-slate-500">
                             {role.kind === 'psc' ? 'PSC' : role.kind.charAt(0).toUpperCase() + role.kind.slice(1)} · personal code {role.personalCodeCaptured ? 'captured' : 'not captured'} · evidence {role.evidenceStatus}
                           </p>
-                          {role.identityVerification === 'verified' && role.identityVerificationSource === 'companies_house' && (
+                          {role.identityVerification === 'verified' && role.identityVerificationSource === 'companies_house' ? (
                             <p className="text-xs text-emerald-700" data-testid={`verified-by-companies-house-${role.id}`}>
                               Confirmed by Companies House{role.identityVerifiedOn ? ` · ${formatDate(role.identityVerifiedOn)}` : ''}
                             </p>
+                          ) : (
+                            describeCompaniesHouseVerification(role) && (
+                              <p className={cn('text-xs', role.companiesHouseVerification?.verifiedOn ? 'text-emerald-700' : role.companiesHouseVerification?.dueOn ? 'text-amber-700' : 'text-slate-400')} data-testid={`companies-house-verification-${role.id}`}>
+                                {describeCompaniesHouseVerification(role)}
+                              </p>
+                            )
                           )}
                         </div>
                         <Select

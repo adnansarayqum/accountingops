@@ -34,6 +34,7 @@ import type {
   JobStatus,
   Notification,
   OnboardingStage,
+  CompaniesHouseVerification,
   PersonRole,
   PersonRoleKind,
   PracticeData,
@@ -338,9 +339,15 @@ function applyCompaniesHouseRefresh(
         .filter((r) => r.clientId === clientId)
         .map((r) => `${personNameKey(d.people.find((p) => p.id === r.personId)?.fullName ?? '')}|${r.kind}`),
     );
-    const entries: { name: string; birthMonthYear?: string; kind: PersonRoleKind; naturesOfControl?: string[]; verifiedOn?: string | null }[] = [
-      ...people.directors.map((p) => ({ name: p.name, birthMonthYear: birthMonthYearOf(p.dateOfBirth), kind: 'director' as const, verifiedOn: p.identityVerification?.verifiedOn })),
-      ...people.pscs.map((p) => ({ name: p.name, birthMonthYear: birthMonthYearOf(p.dateOfBirth), kind: 'psc' as const, naturesOfControl: p.naturesOfControl, verifiedOn: p.identityVerification?.verifiedOn })),
+    const seenAt = nowIso();
+    const seen = (p: { identityVerification?: { verifiedOn: string | null; statementDueOn: string | null } | null }): CompaniesHouseVerification => ({
+      checkedAt: seenAt,
+      verifiedOn: p.identityVerification?.verifiedOn ?? null,
+      dueOn: p.identityVerification?.statementDueOn ?? null,
+    });
+    const entries: { name: string; birthMonthYear?: string; kind: PersonRoleKind; naturesOfControl?: string[]; verifiedOn?: string | null; seen: CompaniesHouseVerification }[] = [
+      ...people.directors.map((p) => ({ name: p.name, birthMonthYear: birthMonthYearOf(p.dateOfBirth), kind: 'director' as const, verifiedOn: p.identityVerification?.verifiedOn, seen: seen(p) })),
+      ...people.pscs.map((p) => ({ name: p.name, birthMonthYear: birthMonthYearOf(p.dateOfBirth), kind: 'psc' as const, naturesOfControl: p.naturesOfControl, verifiedOn: p.identityVerification?.verifiedOn, seen: seen(p) })),
     ];
     for (const entry of entries) {
       const key = personNameKey(entry.name);
@@ -352,7 +359,10 @@ function applyCompaniesHouseRefresh(
       if (existingRoleKeys.has(`${key}|${entry.kind}`)) {
         // Already linked — but Companies House may now say they've verified.
         const existingRole = d.personRoles.find((r) => r.clientId === clientId && r.kind === entry.kind && personNameKey(d.people.find((p) => p.id === r.personId)?.fullName ?? '') === key);
-        if (existingRole && confirmVerificationFromCompaniesHouse(d, ctx, existingRole, entry.verifiedOn, client)) verificationsConfirmed += 1;
+        if (existingRole) {
+          existingRole.companiesHouseVerification = entry.seen;
+          if (confirmVerificationFromCompaniesHouse(d, ctx, existingRole, entry.verifiedOn, client)) verificationsConfirmed += 1;
+        }
         continue;
       }
       existingRoleKeys.add(`${key}|${entry.kind}`);
@@ -368,6 +378,7 @@ function applyCompaniesHouseRefresh(
         personalCodeCaptured: false,
         evidenceStatus: 'none',
         naturesOfControl: entry.naturesOfControl,
+        companiesHouseVerification: entry.seen,
       };
       d.personRoles.push(role);
       peopleAdded += 1;

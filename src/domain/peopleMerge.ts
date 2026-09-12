@@ -143,6 +143,7 @@ export function applyPeopleMerge(data: Pick<PracticeData, 'people' | 'personRole
         if (VERIFICATION_RANK[role.identityVerification] > VERIFICATION_RANK[existing.identityVerification]) existing.identityVerification = role.identityVerification;
         if (EVIDENCE_RANK[role.evidenceStatus] > EVIDENCE_RANK[existing.evidenceStatus]) existing.evidenceStatus = role.evidenceStatus;
         existing.personalCodeCaptured = existing.personalCodeCaptured || role.personalCodeCaptured;
+        existing.companiesHouseVerification ??= role.companiesHouseVerification;
         if (role.naturesOfControl?.length) existing.naturesOfControl = [...new Set([...(existing.naturesOfControl ?? []), ...role.naturesOfControl])];
         data.personRoles.splice(data.personRoles.indexOf(role), 1);
         summary.rolesCombined += 1;

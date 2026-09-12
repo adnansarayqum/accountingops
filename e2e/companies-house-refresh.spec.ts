@@ -32,7 +32,8 @@ test.describe('refresh from Companies House', () => {
         json: {
           // Dave Thompson already exists as a director+PSC on this client in the fixture —
           // refreshing must not create a duplicate for him.
-          directors: [{ name: 'Dave Thompson', role: 'director', appointedOn: '2012-04-01', dateOfBirth: { month: '4', year: '1978' }, nationality: 'British', occupation: 'Director', naturesOfControl: [], identityVerification: null }],
+          // Companies House has set a date for Dave's verification statement — shown on Readiness as what the register says.
+          directors: [{ name: 'Dave Thompson', role: 'director', appointedOn: '2012-04-01', dateOfBirth: { month: '4', year: '1978' }, nationality: 'British', occupation: 'Director', naturesOfControl: [], identityVerification: { verifiedOn: null, statementDueOn: '2026-09-28', verifiedBy: null } }],
           pscs: [
             // Companies House already records this person as verified — the app must pick that up rather than
             // flag them as needing verification.
@@ -68,6 +69,9 @@ test.describe('refresh from Companies House', () => {
     const readinessRow = page.locator('li', { hasText: 'Newly Appointed Person' });
     await expect(readinessRow).toContainText('Confirmed by Companies House');
     await expect(readinessRow.getByRole('combobox')).toHaveValue('verified');
+    // Dave is verified by hand in the fixture, so the register's due date is recorded but not shown as a warning there;
+    // the link to check the register is offered for the company.
+    await expect(page.getByTestId('check-on-companies-house-cl_abc')).toHaveAttribute('href', 'https://find-and-update.company-information.service.gov.uk/company/09876543/officers');
   });
 
   test('shows a clear message when no Companies House key is configured', async ({ page }) => {
