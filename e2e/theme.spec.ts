@@ -27,7 +27,7 @@ test.describe('theme initialisation under the Content-Security-Policy', () => {
     await page.evaluate(() => localStorage.setItem('practiceops.theme', 'dark'));
     await page.reload();
     await expect(page.locator('html')).toHaveClass(/dark/);
-    await expect(page.getByRole('heading', { name: 'Practice Today' })).toBeVisible();
+    await expect(page.getByTestId('dashboard')).toBeVisible();
 
     await page.evaluate(() => localStorage.setItem('practiceops.theme', 'light'));
     await page.reload();

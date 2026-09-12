@@ -135,6 +135,29 @@ the earlier one. No roster spreadsheet carries a CT600 date, so both the
 import and the Settings → Corporation tax backfill derive it from the
 accounts period end through the same builder.
 
+## Dashboard layout
+
+`src/pages/DashboardPage.tsx` is ordered by how much each band matters, not
+by how much data it has: headline numbers, then the statutory deadlines
+behind them (`dashboardGroups.ts` → `serviceStatuses`), then what needs a
+decision now, then how the practice is running. Everything above
+"Operational efficiency" is meant to fit a 1440×900 viewport without
+scrolling, which is why attention is a table
+(`ui/components/AttentionTable.tsx`) rather than a stack of cards — the same
+five items take a third of the height. The recommended action per row comes
+from the attention rule itself through `useAttentionAction`, shared with the
+Attention page's full cards so the two can't drift on what an action does.
+
+The right rail splits by axis rather than by data source: workload (a donut
+whose centre is the total its own legend adds up to), the next statutory
+dates, identity verification, ready to file, activity. The navigation rail
+is a fixed dark surface in both themes (`--color-nav-*` in `index.css`) —
+unlike the slate ramp it does not invert, since a pale rail loses the anchor
+it gives the page.
+
+There is no time-series data anywhere in the model, so the dashboard shows
+no sparklines or trend arrows: a trend line here could only be invented.
+
 ## Status vs blocker
 
 `Job.status` (where the work is in its lifecycle) and `Job.waitingOn` (who

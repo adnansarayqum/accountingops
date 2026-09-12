@@ -52,11 +52,11 @@ test.describe('server-backed login', () => {
     // password, then load practice data — 404 the first time — then save a
     // freshly built empty practice) before the app is ready; give it more
     // room than the default 5s under test-environment load.
-    await expect(page.getByRole('heading', { name: 'Practice Today' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
 
     // The session survives a reload — no need to sign in again.
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Practice Today' })).toBeVisible();
+    await expect(page.getByTestId('dashboard')).toBeVisible();
 
     // Settings shows the real signed-in account, not the local-mode "act as" switcher.
     await page.goto('/settings');
@@ -89,7 +89,7 @@ test.describe('server-backed login', () => {
     await page.getByTestId('change-password-new').fill('FarhanNewPass1');
     await page.getByTestId('change-password-confirm').fill('FarhanNewPass1');
     await page.getByTestId('change-password-submit').click();
-    await expect(page.getByRole('heading', { name: 'Practice Today' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
 
     const afterChange = await page.request.get('/api/practice-data');
     expect(afterChange.status()).not.toBe(403);
@@ -104,7 +104,7 @@ test.describe('server-backed login', () => {
     await page.getByTestId('change-password-new').fill('BrandNewPass1');
     await page.getByTestId('change-password-confirm').fill('BrandNewPass1');
     await page.getByTestId('change-password-submit').click();
-    await expect(page.getByRole('heading', { name: 'Practice Today' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
 
     // A second device, same account.
     const otherContext = await browser.newContext();
@@ -114,7 +114,7 @@ test.describe('server-backed login', () => {
     await otherPage.getByTestId('login-username').fill('adnan');
     await otherPage.getByTestId('login-password').fill('BrandNewPass1');
     await otherPage.getByTestId('login-submit').click();
-    await expect(otherPage.getByRole('heading', { name: 'Practice Today' })).toBeVisible({ timeout: 15_000 });
+    await expect(otherPage.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
 
     await page.goto('/settings');
     page.once('dialog', (d) => void d.accept());
@@ -148,7 +148,7 @@ test.describe('server-backed login', () => {
     await farhanPage.getByTestId('change-password-new').fill('AnotherPass1');
     await farhanPage.getByTestId('change-password-confirm').fill('AnotherPass1');
     await farhanPage.getByTestId('change-password-submit').click();
-    await expect(farhanPage.getByRole('heading', { name: 'Practice Today' })).toBeVisible({ timeout: 15_000 });
+    await expect(farhanPage.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
 
     await farhanPage.goto('/clients/new');
     await farhanPage.getByLabel('Client / company name').fill('Shared Data Test Ltd');
@@ -173,7 +173,7 @@ test.describe('server-backed login', () => {
     // Wait for the change to land before navigating away — the password
     // derivation is deliberately slow, and a goto mid-request would abandon
     // it and land back on the set-a-new-password screen.
-    await expect(adnanPage.getByRole('heading', { name: 'Practice Today' })).toBeVisible({ timeout: 15_000 });
+    await expect(adnanPage.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
     await adnanPage.goto('/clients');
     await expect(adnanPage.getByRole('link', { name: 'Shared Data Test Ltd' }).first()).toBeVisible();
     await adnanContext.close();
@@ -192,7 +192,7 @@ test.describe('server-backed login', () => {
       await page.getByTestId('change-password-new').fill(next);
       await page.getByTestId('change-password-confirm').fill(next);
       await page.getByTestId('change-password-submit').click();
-      await expect(page.getByRole('heading', { name: 'Practice Today' })).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId('dashboard')).toBeVisible({ timeout: 15_000 });
       return { context, page };
     };
     const createClient = async (page: import('@playwright/test').Page, name: string) => {

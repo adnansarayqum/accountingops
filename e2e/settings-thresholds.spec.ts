@@ -6,16 +6,18 @@ test.describe('configurable timing thresholds', () => {
     await seedFixture(page);
   });
 
-  test('widening the due soon window in Settings brings a confirmation statement into the dashboard, and the change persists', async ({ page }) => {
+  test('widening the due soon window in Settings changes what the dashboard counts as due soon, and the change persists', async ({ page }) => {
     await page.goto('/settings');
     const dueSoon = page.getByLabel('Due soon window');
     await expect(dueSoon).toHaveValue('14');
 
     // Greenfield's confirmation statement is due in 18 days — outside the default
-    // 14-day window, so no CS01 box shows on the dashboard yet.
+    // 14-day window, so the CS01 tile reads as scheduled rather than due soon.
     await page.goto('/');
-    const dueSoonSection = page.locator('section', { has: page.getByRole('heading', { name: 'Due soon' }) });
-    await expect(dueSoonSection.locator('.card h2', { hasText: 'CS01' })).toHaveCount(0);
+    const tiles = page.getByTestId('service-tiles');
+    const cs01 = page.getByTestId('service-tile-grid').getByRole('link', { name: /CS01/ });
+    await expect(tiles.getByRole('heading', { level: 2 })).toContainText('due within 14 days');
+    await expect(cs01).toContainText('next in 18 days');
 
     await page.goto('/settings');
     await dueSoon.fill('20');
@@ -24,12 +26,12 @@ test.describe('configurable timing thresholds', () => {
 
     // Reflected on the dashboard immediately, without a reload.
     await page.goto('/');
-    await expect(dueSoonSection.locator('.card h2', { hasText: 'CS01' })).toBeVisible();
-    await expect(dueSoonSection.getByText(/open jobs due in the next 20 days/)).toBeVisible();
+    await expect(tiles.getByRole('heading', { level: 2 })).toContainText('due within 20 days');
+    await expect(cs01).toContainText('due within 20 days');
 
     // Persisted, not just on-screen state.
     await page.reload();
-    await expect(dueSoonSection.locator('.card h2', { hasText: 'CS01' })).toBeVisible();
+    await expect(cs01).toContainText('due within 20 days');
     await page.goto('/settings');
     await expect(page.getByLabel('Due soon window')).toHaveValue('20');
   });

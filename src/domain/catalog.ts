@@ -97,6 +97,23 @@ export const JOB_STATUS_LABELS: Record<JobStatus, string> = {
   filed: 'Filed',
 };
 
+/**
+ * Same statuses, short enough for a table cell. Used where a column is
+ * narrower than "Waiting for client approval" — the dashboard's attention
+ * table — so the status stays readable instead of being truncated to
+ * "Waiting for …", which tells you nothing. Every one still names the same
+ * state; nowhere should show these when there is room for the full label.
+ */
+export const JOB_STATUS_SHORT_LABELS: Record<JobStatus, string> = {
+  waiting_for_records: 'Awaiting records',
+  ready_to_start: 'Ready to start',
+  in_progress: 'In progress',
+  internal_review: 'In review',
+  waiting_client_approval: 'Awaiting approval',
+  ready_to_file: 'Ready to file',
+  filed: 'Filed',
+};
+
 export const JOB_STATUS_ORDER: JobStatus[] = [
   'waiting_for_records',
   'ready_to_start',

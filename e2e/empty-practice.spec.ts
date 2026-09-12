@@ -11,7 +11,7 @@ test.describe('brand-new practice', () => {
     await page.goto('/');
     await page.evaluate(() => localStorage.clear());
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Practice Today' })).toBeVisible();
+    await expect(page.getByTestId('dashboard')).toBeVisible();
   });
 
   test('boots with no clients, jobs or inbox items', async ({ page }) => {
