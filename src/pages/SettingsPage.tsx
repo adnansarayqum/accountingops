@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, KeyRound, LogOut, Pencil, ShieldCheck, ShieldOff, Users, X } from 'lucide-react';
+import { Check, KeyRound, LogOut, Pencil, RotateCcw, ShieldCheck, ShieldOff, SlidersHorizontal, Users, X } from 'lucide-react';
 import { PageHeader } from '../ui/components/PageHeader';
 import { Card, CardBody, CardHeader } from '../ui/components/Card';
 import { Button } from '../ui/components/Button';
@@ -11,6 +11,8 @@ import { DuplicatePeopleCard } from '../ui/components/DuplicatePeopleCard';
 import { useAppStore } from '../application/store';
 import { useData } from '../application/selectors';
 import { changePassword, logout, logoutEverywhere } from '../application/auth';
+import { DEFAULT_THRESHOLDS, MAX_THRESHOLD_DAYS, MIN_THRESHOLD_DAYS, resolveThresholds } from '../domain/rules';
+import type { PracticeThresholds } from '../domain/types';
 
 export function SettingsPage() {
   const data = useData();
@@ -110,6 +112,7 @@ export function SettingsPage() {
 
       {authMode === 'server' && <AccountCard />}
       {authMode === 'server' && <SnapshotHistoryCard />}
+      <ThresholdsCard />
       <MessagingStatusCard />
       <DuplicatePeopleCard />
 
@@ -198,6 +201,86 @@ function AccountCard() {
             {signingOutEverywhere ? 'Signing out everywhere…' : 'Sign out everywhere'}
           </Button>
         </div>
+      </CardBody>
+    </Card>
+  );
+}
+
+/** Validated fields, in page order, and the input id each error belongs to — same pattern as NewClientPage. */
+const THRESHOLD_FIELDS: { key: keyof PracticeThresholds; label: string; hint: string; id: string }[] = [
+  { key: 'dueSoonDays', label: 'Due soon window', hint: 'How far ahead of a job’s deadline counts as "due soon" on the dashboard.', id: 'th-due-soon' },
+  { key: 'identityVerificationWindowDays', label: 'Identity verification look-ahead', hint: 'How far ahead of a confirmation statement an unverified director or PSC gets flagged.', id: 'th-identity' },
+  { key: 'staleJobDays', label: 'Stale job threshold', hint: 'How long a job can sit with no status change before it’s flagged as stale.', id: 'th-stale' },
+  { key: 'reviewWaitDays', label: 'Review wait threshold', hint: 'How long a job can sit in internal review with no reviewer before it’s flagged.', id: 'th-review' },
+  { key: 'approvalWaitDays', label: 'Approval wait threshold', hint: 'How long a job can wait for client approval before it’s flagged.', id: 'th-approval' },
+];
+
+function draftFrom(thresholds: PracticeThresholds): Record<keyof PracticeThresholds, string> {
+  return Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, String(thresholds[f.key])])) as Record<keyof PracticeThresholds, string>;
+}
+
+function ThresholdsCard() {
+  const data = useData();
+  const updatePracticeThresholds = useAppStore((s) => s.updatePracticeThresholds);
+  const toast = useAppStore((s) => s.toast);
+  const [draft, setDraft] = useState<Record<keyof PracticeThresholds, string>>(() => draftFrom(resolveThresholds(data.practice.thresholds)));
+  const [errors, setErrors] = useState<Partial<Record<keyof PracticeThresholds, string>>>({});
+  /** Links an input to its Field's error message for assistive tech. */
+  const invalid = (key: keyof PracticeThresholds, id: string) => ({ 'aria-invalid': errors[key] ? true : undefined, 'aria-describedby': errors[key] ? `${id}-error` : undefined });
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsed: Partial<PracticeThresholds> = {};
+    const nextErrors: Partial<Record<keyof PracticeThresholds, string>> = {};
+    for (const field of THRESHOLD_FIELDS) {
+      const value = Number(draft[field.key]);
+      if (!Number.isInteger(value) || value < MIN_THRESHOLD_DAYS || value > MAX_THRESHOLD_DAYS) {
+        nextErrors[field.key] = `Enter a whole number from ${MIN_THRESHOLD_DAYS} to ${MAX_THRESHOLD_DAYS}.`;
+      } else {
+        parsed[field.key] = value;
+      }
+    }
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+    updatePracticeThresholds(parsed);
+    toast({ title: 'Timing thresholds updated', description: 'Needs Attention and the dashboard reflect this immediately.', tone: 'success' });
+  };
+
+  const resetDraft = () => {
+    setDraft(draftFrom(DEFAULT_THRESHOLDS));
+    setErrors({});
+  };
+
+  return (
+    <Card>
+      <CardHeader title="Timing thresholds" icon={<SlidersHorizontal />} description="How urgency is judged across Needs Attention and the dashboard's due-soon view." />
+      <CardBody className="pt-0">
+        <form onSubmit={submit} noValidate className="grid gap-4 sm:grid-cols-2">
+          {THRESHOLD_FIELDS.map((field) => (
+            <Field key={field.key} label={field.label} htmlFor={field.id} hint={field.hint} error={errors[field.key]}>
+              <div className="flex items-center gap-2">
+                <Input
+                  id={field.id}
+                  type="number"
+                  inputMode="numeric"
+                  min={MIN_THRESHOLD_DAYS}
+                  max={MAX_THRESHOLD_DAYS}
+                  value={draft[field.key]}
+                  onChange={(e) => setDraft({ ...draft, [field.key]: e.target.value })}
+                  className="w-24"
+                  {...invalid(field.key, field.id)}
+                />
+                <span className="text-xs text-slate-500">days</span>
+              </div>
+            </Field>
+          ))}
+          <div className="sm:col-span-2 flex flex-wrap gap-2 pt-1">
+            <Button type="submit">Save thresholds</Button>
+            <Button type="button" variant="ghost" icon={<RotateCcw />} onClick={resetDraft}>
+              Reset to defaults
+            </Button>
+          </div>
+        </form>
       </CardBody>
     </Card>
   );

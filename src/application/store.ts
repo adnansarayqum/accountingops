@@ -15,6 +15,7 @@ import {
   DEFAULT_WAITING_ON,
   generateNextJob,
   itemsForJob,
+  sanitizeThresholdPatch,
   suggestedTransitionOnCompleteness,
 } from '../domain/rules';
 import type {
@@ -38,6 +39,7 @@ import type {
   PersonRole,
   PersonRoleKind,
   PracticeData,
+  PracticeThresholds,
   RegisteredAddress,
   ServiceCode,
   WaitingOn,
@@ -163,6 +165,10 @@ export interface AppState {
   // team
   /** Corrects a team member's display name (e.g. a typo from initial setup) — shown everywhere in the app, including Settings' "Signed in as" line. */
   renameUser(userId: string, name: string): void;
+
+  // practice configuration
+  /** Merges into the practice's timing thresholds (Settings → Timing thresholds) — only the fields present in `patch` change. */
+  updatePracticeThresholds(patch: Partial<PracticeThresholds>): void;
 
   // onboarding
   toggleOnboardingItem(caseId: string, key: string): void;
@@ -1104,6 +1110,17 @@ export const useAppStore = create<AppState>((set, get) => {
         user.name = name.trim();
         ctx.activity('note', `${before} renamed to ${user.name}.`);
         ctx.audit('user.rename', 'user', userId, { name: before }, { name: user.name });
+      });
+    },
+
+    updatePracticeThresholds(patch) {
+      const clean = sanitizeThresholdPatch(patch);
+      if (Object.keys(clean).length === 0) return;
+      mutate((d, ctx) => {
+        const before = { ...d.practice.thresholds };
+        d.practice.thresholds = { ...d.practice.thresholds, ...clean };
+        ctx.activity('note', 'Timing thresholds updated.');
+        ctx.audit('practice.thresholds', 'practice', d.practice.id, before, { ...d.practice.thresholds });
       });
     },
 

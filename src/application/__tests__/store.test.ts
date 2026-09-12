@@ -604,3 +604,42 @@ describe('application store — identity verification confirmed by Companies Hou
     expect(role.identityVerifiedOn).toBeUndefined();
   });
 });
+
+describe('application store — timing thresholds (Settings)', () => {
+  beforeEach(() => {
+    configureRepository(new MemoryRepository());
+    useAppStore.setState({ data: buildFixtureData(today), today, ready: true, currentUserId: 'u_adnan', toasts: [] });
+  });
+
+  it('merges a patch into the practice thresholds, leaving fields not mentioned untouched, as one saved change', () => {
+    expect(useAppStore.getState().data.practice.thresholds).toBeUndefined();
+    useAppStore.getState().updatePracticeThresholds({ staleJobDays: 21 });
+    expect(useAppStore.getState().data.practice.thresholds).toEqual({ staleJobDays: 21 });
+    expect(useAppStore.getState().unsaved).toBe(true);
+
+    useAppStore.getState().updatePracticeThresholds({ reviewWaitDays: 5 });
+    expect(useAppStore.getState().data.practice.thresholds).toEqual({ staleJobDays: 21, reviewWaitDays: 5 });
+
+    const s = useAppStore.getState().data;
+    expect(s.activities[0]).toMatchObject({ kind: 'note', message: 'Timing thresholds updated.' });
+    expect(s.auditEvents[0]).toMatchObject({ action: 'practice.thresholds', before: { staleJobDays: 21 }, after: { staleJobDays: 21, reviewWaitDays: 5 } });
+  });
+
+  it('overwrites an existing value for a field named again', () => {
+    useAppStore.getState().updatePracticeThresholds({ dueSoonDays: 21 });
+    useAppStore.getState().updatePracticeThresholds({ dueSoonDays: 7 });
+    expect(useAppStore.getState().data.practice.thresholds).toEqual({ dueSoonDays: 7 });
+  });
+
+  it('drops an invalid value from the patch and keeps the well-formed ones, never touching or saving anything when the whole patch is bad', () => {
+    useAppStore.getState().updatePracticeThresholds({ dueSoonDays: 10, staleJobDays: -1 });
+    expect(useAppStore.getState().data.practice.thresholds).toEqual({ dueSoonDays: 10 });
+
+    useAppStore.setState({ unsaved: false });
+    const activitiesBefore = useAppStore.getState().data.activities.length;
+    useAppStore.getState().updatePracticeThresholds({ approvalWaitDays: 0, reviewWaitDays: 3.5 });
+    expect(useAppStore.getState().data.practice.thresholds).toEqual({ dueSoonDays: 10 });
+    expect(useAppStore.getState().data.activities.length).toBe(activitiesBefore);
+    expect(useAppStore.getState().unsaved).toBe(false);
+  });
+});

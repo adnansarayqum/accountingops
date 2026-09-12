@@ -20,6 +20,32 @@ export interface Practice {
   id: Id;
   name: string;
   timezone: string;
+  /**
+   * Configurable timing thresholds for Needs Attention and the dashboard's
+   * "Due soon" view. Optional, and every field within it optional too — a
+   * practice that has never touched Settings → Timing thresholds has no
+   * object here at all, and one that has only ever changed some fields has
+   * the rest missing; `domain/rules/thresholds.ts`'s `resolveThresholds()`
+   * fills in the same defaults every rule used before this existed.
+   */
+  thresholds?: Partial<PracticeThresholds>;
+}
+
+/**
+ * Every value is a count of days. See `domain/rules/thresholds.ts` for the
+ * defaults and `domain/rules/attention.ts` for how each one is used.
+ */
+export interface PracticeThresholds {
+  /** How far ahead of a job's deadline counts as "due soon" on the dashboard. */
+  dueSoonDays: number;
+  /** How far ahead of a confirmation statement's deadline an unverified director or PSC gets flagged. */
+  identityVerificationWindowDays: number;
+  /** How long a job can sit with no status change before it's flagged as stale. */
+  staleJobDays: number;
+  /** How long a job can sit in internal review with no reviewer assigned before it's flagged. */
+  reviewWaitDays: number;
+  /** How long a job can wait for client approval before it's flagged. */
+  approvalWaitDays: number;
 }
 
 export type UserRole = 'owner' | 'manager' | 'accountant' | 'admin';

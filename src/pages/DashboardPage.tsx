@@ -23,7 +23,8 @@ export function DashboardPage() {
   const m = derived.metrics;
   const topAttention = derived.attention.slice(0, 4);
   const readyToFile = derived.jobViews.filter((v) => v.job.status === 'ready_to_file');
-  const dueSoonViews = derived.jobViews.filter((v) => v.job.status !== 'filed' && v.daysUntilDue >= 0 && v.daysUntilDue <= 14);
+  const dueSoonDays = derived.thresholds.dueSoonDays;
+  const dueSoonViews = derived.jobViews.filter((v) => v.job.status !== 'filed' && v.daysUntilDue >= 0 && v.daysUntilDue <= dueSoonDays);
   const dueSoonGroups = groupDueSoonByService(dueSoonViews);
   // Identity verification is its own axis, not one more reason a job might be flagged — split
   // out here rather than left to compete with (and sometimes lose to) a job's other attention rules.
@@ -77,16 +78,16 @@ export function DashboardPage() {
                   Due soon
                 </h2>
                 <p className="text-[13px] text-slate-500">
-                  {dueSoonViews.length === 0 ? 'Nothing due in the next two weeks.' : `${dueSoonViews.length} open job${dueSoonViews.length === 1 ? '' : 's'} due in the next 14 days, split by what they are.`}
+                  {dueSoonViews.length === 0 ? `Nothing due in the next ${dueSoonDays} days.` : `${dueSoonViews.length} open job${dueSoonViews.length === 1 ? '' : 's'} due in the next ${dueSoonDays} days, split by what they are.`}
                 </p>
               </div>
-              <Link to="/jobs?due=14" className="text-[13px] font-medium text-primary-700 hover:underline inline-flex items-center gap-1">
+              <Link to={`/jobs?due=${dueSoonDays}`} className="text-[13px] font-medium text-primary-700 hover:underline inline-flex items-center gap-1">
                 View all <ArrowRight className="h-3.5 w-3.5" />
               </Link>
             </div>
             {dueSoonGroups.length === 0 && identityDue.length === 0 ? (
               <Card>
-                <EmptyState icon={<Clock />} title="Nothing due soon" description="No open jobs are due in the next two weeks." compact />
+                <EmptyState icon={<Clock />} title="Nothing due soon" description={`No open jobs are due in the next ${dueSoonDays} days.`} compact />
               </Card>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -105,7 +106,10 @@ export function DashboardPage() {
                         ))}
                       </ul>
                       {group.views.length > 4 && (
-                        <Link to={`/jobs?due=14&service=${group.serviceCode}`} className="mt-2 inline-block text-xs font-medium text-primary-700 hover:underline">
+                        // The Jobs page's due filter only offers 7/14/30/60 as preset options —
+                        // an unusual configured window still filters correctly here, it just
+                        // won't show pre-selected in that dropdown.
+                        <Link to={`/jobs?due=${dueSoonDays}&service=${group.serviceCode}`} className="mt-2 inline-block text-xs font-medium text-primary-700 hover:underline">
                           View all {group.views.length} →
                         </Link>
                       )}

@@ -86,3 +86,54 @@ describe('identity verification reasons', () => {
     expect(item?.reasons).toEqual(['2 directors/PSCs still need identity verification.', 'Companies House will reject the filing without it.']);
   });
 });
+
+describe('configurable thresholds (Settings → Timing thresholds)', () => {
+  it('uses the same defaults whether thresholds are omitted or explicitly passed as the defaults', () => {
+    const withDefaults = evaluateAttention(ctx({ thresholds: { dueSoonDays: 14, identityVerificationWindowDays: 45, staleJobDays: 14, reviewWaitDays: 7, approvalWaitDays: 10 } }));
+    expect(withDefaults).toEqual(evaluateAttention(ctx()));
+  });
+
+  it('identityVerificationWindowDays: widening it brings a farther-out confirmation statement into scope', () => {
+    // job_lumen_cs is due in 88 days with an unverified director — outside the
+    // default 45-day window, and nothing else about it qualifies for any other
+    // rule, so by default it doesn't appear at all.
+    expect(evaluateAttention(ctx()).find((i) => i.jobId === 'job_lumen_cs')).toBeUndefined();
+    const widened = evaluateAttention(ctx({ thresholds: { identityVerificationWindowDays: 90 } })).find((i) => i.jobId === 'job_lumen_cs');
+    expect(widened?.ruleCode).toBe('identity_incomplete');
+    expect(widened?.reasons[0]).toContain('1 director');
+  });
+
+  it('identityVerificationWindowDays: narrowing it drops a confirmation statement that the default would flag', () => {
+    // job_greenfield_cs, due in 18 days with two unverified roles, is flagged by default.
+    expect(evaluateAttention(ctx()).find((i) => i.jobId === 'job_greenfield_cs')?.ruleCode).toBe('identity_incomplete');
+    const narrowed = evaluateAttention(ctx({ thresholds: { identityVerificationWindowDays: 10 } })).find((i) => i.jobId === 'job_greenfield_cs');
+    expect(narrowed).toBeUndefined();
+  });
+
+  it('staleJobDays: narrowing it flags a job that has not moved in 9 days, which the default (14) does not', () => {
+    // job_northern_accounts: in_progress, unchanged for 9 days, nothing else about it qualifies for any rule.
+    expect(evaluateAttention(ctx()).find((i) => i.jobId === 'job_northern_accounts')).toBeUndefined();
+    const narrowed = evaluateAttention(ctx({ thresholds: { staleJobDays: 5 } })).find((i) => i.jobId === 'job_northern_accounts');
+    expect(narrowed?.ruleCode).toBe('stale');
+  });
+
+  it('reviewWaitDays: widening it beyond 8 days stops flagging a review that has sat that long', () => {
+    // job_hartley_accounts: internal_review, no reviewer, unchanged for 8 days — flagged by the default (7).
+    expect(evaluateAttention(ctx()).find((i) => i.jobId === 'job_hartley_accounts')?.ruleCode).toBe('review_no_reviewer');
+    const widened = evaluateAttention(ctx({ thresholds: { reviewWaitDays: 10 } })).find((i) => i.jobId === 'job_hartley_accounts');
+    expect(widened).toBeUndefined();
+  });
+
+  it('approvalWaitDays: widening it beyond 11 days stops flagging an approval that has sat that long', () => {
+    // job_brown_accounts: waiting_client_approval for 11 days — flagged by the default (10).
+    expect(evaluateAttention(ctx()).find((i) => i.jobId === 'job_brown_accounts')?.ruleCode).toBe('approval_stalled');
+    const widened = evaluateAttention(ctx({ thresholds: { approvalWaitDays: 15 } })).find((i) => i.jobId === 'job_brown_accounts');
+    expect(widened).toBeUndefined();
+  });
+
+  it('a partial override only changes the field given — every other threshold keeps behaving as the default', () => {
+    const partial = evaluateAttention(ctx({ thresholds: { staleJobDays: 5 } }));
+    const full = evaluateAttention(ctx({ thresholds: { staleJobDays: 5, dueSoonDays: 14, identityVerificationWindowDays: 45, reviewWaitDays: 7, approvalWaitDays: 10 } }));
+    expect(partial).toEqual(full);
+  });
+});
