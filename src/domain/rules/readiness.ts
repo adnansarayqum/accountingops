@@ -1,4 +1,4 @@
-import type { Client, MtdReadiness, MtdStatus, Person, PersonRole } from '../types';
+import type { Client, MtdReadiness, MtdStatus, Person, PersonRole, PersonRoleKind } from '../types';
 import { formatDate } from '../dates';
 
 export interface MtdEvaluation {
@@ -52,6 +52,38 @@ export function evaluateIdentityReadiness(client: Client, roles: PersonRole[], p
  * can be read against the register rather than guessed at. Null before
  * any refresh has looked.
  */
+export interface PersonRoleGroup {
+  person: Person;
+  roles: PersonRole[];
+}
+
+const ROLE_KIND_ORDER: Record<PersonRoleKind, number> = { director: 0, psc: 1, partner: 2, proprietor: 3 };
+
+/**
+ * Groups a client's roles by the person holding them. Without this, a
+ * person who is both a director and a PSC shows up as two separate,
+ * identically-named entries — and a Companies House refresh adds every
+ * director before any PSC, so the two need not even be adjacent — easy to
+ * read the first one ("verified") and miss that the second ("PSC") still
+ * needs it. Each group's roles are ordered director-then-PSC-then-others;
+ * groups are ordered by the person's first appearance in `entries`.
+ */
+export function groupRolesByPerson(entries: { role: PersonRole; person: Person }[]): PersonRoleGroup[] {
+  const order: string[] = [];
+  const groups = new Map<string, PersonRoleGroup>();
+  for (const { role, person } of entries) {
+    let group = groups.get(person.id);
+    if (!group) {
+      group = { person, roles: [] };
+      groups.set(person.id, group);
+      order.push(person.id);
+    }
+    group.roles.push(role);
+  }
+  for (const id of order) groups.get(id)!.roles.sort((a, b) => ROLE_KIND_ORDER[a.kind] - ROLE_KIND_ORDER[b.kind]);
+  return order.map((id) => groups.get(id)!);
+}
+
 export function describeCompaniesHouseVerification(role: PersonRole): string | null {
   const seen = role.companiesHouseVerification;
   if (!seen) return null;

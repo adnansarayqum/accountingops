@@ -57,10 +57,10 @@ test.describe('refresh from Companies House', () => {
     await expect(page.getByText('ABC BUILDERS LTD')).toBeVisible();
 
     // Dave Thompson is also this client's primary contact (a separate record), so scope to
-    // the Directors & PSCs card: he should still appear exactly twice there (director + PSC,
-    // from the fixture) — refreshing must not add a third, duplicate role for him.
+    // the Directors & PSCs card: his roles are grouped under one entry there (director + PSC,
+    // from the fixture) — refreshing must not add a third role, or split him into two entries.
     const rolesCard = page.locator('div.card', { has: page.getByRole('heading', { name: 'Directors & PSCs' }) });
-    await expect(rolesCard.getByText('Dave Thompson')).toHaveCount(2);
+    await expect(rolesCard.getByText('Dave Thompson')).toHaveCount(1);
     await expect(rolesCard.getByText('Newly Appointed Person')).toBeVisible();
     await expect(page.getByText('Owns 25-50% of shares')).toBeVisible();
     // The new PSC arrived already verified, as Companies House said, and Readiness says where that came from.

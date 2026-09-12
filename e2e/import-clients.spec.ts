@@ -155,9 +155,9 @@ test.describe('import clients', () => {
     await expect(page.getByText('Primary contact')).toBeVisible();
     const contactsCard = page.locator('div.card', { has: page.getByRole('heading', { name: 'Contacts' }) });
     await expect(contactsCard.getByText('Jane Harbour')).toBeVisible();
-    // She holds both roles for this company, so she appears once per role — not merged, not duplicated.
+    // She holds both roles for this company, grouped under one entry with a line for each — not merged, not duplicated.
     const rolesCard = page.locator('div.card', { has: page.getByRole('heading', { name: 'Directors & PSCs' }) });
-    await expect(rolesCard.getByText('Jane Harbour')).toHaveCount(2);
+    await expect(rolesCard.getByText('Jane Harbour')).toHaveCount(1);
     await expect(page.getByText('director', { exact: true })).toBeVisible();
     await expect(page.getByText('PSC', { exact: true })).toBeVisible();
     await expect(page.getByText('Owns 75-100% of shares')).toBeVisible();
