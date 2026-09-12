@@ -11,7 +11,9 @@ import {
   resolveThresholds,
   responsivenessProfile,
   sequenceIdFor,
+  summarisePenalties,
   type AttentionItem,
+  type PenaltySummary,
   type CapacitySummary,
   type CapacityWindow,
   type ChasingAssessment,
@@ -49,6 +51,8 @@ export interface Derived {
   unreadNotifications: number;
   /** Resolved once here — every field always populated, defaults filled in for whatever the practice hasn't customised in Settings. */
   thresholds: PracticeThresholds;
+  /** Late-filing penalty exposure in pounds across open jobs, with "at risk" looking as far ahead as the due-soon window. */
+  penalties: PenaltySummary;
 }
 
 export function computeDerived(data: PracticeData, today: string): Derived {
@@ -119,6 +123,7 @@ export function computeDerived(data: PracticeData, today: string): Derived {
     pendingInbox: data.inboxItems.filter((i) => i.status === 'pending').length,
     unreadNotifications: data.notifications.filter((n) => !n.read).length,
     thresholds,
+    penalties: summarisePenalties(data.jobs, today, thresholds.dueSoonDays),
   };
 }
 

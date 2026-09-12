@@ -1,14 +1,17 @@
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, BellRing, Building2, CalendarClock, CheckCircle2, FileCheck, FileSpreadsheet, Receipt, ShieldAlert, Sparkles, Upload, UserX, Users } from 'lucide-react';
+import { AlertTriangle, ArrowRight, BellRing, Building2, CalendarClock, CheckCircle2, FileCheck, FileSpreadsheet, PoundSterling, Receipt, ShieldAlert, Sparkles, Upload, UserX, Users } from 'lucide-react';
 import { KpiCard, ServiceTile, Stat, type KpiTone } from '../ui/components/Kpi';
 import { Card, CardBody, CardHeader } from '../ui/components/Card';
 import { AttentionTable, CountBadge } from '../ui/components/AttentionTable';
 import { DonutChart } from '../ui/components/DonutChart';
 import { EmptyState } from '../ui/components/EmptyState';
-import { DueBadge } from '../ui/components/Badge';
+import { Badge, DueBadge } from '../ui/components/Badge';
+import { cn } from '../ui/cn';
 import { useAppStore } from '../application/store';
 import { useData, useDerived, useToday } from '../application/selectors';
 import { CORE_TILE_SERVICES, serviceStatuses, workloadSlices, type ServiceStatus } from '../application/dashboardGroups';
+import { formatPounds } from '../domain/rules';
+import { SERVICES } from '../domain/catalog';
 import type { ServiceCode } from '../domain/types';
 import { formatAgo, formatDate, weekdayName } from '../domain/dates';
 
@@ -67,6 +70,7 @@ export function DashboardPage() {
   const waitingClients = new Set(derived.jobViews.filter((v) => v.job.status !== 'filed' && v.job.waitingOn === 'client').map((v) => v.client.id)).size;
   const upcoming = derived.jobViews.filter((v) => v.job.status !== 'filed' && v.daysUntilDue >= 0).slice(0, 5);
   const openJobs = derived.jobViews.filter((v) => v.job.status !== 'filed').length;
+  const penalties = derived.penalties;
 
   return (
     <div className="animate-in" data-testid="dashboard">
@@ -205,6 +209,53 @@ export function DashboardPage() {
                 ))}
               </ul>
             </CardBody>
+          </Card>
+
+          <Card data-testid="penalty-exposure">
+            <CardHeader
+              title={
+                <span className="flex items-center gap-2">
+                  Penalty exposure
+                  {penalties.incurred > 0 && <Badge tone="red">{formatPounds(penalties.incurred)}</Badge>}
+                </span>
+              }
+              icon={<PoundSterling />}
+              description={
+                penalties.incurred === 0 && penalties.atRiskWithinHorizon === 0 && penalties.jobsUnquantified === 0
+                  ? 'Nothing is incurring a late-filing penalty.'
+                  : [
+                      penalties.incurred > 0 ? `${formatPounds(penalties.incurred)} already incurred` : null,
+                      penalties.atRiskWithinHorizon > 0 ? `${formatPounds(penalties.atRiskWithinHorizon)} more within ${penalties.horizonDays} days` : null,
+                      penalties.jobsUnquantified > 0 ? `${penalties.jobsUnquantified} with a penalty this can’t put a figure on` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ') + '.'
+              }
+            />
+            {penalties.items.length > 0 && (
+              <CardBody className="pt-0">
+                <ul className="divide-y divide-slate-100">
+                  {penalties.items.slice(0, 4).map((item) => {
+                    const view = derived.jobViewById.get(item.jobId);
+                    if (!view) return null;
+                    return (
+                      <li key={item.jobId}>
+                        <Link to={`/jobs/${item.jobId}`} className="py-2 flex items-center justify-between gap-2 group" data-testid={`penalty-${item.jobId}`}>
+                          <span className="min-w-0">
+                            <span className="block text-[13px] font-medium text-slate-800 truncate group-hover:text-primary-700">{view.client.name}</span>
+                            <span className="block text-[11px] text-slate-500 truncate">
+                              {SERVICES[item.serviceCode].shortName}
+                              {item.incurred > 0 && item.next && item.next.amount > 0 ? ` · +${formatPounds(item.next.amount)} in ${item.next.inDays}d` : item.next && item.next.amount > 0 ? ` · ${formatPounds(item.next.amount)} in ${item.next.inDays}d` : item.unquantified ? ' · unquantified' : ''}
+                            </span>
+                          </span>
+                          <span className={cn('shrink-0 text-[13px] font-bold tabular', item.incurred > 0 ? 'text-red-600' : 'text-slate-500')}>{item.incurred > 0 ? formatPounds(item.incurred) : item.unquantified ? '?' : formatPounds(0)}</span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </CardBody>
+            )}
           </Card>
 
           <Card data-testid="upcoming-deadlines">
