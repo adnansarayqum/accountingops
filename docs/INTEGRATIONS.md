@@ -101,7 +101,11 @@ the per-address limit is the only guard.
 individual PSCs (`/api/companies-house/company/:number/people`), previous
 company names, and refreshes automatically once a day per client, with a
 "Synced … ago" line and a Refresh button on the client's Companies House
-card. Companies House writes the same person two ways ("SMITH, Jane" in the
+card. **Refresh all from Companies House** on the Clients page does every
+limited company with a company number in one pass, paced under the proxy's
+rate limit (`src/application/refreshAllClients.ts`) and saved as one change,
+for when the whole roster should be brought up to date now rather than
+over the background sync's next few hours. Companies House writes the same person two ways ("SMITH, Jane" in the
 officers list, "Mrs Jane Smith" in the PSC list); both are folded into
 "Jane Smith" and matched as one person, with month/year of birth as the
 tie-breaker (`src/domain/personNames.ts`). Each refresh also reads the

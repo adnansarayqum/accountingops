@@ -77,4 +77,40 @@ test.describe('refresh from Companies House', () => {
     await page.getByTestId('refresh-companies-house').click();
     await expect(page.getByText('No live Companies House data')).toBeVisible();
   });
+
+  test('refreshes every company from the Clients page in one go', async ({ page }) => {
+    await page.route('**/api/companies-house/status', (route) => route.fulfill({ json: { configured: true } }));
+    await page.route('**/api/companies-house/company/*/people', (route) => route.fulfill({ json: { directors: [], pscs: [], source: 'companies_house' } }));
+    await page.route('**/api/companies-house/company/*', (route) => {
+      const number = route.request().url().split('/').pop()!;
+      return route.fulfill({
+        json: {
+          companyNumber: number,
+          companyName: `COMPANY ${number}`,
+          companyStatus: 'active',
+          companyType: 'ltd',
+          dateOfCreation: '2015-01-01',
+          sicCodes: [],
+          previousNames: [],
+          registeredOfficeAddress: { formatted: `${number} Refreshed Street` },
+          accountingReferenceDate: null,
+          nextAccountsDueOn: null,
+          nextAccountsPeriodEndOn: null,
+          nextConfirmationStatementDueOn: null,
+          source: 'companies_house',
+        },
+      });
+    });
+
+    await page.goto('/clients');
+    await page.getByTestId('refresh-all-companies-house').click();
+    await expect(page.getByText(/^\d+ clients refreshed\.$/)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('refresh-all-companies-house')).toHaveText('Refresh all from Companies House');
+
+    // Every company with a number was touched — spot-check one, and that it stuck across a reload.
+    await page.goto('/clients/cl_abc');
+    await expect(page.getByText('09876543 Refreshed Street')).toBeVisible();
+    await page.reload();
+    await expect(page.getByText('09876543 Refreshed Street')).toBeVisible();
+  });
 });
