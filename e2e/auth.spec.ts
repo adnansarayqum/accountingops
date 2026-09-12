@@ -113,4 +113,62 @@ test.describe('server-backed login', () => {
     await expect(adnanPage.getByRole('link', { name: 'Shared Data Test Ltd' }).first()).toBeVisible();
     await adnanContext.close();
   });
+
+  test('two people editing at once both keep their change, and any version can be brought back', async ({ browser }) => {
+    const signIn = async (username: string, temp: string, next: string) => {
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+      await page.goto('/');
+      await page.getByTestId('login-username').fill(username);
+      await page.getByTestId('login-password').fill(temp);
+      await page.getByTestId('login-submit').click();
+      await page.getByTestId('change-password-current').fill(temp);
+      await page.getByTestId('change-password-new').fill(next);
+      await page.getByTestId('change-password-confirm').fill(next);
+      await page.getByTestId('change-password-submit').click();
+      await expect(page.getByRole('heading', { name: 'Practice Today' })).toBeVisible({ timeout: 15_000 });
+      return { context, page };
+    };
+    const createClient = async (page: import('@playwright/test').Page, name: string) => {
+      await page.goto('/clients/new');
+      await page.getByLabel('Client / company name').fill(name);
+      await page.getByLabel('Main contact').fill('Someone');
+      await page.getByRole('button', { name: 'Create client' }).click();
+      await expect(page.getByRole('heading', { name })).toBeVisible();
+    };
+
+    // Both load the same (empty) practice.
+    const farhan = await signIn('farhan', process.env.FARHAN_TEMP_PASSWORD!, 'AnotherPass1');
+    const adnan = await signIn('adnan', process.env.ADNAN_TEMP_PASSWORD!, 'BrandNewPass1');
+
+    // Farhan saves first. Adnan's tab is now stale, but saves anyway — the
+    // server refuses it, the app rebuilds Adnan's change on Farhan's version,
+    // and neither client is lost.
+    await createClient(farhan.page, 'Farhan Was First Ltd');
+    await createClient(adnan.page, 'Adnan Was Second Ltd');
+    await adnan.page.goto('/clients');
+    await expect(adnan.page.getByRole('link', { name: 'Farhan Was First Ltd' }).first()).toBeVisible();
+    await expect(adnan.page.getByRole('link', { name: 'Adnan Was Second Ltd' }).first()).toBeVisible();
+    await farhan.page.goto('/clients');
+    await expect(farhan.page.getByRole('link', { name: 'Adnan Was Second Ltd' }).first()).toBeVisible({ timeout: 10_000 });
+
+    // Every save is a version; going back to the one before Adnan's client undoes it — as a new version.
+    await adnan.page.goto('/settings');
+    const history = adnan.page.getByTestId('snapshot-history');
+    const currentRow = history.locator('li', { hasText: 'current' });
+    await expect(currentRow).toBeVisible();
+    const current = Number(/Version (\d+)/.exec(await currentRow.innerText())![1]);
+    expect(current).toBeGreaterThanOrEqual(2); // Farhan's save, then Adnan's replayed one
+    adnan.page.once('dialog', (d) => void d.accept());
+    await adnan.page.getByTestId(`restore-version-${current - 1}`).click();
+    await expect(adnan.page.getByText(`Restored version ${current - 1}`)).toBeVisible();
+    await expect(history.locator('li', { hasText: 'current' })).toContainText(`Version ${current + 1}`);
+    await adnan.page.goto('/clients');
+    await expect(adnan.page.getByRole('link', { name: 'Farhan Was First Ltd' }).first()).toBeVisible();
+    await expect(adnan.page.getByRole('link', { name: 'Adnan Was Second Ltd' })).toHaveCount(0);
+
+    await farhan.context.close();
+    await adnan.context.close();
+  });
 });

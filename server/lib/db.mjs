@@ -68,4 +68,20 @@ async function runMigrations() {
     )
   `);
   await query('create index if not exists practice_sessions_expires_idx on practice_sessions (expires_at)');
+  // Versioned writes: every save names the version it was based on and is
+  // refused if the stored one has moved on (see routes/practiceData.mjs).
+  // Existing rows pick up version 1 and keep loading unchanged.
+  await query('alter table practice_snapshots add column if not exists version bigint not null default 1');
+  await query('alter table practice_snapshots add column if not exists saved_by text');
+  await query(`
+    create table if not exists practice_snapshot_history (
+      id          bigserial primary key,
+      practice_id text not null,
+      version     bigint not null,
+      data        jsonb not null,
+      saved_by    text,
+      saved_at    timestamptz not null default now(),
+      unique (practice_id, version)
+    )
+  `);
 }

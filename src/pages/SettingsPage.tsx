@@ -5,6 +5,7 @@ import { Card, CardBody, CardHeader } from '../ui/components/Card';
 import { Button } from '../ui/components/Button';
 import { Field, Input, Select } from '../ui/components/Form';
 import { Avatar } from '../ui/components/Avatar';
+import { SnapshotHistoryCard } from '../ui/components/SnapshotHistoryCard';
 import { useAppStore } from '../application/store';
 import { useData } from '../application/selectors';
 import { changePassword, logout } from '../application/auth';
@@ -106,6 +107,7 @@ export function SettingsPage() {
       </Card>
 
       {authMode === 'server' && <AccountCard />}
+      {authMode === 'server' && <SnapshotHistoryCard />}
 
       <Card>
         <CardHeader title="Security posture" icon={<ShieldCheck />} />

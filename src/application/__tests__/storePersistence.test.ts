@@ -3,6 +3,7 @@ import { configureRepository, useAppStore } from '../store';
 import type { PracticeRepository } from '../persistence/repository';
 import { buildFixtureData } from '../../testing/fixtures';
 import type { PracticeData } from '../../domain/types';
+import { SnapshotConflictError } from '../persistence/httpRepository';
 
 const today = '2026-09-11';
 
@@ -21,8 +22,19 @@ class ControlledRepository implements PracticeRepository {
     return this.stored;
   }
 
+  /** When set, the next save is refused as a conflict carrying this snapshot (then cleared). */
+  conflictWith: PracticeData | null = null;
+  /** Or keep refusing: every save conflicts with the snapshot this returns. */
+  alwaysConflictWith: (() => PracticeData) | null = null;
+
   save(data: PracticeData): Promise<void> {
     this.saves.push(data);
+    if (this.alwaysConflictWith) return Promise.reject(new SnapshotConflictError(this.alwaysConflictWith(), 99));
+    if (this.conflictWith) {
+      const current = this.conflictWith;
+      this.conflictWith = null;
+      return Promise.reject(new SnapshotConflictError(current, 2));
+    }
     return new Promise<void>((resolve, reject) => this.settlers.push({ resolve, reject }));
   }
 
@@ -152,6 +164,74 @@ describe('store persistence', () => {
       expect(useAppStore.getState().data.clients.length).toBe(real.clients.length);
       useAppStore.getState().renameUser('u_adnan', 'Persists now');
       expect(repo.saves).toHaveLength(1);
+      errorSpy.mockRestore();
+    });
+  });
+
+  describe('when someone else saved first', () => {
+    const flush = async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    };
+
+    it('replays the unsaved change on top of their version, so both changes survive', async () => {
+      // Another user renamed Farhan while this tab was renaming Adnan.
+      const theirs = structuredClone(buildFixtureData(today));
+      theirs.users.find((u) => u.id === 'u_sarah')!.name = 'Sarah Renamed Elsewhere';
+      repo.conflictWith = theirs;
+
+      useAppStore.getState().renameUser('u_adnan', 'Adnan Renamed Here');
+      await flush();
+
+      // The first save was refused; the second carries their change plus ours.
+      expect(repo.saves).toHaveLength(2);
+      const resent = repo.saves[1];
+      expect(resent.users.find((u) => u.id === 'u_sarah')?.name).toBe('Sarah Renamed Elsewhere');
+      expect(resent.users.find((u) => u.id === 'u_adnan')?.name).toBe('Adnan Renamed Here');
+      // And that is what's on screen, still marked unsaved until it lands.
+      expect(useAppStore.getState().data.users.find((u) => u.id === 'u_sarah')?.name).toBe('Sarah Renamed Elsewhere');
+      expect(userName()).toBe('Adnan Renamed Here');
+      expect(useAppStore.getState().unsaved).toBe(true);
+      await repo.settleNext();
+      expect(useAppStore.getState().unsaved).toBe(false);
+      expect(useAppStore.getState().toasts).toEqual([]);
+    });
+
+    it('replays every unsaved change, not just the last one', async () => {
+      const theirs = structuredClone(buildFixtureData(today));
+      theirs.users.find((u) => u.id === 'u_sarah')!.name = 'Theirs';
+      useAppStore.getState().renameUser('u_adnan', 'First');
+      useAppStore.getState().markAllNotificationsRead();
+      repo.conflictWith = theirs;
+      await repo.settleNext('ok'); // first save (carrying only 'First') lands
+      // The queued save (carrying the notifications change) is refused and replayed.
+      await flush();
+      const last = repo.saves[repo.saves.length - 1];
+      expect(last.users.find((u) => u.id === 'u_sarah')?.name).toBe('Theirs');
+      expect(last.notifications.every((n) => n.read)).toBe(true);
+      // The already-saved rename is NOT replayed onto their copy — their copy
+      // predates it, and re-applying would resurrect it only by accident; but it
+      // was saved as version N and their copy is version N+1, which means they
+      // overwrote it. That is the whole-snapshot model's remaining limit and is
+      // why the save that lost carries the newest local state.
+    });
+
+    it('gives up after repeated conflicts, keeps their version and says so', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const theirs = structuredClone(buildFixtureData(today));
+      theirs.users.find((u) => u.id === 'u_sarah')!.name = 'Always Theirs';
+      repo.alwaysConflictWith = () => structuredClone(theirs);
+
+      useAppStore.getState().renameUser('u_adnan', 'Never Lands');
+      for (let i = 0; i < 8; i += 1) await flush();
+
+      // One original attempt plus the allowed replays, then no more.
+      expect(repo.saves).toHaveLength(4);
+      expect(useAppStore.getState().unsaved).toBe(false);
+      expect(useAppStore.getState().data.users.find((u) => u.id === 'u_sarah')?.name).toBe('Always Theirs');
+      expect(userName()).not.toBe('Never Lands');
+      expect(useAppStore.getState().toasts.map((t) => t.title)).toContain('Someone else changed this first');
       errorSpy.mockRestore();
     });
   });
