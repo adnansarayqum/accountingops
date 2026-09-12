@@ -110,8 +110,18 @@ confined to this folder plus the store's actions.
 | `readiness.ts` | MTD ITSA status; Companies House identity readiness |
 | `responsiveness.ts` | Client behaviour bands and suggestions |
 | `masking.ts` | Display masking of identifiers |
+| `thresholds.ts` | Defaults for the configurable timing thresholds below, and merging a practice's overrides over them |
 
 Every rule is deterministic, explainable and unit-tested.
+
+**Configurable timing thresholds.** `attention.ts`'s rules and the dashboard's
+"Due soon" window all read from `PracticeThresholds` (due-soon window,
+identity-verification look-ahead, stale-job/review-wait/approval-wait days)
+rather than hardcoded numbers. A practice's overrides live at
+`practice.thresholds` (optional, and every field within it optional —
+`resolveThresholds()` fills in the same defaults every rule used before this
+existed, so an untouched practice behaves exactly as it always did) and are
+edited from Settings → Timing thresholds, one saved change like any other.
 
 ## Status vs blocker
 

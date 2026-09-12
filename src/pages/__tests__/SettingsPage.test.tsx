@@ -143,3 +143,85 @@ describe('SettingsPage account actions (server mode)', () => {
     expect(logoutEverywhereSpy).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('SettingsPage timing thresholds', () => {
+  beforeEach(() => {
+    configureRepository(new MemoryRepository());
+    useAppStore.setState({ data: buildFixtureData(today), today, ready: true, currentUserId: 'u_adnan', toasts: [] });
+  });
+
+  it('shows the built-in defaults when the practice has never customised anything', () => {
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByLabelText('Due soon window')).toHaveValue(14);
+    expect(screen.getByLabelText('Identity verification look-ahead')).toHaveValue(45);
+    expect(screen.getByLabelText('Stale job threshold')).toHaveValue(14);
+    expect(screen.getByLabelText('Review wait threshold')).toHaveValue(7);
+    expect(screen.getByLabelText('Approval wait threshold')).toHaveValue(10);
+  });
+
+  it('shows a stored partial override merged with defaults for the rest', () => {
+    useAppStore.setState({ data: { ...useAppStore.getState().data, practice: { ...useAppStore.getState().data.practice, thresholds: { dueSoonDays: 21 } } } });
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByLabelText('Due soon window')).toHaveValue(21);
+    expect(screen.getByLabelText('Stale job threshold')).toHaveValue(14);
+  });
+
+  it('saves an edited value, confirms with a toast, and it takes effect immediately', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+    const dueSoon = screen.getByLabelText('Due soon window');
+    await user.clear(dueSoon);
+    await user.type(dueSoon, '21');
+    await user.click(screen.getByRole('button', { name: 'Save thresholds' }));
+
+    expect(useAppStore.getState().data.practice.thresholds?.dueSoonDays).toBe(21);
+    expect(useAppStore.getState().toasts.at(-1)).toMatchObject({ title: 'Timing thresholds updated' });
+  });
+
+  it('rejects an out-of-range value with a field error, and saves nothing', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+    const stale = screen.getByLabelText('Stale job threshold');
+    await user.clear(stale);
+    await user.type(stale, '0');
+    await user.click(screen.getByRole('button', { name: 'Save thresholds' }));
+
+    expect(screen.getByText('Enter a whole number from 1 to 365.')).toBeVisible();
+    expect(useAppStore.getState().data.practice.thresholds).toBeUndefined();
+    expect(useAppStore.getState().toasts).toEqual([]);
+  });
+
+  it('resets the form to defaults without saving until Save is pressed', async () => {
+    useAppStore.setState({ data: { ...useAppStore.getState().data, practice: { ...useAppStore.getState().data.practice, thresholds: { dueSoonDays: 30 } } } });
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByLabelText('Due soon window')).toHaveValue(30);
+    await user.click(screen.getByRole('button', { name: 'Reset to defaults' }));
+    expect(screen.getByLabelText('Due soon window')).toHaveValue(14);
+    // Not saved yet — the stored value is untouched until Save is pressed.
+    expect(useAppStore.getState().data.practice.thresholds).toEqual({ dueSoonDays: 30 });
+
+    await user.click(screen.getByRole('button', { name: 'Save thresholds' }));
+    expect(useAppStore.getState().data.practice.thresholds?.dueSoonDays).toBe(14);
+  });
+});

@@ -8,6 +8,7 @@ import {
   computeDashboardMetrics,
   evaluateAttention,
   nextActionForJob,
+  resolveThresholds,
   responsivenessProfile,
   sequenceIdFor,
   type AttentionItem,
@@ -19,7 +20,7 @@ import {
   type NextAction,
   type ResponsivenessProfile,
 } from '../domain/rules';
-import type { Client, Contact, Job, PracticeData, User } from '../domain/types';
+import type { Client, Contact, Job, PracticeData, PracticeThresholds, User } from '../domain/types';
 
 export interface JobView {
   job: Job;
@@ -46,6 +47,8 @@ export interface Derived {
   capacity: Record<CapacityWindow, CapacitySummary>;
   pendingInbox: number;
   unreadNotifications: number;
+  /** Resolved once here — every field always populated, defaults filled in for whatever the practice hasn't customised in Settings. */
+  thresholds: PracticeThresholds;
 }
 
 export function computeDerived(data: PracticeData, today: string): Derived {
@@ -54,6 +57,7 @@ export function computeDerived(data: PracticeData, today: string): Derived {
   const primaryContactByClient = new Map<string, Contact>();
   for (const c of data.contacts) if (c.isPrimary) primaryContactByClient.set(c.clientId, c);
 
+  const thresholds = resolveThresholds(data.practice.thresholds);
   const attention = evaluateAttention({
     jobs: data.jobs,
     clients: data.clients,
@@ -64,6 +68,7 @@ export function computeDerived(data: PracticeData, today: string): Derived {
     sequences: data.reminderSequences,
     users: data.users,
     today,
+    thresholds,
   });
   const attentionByJob = new Map(attention.map((a) => [a.jobId, a]));
 
@@ -113,6 +118,7 @@ export function computeDerived(data: PracticeData, today: string): Derived {
     },
     pendingInbox: data.inboxItems.filter((i) => i.status === 'pending').length,
     unreadNotifications: data.notifications.filter((n) => !n.read).length,
+    thresholds,
   };
 }
 

@@ -8,4 +8,5 @@ export * from './nextAction';
 export * from './readiness';
 export * from './recurrence';
 export * from './responsiveness';
+export * from './thresholds';
 export * from './transitions';

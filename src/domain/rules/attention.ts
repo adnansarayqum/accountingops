@@ -1,7 +1,8 @@
 import { daysSince, daysUntil, formatDate } from '../dates';
-import type { Approval, Client, Communication, InformationRequestItem, Job, PersonRole, ReminderSequence, User } from '../types';
+import type { Approval, Client, Communication, InformationRequestItem, Job, PersonRole, PracticeThresholds, ReminderSequence, User } from '../types';
 import { assessChasing } from './chasing';
 import { computeCompleteness } from './completeness';
+import { resolveThresholds } from './thresholds';
 import { CHANNEL_LABELS } from '../catalog';
 
 export type Severity = 'red' | 'amber';
@@ -42,11 +43,9 @@ export interface AttentionContext {
   sequences: ReminderSequence[];
   users: User[];
   today: string;
+  /** Configurable per practice (Settings → Timing thresholds); a missing or partial object falls back to the same defaults every rule used before this was configurable. */
+  thresholds?: Partial<PracticeThresholds>;
 }
-
-const STALE_DAYS = 14;
-const REVIEW_WAIT_DAYS = 7;
-const APPROVAL_WAIT_DAYS = 10;
 
 /**
  * Explainable attention rules. Each rule is deterministic and produces the
@@ -54,6 +53,7 @@ const APPROVAL_WAIT_DAYS = 10;
  * A job appears at most once, with the highest-severity rule winning.
  */
 export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
+  const thresholds = resolveThresholds(ctx.thresholds);
   const out: AttentionItem[] = [];
   const clientById = new Map(ctx.clients.map((c) => [c.id, c]));
 
@@ -137,7 +137,7 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
     }
 
     // AMBER: sitting in internal review with no reviewer
-    if (job.status === 'internal_review' && stale >= REVIEW_WAIT_DAYS && !job.reviewerUserId) {
+    if (job.status === 'internal_review' && stale >= thresholds.reviewWaitDays && !job.reviewerUserId) {
       candidates.push({
         severity: 'amber',
         ruleCode: 'review_no_reviewer',
@@ -149,7 +149,7 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
     }
 
     // AMBER: waiting for client approval for too long
-    if (job.status === 'waiting_client_approval' && stale >= APPROVAL_WAIT_DAYS) {
+    if (job.status === 'waiting_client_approval' && stale >= thresholds.approvalWaitDays) {
       candidates.push({
         severity: days <= 7 ? 'red' : 'amber',
         ruleCode: 'approval_stalled',
@@ -161,7 +161,7 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
     }
 
     // AMBER: confirmation statement approaching with unverified directors
-    if (job.serviceCode === 'confirmation_statement' && days <= 45) {
+    if (job.serviceCode === 'confirmation_statement' && days <= thresholds.identityVerificationWindowDays) {
       const unverified = ctx.personRoles.filter((r) => r.clientId === job.clientId && r.identityVerification !== 'verified');
       if (unverified.length > 0) {
         // Where Companies House has set a date for a verification statement,
@@ -179,13 +179,13 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
             'Companies House will reject the filing without it.',
           ],
           recommendedAction: { kind: 'verify_identity', label: 'Complete identity verification' },
-          score: 470 + (45 - days) * 3,
+          score: 470 + (thresholds.identityVerificationWindowDays - days) * 3,
         });
       }
     }
 
     // AMBER: nothing has happened for 14 days
-    if (stale >= STALE_DAYS && ['in_progress', 'ready_to_start', 'internal_review'].includes(job.status) && candidates.length === 0) {
+    if (stale >= thresholds.staleJobDays && ['in_progress', 'ready_to_start', 'internal_review'].includes(job.status) && candidates.length === 0) {
       candidates.push({
         severity: 'amber',
         ruleCode: 'stale',
