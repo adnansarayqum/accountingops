@@ -97,6 +97,49 @@ Each signed-in user gets sixty lookups a minute; the background refresh
 stays well inside that. In the browser-only mode there are no accounts, so
 the per-address limit is the only guard.
 
+### Live change notifications (streaming API)
+
+The REST endpoints above are pull: something has to ask, and asking about
+every client on a schedule is what the rate limit is there to stop. The
+**streaming API** is the other half — Companies House push every change to
+the register down one long-lived connection, and the server filters that
+firehose down to this practice's own company numbers.
+
+**Turning it on** needs a *second* key: a streaming application has to be
+registered as such at the same developer hub, and the REST and streaming
+keys are not interchangeable. Set `COMPANIES_HOUSE_STREAM_API_KEY`, and
+note it also needs `DATABASE_URL` — the listener has nowhere to record what
+it saw otherwise, so the browser-only mode reports the feed off rather than
+showing an integration that cannot work there.
+`GET /api/companies-house/stream/status` reports whether both are in place.
+
+**What it does, and deliberately does not do.** The listener records *that*
+a client's register entry moved (`server/lib/companiesHouseStream*.mjs`).
+It never writes to the practice snapshot. Every save is the whole practice
+under an optimistic version check, so a background writer would race every
+edit anyone is making; instead the change surfaces on the Clients page and
+a person pulls it in with the same explicit refresh that already existed,
+saved as one ordinary version. A dismissed change clears the notice and
+changes no client data.
+
+**What it filters.** Companies House republish a record whenever anything
+on it moves, including fields this app never shows (links, image metadata).
+Only fields that map to something tracked here — accounts and confirmation
+statement dates, name, status, registered office, SIC codes, cessation —
+count as a change worth reporting, so "3 clients changed" stays worth
+reading. Deletions always count.
+
+**Protocol rules it obeys**, all from the Companies House docs and all unit
+tested without a socket: HTTP Basic with the streaming key as the username;
+blank lines are heartbeats and are ignored; every event carries a
+`timepoint` which is stored so a restart resumes rather than replays; a
+`429` waits the mandatory minute before reconnecting; a `416` means the
+stored timepoint is too old, so it is dropped and the gap is logged rather
+than silently skipped; and a connection that goes quiet past the heartbeat
+window is abandoned and remade — a socket that is open but finished never
+resolves a read, so the idle timer has to race the read rather than be
+checked between reads.
+
 **Beyond the profile.** The client record also pulls active directors and
 individual PSCs (`/api/companies-house/company/:number/people`), previous
 company names, and refreshes automatically once a day per client, with a

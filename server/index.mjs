@@ -10,6 +10,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import companiesHouseRouter from './routes/companiesHouse.mjs';
+import companiesHouseStreamRouter from './routes/companiesHouseStream.mjs';
 import authRouter from './routes/auth.mjs';
 import practiceDataRouter from './routes/practiceData.mjs';
 import messagesRouter from './routes/messages.mjs';
@@ -18,6 +19,8 @@ import { securityHeaders } from './lib/securityHeaders.mjs';
 import { spaFallback } from './lib/spaFallback.mjs';
 import { isDatabaseConfigured } from './lib/db.mjs';
 import { ensureSeedUsers } from './lib/bootstrapUsers.mjs';
+import { CompaniesHouseStreamListener, isStreamConfigured } from './lib/companiesHouseStreamListener.mjs';
+import { pruneAcknowledgedChanges, readStreamState } from './lib/companiesHouseStreamStore.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.resolve(__dirname, '../dist');
@@ -57,6 +60,7 @@ app.get('/health', async (_req, res) => {
 
 // External integrations. Each router owns its own credentials — the
 // browser only ever talks to /api/*, never to a third-party API directly.
+app.use('/api/companies-house/stream', companiesHouseStreamRouter);
 app.use('/api/companies-house', companiesHouseRouter);
 app.use('/api/messages', messagesRouter);
 
@@ -91,6 +95,28 @@ if (isDatabaseConfigured()) {
   }
 }
 
+// The Companies House stream: one long-lived connection for the whole
+// process, started only when both a streaming key and a database are
+// configured (it has nowhere to record what it sees otherwise). A failure
+// here must never stop the web server from serving — the app works exactly
+// as it did before, just without live change notifications.
+let streamListener = null;
+if (isStreamConfigured() && isDatabaseConfigured()) {
+  try {
+    const state = await readStreamState();
+    streamListener = new CompaniesHouseStreamListener();
+    // Deliberately not awaited: the listener runs for the life of the process.
+    void streamListener.start(state.timepoint).catch((err) => {
+      console.error(JSON.stringify({ level: 'error', at: new Date().toISOString(), source: 'companies_house_stream', message: `Listener stopped: ${err?.message ?? err}` }));
+    });
+    await pruneAcknowledgedChanges().catch(() => {});
+  } catch (err) {
+    console.error(JSON.stringify({ level: 'error', at: new Date().toISOString(), source: 'companies_house_stream', message: `Could not start listener: ${err?.message ?? err}` }));
+  }
+} else if (isStreamConfigured()) {
+  console.log(JSON.stringify({ level: 'info', at: new Date().toISOString(), source: 'companies_house_stream', message: 'Streaming key set but no database configured; listener not started.' }));
+}
+
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(JSON.stringify({ level: 'info', at: new Date().toISOString(), message: `accountingops web listening on ${port}` }));
 });
@@ -99,6 +125,7 @@ const server = app.listen(port, '0.0.0.0', () => {
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.on(signal, () => {
     console.log(JSON.stringify({ level: 'info', at: new Date().toISOString(), message: `${signal} received, shutting down` }));
+    void streamListener?.stop();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(1), 8000).unref();
   });

@@ -78,6 +78,36 @@ async function runMigrations() {
   // Existing rows pick up version 1 and keep loading unchanged.
   await query('alter table practice_snapshots add column if not exists version bigint not null default 1');
   await query('alter table practice_snapshots add column if not exists saved_by text');
+  // Companies House streaming API: where the stream got to, and the changes
+  // it has seen for this practice's own clients (see companiesHouseStream.mjs).
+  // Separate tables, deliberately not the practice snapshot — the listener
+  // runs unattended and must never race the versioned whole-snapshot save.
+  await query(`
+    create table if not exists companies_house_stream_state (
+      id            text primary key,
+      timepoint     bigint,
+      connected_at  timestamptz,
+      last_event_at timestamptz,
+      last_error    text,
+      updated_at    timestamptz not null default now()
+    )
+  `);
+  await query(`
+    create table if not exists companies_house_changes (
+      id              bigserial primary key,
+      company_number  text not null,
+      event_type      text not null,
+      fields_changed  text[] not null default '{}',
+      published_at    timestamptz,
+      timepoint       bigint not null,
+      seen_at         timestamptz not null default now(),
+      acknowledged_at timestamptz
+    )
+  `);
+  // Reconnecting replays from the last processed timepoint, so the same
+  // event can arrive twice; the unique key makes recording it idempotent.
+  await query('create unique index if not exists companies_house_changes_event_idx on companies_house_changes (company_number, timepoint)');
+  await query('create index if not exists companies_house_changes_pending_idx on companies_house_changes (seen_at) where acknowledged_at is null');
   await query(`
     create table if not exists practice_snapshot_history (
       id          bigserial primary key,
