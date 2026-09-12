@@ -25,7 +25,7 @@ test.describe('configurable timing thresholds', () => {
     // Reflected on the dashboard immediately, without a reload.
     await page.goto('/');
     await expect(dueSoonSection.locator('.card h2', { hasText: 'CS01' })).toBeVisible();
-    await expect(page.getByText('due in the next 20 days')).toBeVisible();
+    await expect(dueSoonSection.getByText(/open jobs due in the next 20 days/)).toBeVisible();
 
     // Persisted, not just on-screen state.
     await page.reload();
