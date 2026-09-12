@@ -13,6 +13,8 @@ import companiesHouseRouter from './routes/companiesHouse.mjs';
 import companiesHouseStreamRouter from './routes/companiesHouseStream.mjs';
 import hmrcRouter from './routes/hmrc.mjs';
 import portalRouter from './routes/portal.mjs';
+import briefingRouter from './routes/briefing.mjs';
+import { BriefingScheduler } from './lib/briefingScheduler.mjs';
 import authRouter from './routes/auth.mjs';
 import practiceDataRouter from './routes/practiceData.mjs';
 import messagesRouter from './routes/messages.mjs';
@@ -66,6 +68,7 @@ app.use('/api/companies-house/stream', companiesHouseStreamRouter);
 app.use('/api/companies-house', companiesHouseRouter);
 app.use('/api/hmrc', hmrcRouter);
 app.use('/api/portal', portalRouter);
+app.use('/api/briefing', briefingRouter);
 app.use('/api/messages', messagesRouter);
 
 // Authentication and shared practice-data persistence. Both return 503 when
@@ -121,6 +124,20 @@ if (isStreamConfigured() && isDatabaseConfigured()) {
   console.log(JSON.stringify({ level: 'info', at: new Date().toISOString(), source: 'companies_house_stream', message: 'Streaming key set but no database configured; listener not started.' }));
 }
 
+// The morning briefing: one timer for the process, checking each minute
+// whether anyone is due their weekday email. Needs the database for who
+// wants it; whether anything is actually delivered depends on the email
+// provider, exactly as for reminders. Nothing here can stop the server.
+let briefingScheduler = null;
+if (isDatabaseConfigured()) {
+  try {
+    briefingScheduler = new BriefingScheduler();
+    briefingScheduler.start();
+  } catch (err) {
+    console.error(JSON.stringify({ level: 'error', at: new Date().toISOString(), source: 'briefing', message: `Could not start scheduler: ${err?.message ?? err}` }));
+  }
+}
+
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(JSON.stringify({ level: 'info', at: new Date().toISOString(), message: `accountingops web listening on ${port}` }));
 });
@@ -130,6 +147,7 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
   process.on(signal, () => {
     console.log(JSON.stringify({ level: 'info', at: new Date().toISOString(), message: `${signal} received, shutting down` }));
     void streamListener?.stop();
+    briefingScheduler?.stop();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(1), 8000).unref();
   });

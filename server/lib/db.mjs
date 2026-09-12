@@ -73,6 +73,11 @@ async function runMigrations() {
   // variable still set doesn't reset the password again (see
   // lib/bootstrapUsers.mjs).
   await query('alter table practice_users add column if not exists password_reset_applied text');
+  // Morning briefing by email, per user (see lib/briefing*.mjs). Accounts
+  // have a username, not an email, so this is the first place one is kept.
+  await query('alter table practice_users add column if not exists briefing_email text');
+  await query('alter table practice_users add column if not exists briefing_enabled boolean not null default false');
+  await query('alter table practice_users add column if not exists briefing_last_sent_on date');
   // Versioned writes: every save names the version it was based on and is
   // refused if the stored one has moved on (see routes/practiceData.mjs).
   // Existing rows pick up version 1 and keep loading unchanged.

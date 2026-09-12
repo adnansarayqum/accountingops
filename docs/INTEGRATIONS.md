@@ -278,6 +278,24 @@ If a real need shows up later, the right shape is narrow and read-only —
 e.g. "does a client with this name already exist in Xero?" for onboarding
 deduplication — not a ledger sync. No code exists for this today.
 
+## Morning briefing by email — live, needs a database
+
+The Briefing page is the best screen in the app for starting the day and
+nobody sees it unless they open a tab and navigate there. So it is also an
+email: overdue, due this week, ready to file, and clients who have gone
+quiet after a chase, every weekday morning, per user, to an address each
+account sets in Settings → Account.
+
+It is a digest of facts, deliberately not a re-implementation of the
+attention rules — those are `src/domain/rules` and the app's business; the
+email links to the app for the *why*. `server/lib/briefing.mjs` composes it
+from the stored snapshot and decides when (weekday, from the send hour in
+the practice's own timezone, once a day, catching up later if the server
+was asleep at seven); `briefingScheduler.mjs` owns the one-minute timer.
+Delivery goes through the same email provider as reminders, so with
+Postmark configured it is sent and without it is simulated and logged.
+"Send me one now" in Settings avoids waiting until tomorrow for the first.
+
 ## Client portal — live, needs a database
 
 The practice's biggest number is *client-blocked jobs*, and until now the
