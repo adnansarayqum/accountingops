@@ -36,7 +36,25 @@ here is read-only.
 **Without a key configured**, the same UI keeps working against a small
 synthetic dataset (`src/integrations/companiesHouseMock.ts`), so onboarding
 is never blocked. Every result is labelled "Sample data — not a live lookup"
-so nobody mistakes it for a real company.
+so nobody mistakes it for a real company, and sample data is never recorded
+against a client as though it came from the register.
+
+**Who can use it.** When a database (and so sign-in) is configured, every
+lookup requires a signed-in session — the key is spent on the caller's
+behalf, and Companies House allows 600 requests per five minutes per key.
+Each signed-in user gets sixty lookups a minute; the background refresh
+(a handful of the stalest clients every half hour, from a visible tab only)
+stays well inside that. In the browser-only mode there are no accounts, so
+the per-address limit is the only guard.
+
+**Beyond the profile.** The client record also pulls active directors and
+individual PSCs (`/api/companies-house/company/:number/people`), previous
+company names, and refreshes automatically once a day per client, with a
+"Synced … ago" line and a Refresh button on the client's Companies House
+card. Companies House writes the same person two ways ("SMITH, Jane" in the
+officers list, "Mrs Jane Smith" in the PSC list); both are folded into
+"Jane Smith" and matched as one person, with month/year of birth as the
+tie-breaker (`src/domain/personNames.ts`).
 
 **Architecture.** The browser never talks to Companies House directly and
 never sees the API key. It calls this app's own proxy
