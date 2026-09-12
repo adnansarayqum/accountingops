@@ -197,7 +197,15 @@ Present today:
 
 - **Authentication** for the three practice accounts (`server/routes/auth.mjs`):
   username + password, scrypt-hashed, in an `httpOnly` `SameSite=Lax` session
-  cookie (14 days; `Secure` whenever the request arrived over TLS). Session
+  cookie (14 days; `Secure` whenever the request arrived over TLS). Password
+  hashes are self-describing (`scrypt$N$r$p$salt$hash`, `server/lib/passwords.mjs`)
+  at an OWASP-recommended cost (N=2^15, r=8, p=3 — ~32 MB, ~0.3 s); a hash
+  stored at an older cost, or in the original plain-hex format, still
+  verifies with the parameters it was made with and is re-hashed at the
+  current cost on the next successful sign-in, so raising the cost later is
+  a one-line change that locks nobody out. Parameters read back from a row
+  are bounds-checked before use, so a tampered row can't turn one sign-in
+  into a multi-gigabyte derivation. Session
   tokens are stored **hashed** (`server/lib/sessionTokens.mjs`) — a database
   row alone can never authenticate as anyone; only the raw cookie value
   produces a matching hash. Accounts are seeded once at boot (production:

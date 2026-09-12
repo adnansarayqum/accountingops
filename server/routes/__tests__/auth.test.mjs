@@ -5,7 +5,7 @@ import practiceDataRouter from '../practiceData.mjs';
 import companiesHouseRouter from '../companiesHouse.mjs';
 import messagesRouter from '../messages.mjs';
 import { isDatabaseConfigured, query } from '../../lib/db.mjs';
-import { hashPassword } from '../../lib/passwords.mjs';
+import { hashPassword, needsRehash } from '../../lib/passwords.mjs';
 import { ensureSeedUsers } from '../../lib/bootstrapUsers.mjs';
 
 /**
@@ -473,6 +473,64 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     it('refuses sign out everywhere without a session', async () => {
       const res = await fetch(`${baseUrl}/api/auth/logout-everywhere`, { method: 'POST' });
       expect(res.status).toBe(401);
+    });
+  });
+
+  describe('password hash upgrade on sign-in', () => {
+    it('signs in against a legacy plain-hex hash and re-stores it at the current cost', async () => {
+      // Exactly how every account was stored before hashes carried their
+      // own parameters: scryptSync(password, salt, 64) with Node's defaults.
+      const { scryptSync } = await import('node:crypto');
+      const salt = 'fedcba9876543210fedcba9876543210';
+      const legacyHash = scryptSync('LegacyPass1', salt, 64).toString('hex');
+      await query(
+        'insert into practice_users (id, username, name, role, password_hash, password_salt, must_change_password) values ($1,$2,$3,$4,$5,$6,false)',
+        ['u_legacy_test', 'legacy_test', 'Legacy Test', 'owner', legacyHash, salt],
+      );
+
+      // A wrong password neither signs in nor touches the stored hash.
+      expect((await postLogin(baseUrl, 'legacy_test', 'LegacyPass2')).status).toBe(401);
+      const { rows: untouched } = await query('select password_hash, password_salt from practice_users where id = $1', ['u_legacy_test']);
+      expect(untouched[0]).toEqual({ password_hash: legacyHash, password_salt: salt });
+
+      const login = await postLogin(baseUrl, 'legacy_test', 'LegacyPass1');
+      expect(login.status).toBe(200);
+      const { rows: upgraded } = await query('select password_hash, password_salt from practice_users where id = $1', ['u_legacy_test']);
+      expect(upgraded[0].password_hash).toMatch(/^scrypt\$32768\$8\$3\$/);
+      expect(upgraded[0].password_hash).not.toBe(legacyHash);
+      expect(upgraded[0].password_salt).not.toBe(salt);
+      expect(needsRehash(upgraded[0].password_hash, upgraded[0].password_salt)).toBe(false);
+
+      // The same password still signs in against the upgraded hash, and a
+      // second sign-in leaves it alone.
+      expect((await postLogin(baseUrl, 'legacy_test', 'LegacyPass1')).status).toBe(200);
+      const { rows: stable } = await query('select password_hash from practice_users where id = $1', ['u_legacy_test']);
+      expect(stable[0].password_hash).toBe(upgraded[0].password_hash);
+      expect((await postLogin(baseUrl, 'legacy_test', 'LegacyPass2')).status).toBe(401);
+    });
+
+    it('re-stores a hash made with weaker parameters, and changing the password uses the current ones', async () => {
+      const weaker = await hashPassword('WeakerPass1', { N: 1024, r: 8, p: 1 });
+      await query(
+        'insert into practice_users (id, username, name, role, password_hash, password_salt, must_change_password) values ($1,$2,$3,$4,$5,$6,false)',
+        ['u_weaker_test', 'weaker_test', 'Weaker Test', 'owner', weaker.hash, weaker.salt],
+      );
+      const login = await postLogin(baseUrl, 'weaker_test', 'WeakerPass1');
+      expect(login.status).toBe(200);
+      const { rows: upgraded } = await query('select password_hash from practice_users where id = $1', ['u_weaker_test']);
+      expect(upgraded[0].password_hash).toMatch(/^scrypt\$32768\$8\$3\$/);
+
+      const change = await fetch(`${baseUrl}/api/auth/change-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: extractCookie(login) },
+        body: JSON.stringify({ currentPassword: 'WeakerPass1', newPassword: 'WeakerPass2' }),
+      });
+      expect(change.status).toBe(200);
+      const { rows: changed } = await query('select password_hash from practice_users where id = $1', ['u_weaker_test']);
+      expect(changed[0].password_hash).toMatch(/^scrypt\$32768\$8\$3\$/);
+      expect(changed[0].password_hash).not.toBe(upgraded[0].password_hash);
+      expect((await postLogin(baseUrl, 'weaker_test', 'WeakerPass2')).status).toBe(200);
+      expect((await postLogin(baseUrl, 'weaker_test', 'WeakerPass1')).status).toBe(401);
     });
   });
 });

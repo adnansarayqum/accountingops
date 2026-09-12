@@ -13,7 +13,7 @@
 import express from 'express';
 import { randomBytes } from 'node:crypto';
 import { isDatabaseConfigured, query } from '../lib/db.mjs';
-import { hashPassword, verifyPassword } from '../lib/passwords.mjs';
+import { hashPassword, needsRehash, verifyPassword } from '../lib/passwords.mjs';
 import { hashSessionToken } from '../lib/sessionTokens.mjs';
 import { createRateLimiter } from '../lib/rateLimit.mjs';
 import { clearSessionCookie, parseCookies, SESSION_COOKIE, setSessionCookie } from '../lib/cookies.mjs';
@@ -60,6 +60,22 @@ async function verifyAgainstDecoy(password) {
   decoy ??= await hashPassword(randomBytes(24).toString('hex'));
   await verifyPassword(password, decoy.hash, decoy.salt);
   return false;
+}
+
+/**
+ * A hash made with older (or the original, un-parameterised) scrypt cost is
+ * re-derived at the current cost the moment the password is known to be
+ * right — sign-in is the only time the server has it. Best effort: a
+ * failure here must not turn a correct password into a failed login.
+ */
+async function upgradeHashIfStale(user, password) {
+  if (!needsRehash(user.password_hash, user.password_salt)) return;
+  try {
+    const { hash, salt } = await hashPassword(password);
+    await query('update practice_users set password_hash = $1, password_salt = $2 where id = $3 and password_hash = $4', [hash, salt, user.id, user.password_hash]);
+  } catch (err) {
+    console.error(JSON.stringify({ level: 'error', msg: 'password hash upgrade failed', userId: user.id, error: err instanceof Error ? err.message : String(err) }));
+  }
 }
 
 export async function currentUser(req) {
@@ -110,6 +126,7 @@ router.post('/login', loginByAddress, loginByUsername, async (req, res) => {
   const user = rows[0];
   const ok = user ? await verifyPassword(String(password), user.password_hash, user.password_salt) : await verifyAgainstDecoy(String(password));
   if (!ok) return res.status(401).json({ error: 'invalid_credentials' });
+  await upgradeHashIfStale(user, String(password));
   const token = randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
   await query('insert into practice_sessions (token, user_id, expires_at) values ($1,$2,$3)', [hashSessionToken(token), user.id, expiresAt]);

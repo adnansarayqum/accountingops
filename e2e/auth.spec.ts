@@ -170,6 +170,10 @@ test.describe('server-backed login', () => {
     await adnanPage.getByTestId('change-password-new').fill('BrandNewPass1');
     await adnanPage.getByTestId('change-password-confirm').fill('BrandNewPass1');
     await adnanPage.getByTestId('change-password-submit').click();
+    // Wait for the change to land before navigating away — the password
+    // derivation is deliberately slow, and a goto mid-request would abandon
+    // it and land back on the set-a-new-password screen.
+    await expect(adnanPage.getByRole('heading', { name: 'Practice Today' })).toBeVisible({ timeout: 15_000 });
     await adnanPage.goto('/clients');
     await expect(adnanPage.getByRole('link', { name: 'Shared Data Test Ltd' }).first()).toBeVisible();
     await adnanContext.close();
