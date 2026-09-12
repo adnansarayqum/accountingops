@@ -86,10 +86,14 @@ export function ClientDetailPage() {
         toast({ title: "Couldn't refresh", description: 'The Companies House lookup failed for this company number.', tone: 'error' });
         return;
       }
-      const { peopleAdded } = refreshClientFromCompaniesHouse(client.id, profile, people);
+      const { peopleAdded, verificationsConfirmed } = refreshClientFromCompaniesHouse(client.id, profile, people);
+      const notes = [
+        peopleAdded > 0 ? `${peopleAdded} new ${peopleAdded === 1 ? 'person' : 'people'} added` : null,
+        verificationsConfirmed > 0 ? `${verificationsConfirmed} identity ${verificationsConfirmed === 1 ? 'verification' : 'verifications'} confirmed` : null,
+      ].filter(Boolean);
       toast({
         title: 'Refreshed from Companies House',
-        description: peopleAdded > 0 ? `${peopleAdded} new ${peopleAdded === 1 ? 'person' : 'people'} added.` : 'Company details are up to date.',
+        description: notes.length > 0 ? `${notes.join(', ')}.` : 'Company details are up to date.',
         tone: 'success',
       });
     } finally {

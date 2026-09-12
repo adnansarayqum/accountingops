@@ -34,6 +34,7 @@ import type {
   JobStatus,
   Notification,
   OnboardingStage,
+  PersonRole,
   PersonRoleKind,
   PracticeData,
   RegisteredAddress,
@@ -139,11 +140,11 @@ export interface AppState {
   /** Bulk-add clients from an existing roster (e.g. an imported spreadsheet). Skips rows whose company number is already on file. */
   importClients(rows: ClientRosterRow[]): { created: number; skipped: string[] };
   /** Re-pulls a client's Companies House data. Updates company fields and adds any director/PSC not already linked — never removes an existing role. */
-  refreshClientFromCompaniesHouse(clientId: string, profile: CompanyProfile | null, people: CompanyPeopleResponse | null): { peopleAdded: number };
+  refreshClientFromCompaniesHouse(clientId: string, profile: CompanyProfile | null, people: CompanyPeopleResponse | null): { peopleAdded: number; verificationsConfirmed: number };
   /** Same, for a batch — applied as a single change so the background sync doesn't fire one whole-snapshot save per client. */
   refreshClientsFromCompaniesHouse(
     updates: { clientId: string; profile: CompanyProfile | null; people: CompanyPeopleResponse | null }[],
-  ): { clientsUpdated: number; peopleAdded: number };
+  ): { clientsUpdated: number; peopleAdded: number; verificationsConfirmed: number };
   /** Merges every group Settings → Duplicate people lists (see domain/peopleMerge.ts). Does nothing, and saves nothing, when there are none. */
   mergeDuplicatePeople(): PeopleMergeSummary;
   /** Edits a contact's details (name, role, email, phone, WhatsApp). */
@@ -279,16 +280,40 @@ async function drainSaves(get: () => AppState, set: (patch: Partial<AppState>) =
  * (manual Refresh button) and batch (background sync) entry points so both
  * behave identically.
  */
+interface RefreshOutcome {
+  peopleAdded: number;
+  verificationsConfirmed: number;
+}
+
+/**
+ * Companies House says this person has verified their identity: record it
+ * on the role, unless the practice already has. Only ever upgrades — a
+ * status the practice set by hand is never overwritten, and Companies
+ * House saying nothing is never read as "not verified".
+ */
+function confirmVerificationFromCompaniesHouse(d: PracticeData, ctx: MutationContext, role: PersonRole, verifiedOn: string | null | undefined, client: Client): boolean {
+  if (!verifiedOn || role.identityVerification === 'verified') return false;
+  const before = { identityVerification: role.identityVerification, personalCodeCaptured: role.personalCodeCaptured };
+  role.identityVerification = 'verified';
+  role.identityVerificationSource = 'companies_house';
+  role.identityVerifiedOn = verifiedOn;
+  const person = d.people.find((p) => p.id === role.personId);
+  ctx.activity('client_updated', `${person ? normalisePersonName(person.fullName) : 'A person'} (${role.kind === 'psc' ? 'PSC' : role.kind}) identity verification confirmed by Companies House for ${client.name}.`, undefined, client.id);
+  ctx.audit('person_role.verification', 'person_role', role.id, before, { identityVerification: 'verified', personalCodeCaptured: role.personalCodeCaptured, source: 'companies_house', verifiedOn });
+  return true;
+}
+
 function applyCompaniesHouseRefresh(
   d: PracticeData,
   ctx: MutationContext,
   clientId: string,
   profile: CompanyProfile | null,
   people: CompanyPeopleResponse | null,
-): number {
+): RefreshOutcome {
   const client = d.clients.find((c) => c.id === clientId);
-  if (!client) return 0;
+  if (!client) return { peopleAdded: 0, verificationsConfirmed: 0 };
   let peopleAdded = 0;
+  let verificationsConfirmed = 0;
 
   if (profile) {
     client.registeredOffice = profile.registeredOfficeAddress ?? client.registeredOffice;
@@ -313,9 +338,9 @@ function applyCompaniesHouseRefresh(
         .filter((r) => r.clientId === clientId)
         .map((r) => `${personNameKey(d.people.find((p) => p.id === r.personId)?.fullName ?? '')}|${r.kind}`),
     );
-    const entries: { name: string; birthMonthYear?: string; kind: PersonRoleKind; naturesOfControl?: string[] }[] = [
-      ...people.directors.map((p) => ({ name: p.name, birthMonthYear: birthMonthYearOf(p.dateOfBirth), kind: 'director' as const })),
-      ...people.pscs.map((p) => ({ name: p.name, birthMonthYear: birthMonthYearOf(p.dateOfBirth), kind: 'psc' as const, naturesOfControl: p.naturesOfControl })),
+    const entries: { name: string; birthMonthYear?: string; kind: PersonRoleKind; naturesOfControl?: string[]; verifiedOn?: string | null }[] = [
+      ...people.directors.map((p) => ({ name: p.name, birthMonthYear: birthMonthYearOf(p.dateOfBirth), kind: 'director' as const, verifiedOn: p.identityVerification?.verifiedOn })),
+      ...people.pscs.map((p) => ({ name: p.name, birthMonthYear: birthMonthYearOf(p.dateOfBirth), kind: 'psc' as const, naturesOfControl: p.naturesOfControl, verifiedOn: p.identityVerification?.verifiedOn })),
     ];
     for (const entry of entries) {
       const key = personNameKey(entry.name);
@@ -324,11 +349,16 @@ function applyCompaniesHouseRefresh(
       // their role is already linked — so a later namesake with a different one
       // is kept apart.
       if (existingPerson && !existingPerson.birthMonthYear && entry.birthMonthYear) existingPerson.birthMonthYear = entry.birthMonthYear;
-      if (existingRoleKeys.has(`${key}|${entry.kind}`)) continue;
+      if (existingRoleKeys.has(`${key}|${entry.kind}`)) {
+        // Already linked — but Companies House may now say they've verified.
+        const existingRole = d.personRoles.find((r) => r.clientId === clientId && r.kind === entry.kind && personNameKey(d.people.find((p) => p.id === r.personId)?.fullName ?? '') === key);
+        if (existingRole && confirmVerificationFromCompaniesHouse(d, ctx, existingRole, entry.verifiedOn, client)) verificationsConfirmed += 1;
+        continue;
+      }
       existingRoleKeys.add(`${key}|${entry.kind}`);
       const personId = existingPerson?.id ?? newId('p');
       if (!existingPerson) d.people.push({ id: personId, practiceId: d.practice.id, fullName: normalisePersonName(entry.name), birthMonthYear: entry.birthMonthYear });
-      d.personRoles.push({
+      const role: PersonRole = {
         id: newId('pr'),
         practiceId: d.practice.id,
         personId,
@@ -338,8 +368,10 @@ function applyCompaniesHouseRefresh(
         personalCodeCaptured: false,
         evidenceStatus: 'none',
         naturesOfControl: entry.naturesOfControl,
-      });
+      };
+      d.personRoles.push(role);
       peopleAdded += 1;
+      if (confirmVerificationFromCompaniesHouse(d, ctx, role, entry.verifiedOn, client)) verificationsConfirmed += 1;
     }
     // A client imported before any director data was available gets a placeholder
     // primary contact name — replace it now that a real director's name is known.
@@ -349,9 +381,13 @@ function applyCompaniesHouseRefresh(
     }
   }
 
-  ctx.activity('client_updated', `${client.name} refreshed from Companies House${peopleAdded > 0 ? ` — ${peopleAdded} new ${peopleAdded === 1 ? 'person' : 'people'} added` : ''}.`, undefined, clientId);
-  ctx.audit('client.companies_house_refresh', 'client', clientId, undefined, { peopleAdded });
-  return peopleAdded;
+  const notes = [
+    peopleAdded > 0 ? `${peopleAdded} new ${peopleAdded === 1 ? 'person' : 'people'} added` : null,
+    verificationsConfirmed > 0 ? `${verificationsConfirmed} identity ${verificationsConfirmed === 1 ? 'verification' : 'verifications'} confirmed` : null,
+  ].filter(Boolean);
+  ctx.activity('client_updated', `${client.name} refreshed from Companies House${notes.length > 0 ? ` — ${notes.join(', ')}` : ''}.`, undefined, clientId);
+  ctx.audit('client.companies_house_refresh', 'client', clientId, undefined, { peopleAdded, verificationsConfirmed });
+  return { peopleAdded, verificationsConfirmed };
 }
 
 /** Retries a transient load failure (e.g. a momentary network or server hiccup) before giving up. */
@@ -890,27 +926,30 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     refreshClientFromCompaniesHouse(clientId, profile, people) {
-      let peopleAdded = 0;
+      let outcome: RefreshOutcome = { peopleAdded: 0, verificationsConfirmed: 0 };
       mutate((d, ctx) => {
-        peopleAdded = applyCompaniesHouseRefresh(d, ctx, clientId, profile, people);
+        outcome = applyCompaniesHouseRefresh(d, ctx, clientId, profile, people);
       });
-      return { peopleAdded };
+      return outcome;
     },
 
     refreshClientsFromCompaniesHouse(updates) {
       let clientsUpdated = 0;
       let peopleAdded = 0;
+      let verificationsConfirmed = 0;
       // One mutation for the whole batch: each mutation persists the entire practice
       // snapshot, so applying these one at a time would fire a burst of overlapping
       // whole-document saves that can land out of order and lose each other's writes.
       mutate((d, ctx) => {
         for (const update of updates) {
           if (!d.clients.some((c) => c.id === update.clientId)) continue;
-          peopleAdded += applyCompaniesHouseRefresh(d, ctx, update.clientId, update.profile, update.people);
+          const outcome = applyCompaniesHouseRefresh(d, ctx, update.clientId, update.profile, update.people);
+          peopleAdded += outcome.peopleAdded;
+          verificationsConfirmed += outcome.verificationsConfirmed;
           clientsUpdated += 1;
         }
       });
-      return { clientsUpdated, peopleAdded };
+      return { clientsUpdated, peopleAdded, verificationsConfirmed };
     },
 
     mergeDuplicatePeople() {
@@ -1032,6 +1071,8 @@ export const useAppStore = create<AppState>((set, get) => {
         if (!role) return;
         const before = { identityVerification: role.identityVerification, personalCodeCaptured: role.personalCodeCaptured };
         role.identityVerification = status;
+        role.identityVerificationSource = 'practice';
+        delete role.identityVerifiedOn;
         if (personalCodeCaptured !== undefined) role.personalCodeCaptured = personalCodeCaptured;
         if (status === 'verified') {
           role.personalCodeCaptured = true;

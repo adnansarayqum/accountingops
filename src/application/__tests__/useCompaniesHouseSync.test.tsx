@@ -59,7 +59,7 @@ describe('useCompaniesHouseSync', () => {
       }),
       refreshClientsFromCompaniesHouse: vi.fn(() => {
         calls.push('apply');
-        return { clientsUpdated: 0, peopleAdded: 0 };
+        return { clientsUpdated: 0, peopleAdded: 0, verificationsConfirmed: 0 };
       }),
     });
   });

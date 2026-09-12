@@ -49,6 +49,20 @@ export interface CompanyPersonDateOfBirth {
 }
 
 /** One active director or individual PSC, from /company/:number/people. */
+/**
+ * What Companies House says about a person's identity verification. Present
+ * only when it publishes anything; `verifiedOn` set means they have
+ * verified (by an authorised agent, or directly with an appointment
+ * verification statement still in force). Absent or null never means "not
+ * verified" — Companies House omits it for many people who have.
+ */
+export interface CompanyPersonIdentityVerification {
+  verifiedOn: string | null;
+  statementDueOn: string | null;
+  /** The authorised corporate service provider that verified them, when one did. */
+  verifiedBy: string | null;
+}
+
 export interface CompanyPerson {
   name: string;
   role: 'director' | 'psc';
@@ -59,6 +73,7 @@ export interface CompanyPerson {
   occupation: string | null;
   /** How control is held — only ever populated for a PSC, always empty for a director. */
   naturesOfControl: string[];
+  identityVerification?: CompanyPersonIdentityVerification | null;
 }
 
 export interface CompanyPeopleResponse {
