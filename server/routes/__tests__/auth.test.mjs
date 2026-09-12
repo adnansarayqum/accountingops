@@ -5,6 +5,8 @@ import practiceDataRouter from '../practiceData.mjs';
 import companiesHouseRouter from '../companiesHouse.mjs';
 import messagesRouter from '../messages.mjs';
 import companiesHouseStreamRouter from '../companiesHouseStream.mjs';
+import hmrcRouter from '../hmrc.mjs';
+import { connectionStatus, isExpiring, readTokens, withFreshToken, writeTokens } from '../../lib/hmrc/tokenStore.mjs';
 import { acknowledgeChanges, countPendingChanges, pendingChanges, readStreamState, recordChange, watchedCompanyNumbers, writeStreamState } from '../../lib/companiesHouseStreamStore.mjs';
 import { isDatabaseConfigured, query } from '../../lib/db.mjs';
 import { hashPassword, needsRehash, verifyPassword } from '../../lib/passwords.mjs';
@@ -65,6 +67,7 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     app.use('/api/practice-data', practiceDataRouter);
     app.use('/api/companies-house/stream', companiesHouseStreamRouter);
     app.use('/api/companies-house', companiesHouseRouter);
+    app.use('/api/hmrc', hmrcRouter);
     app.use('/api/messages', messagesRouter);
     server = app.listen(0);
     await new Promise((resolve) => server.once('listening', resolve));
@@ -334,8 +337,7 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     });
 
     it('lets a signed-in user send (simulated here)', async () => {
-      const login = await postLogin(baseUrl, 'practice_data_test', 'FixtureUserPass1');
-      const cookie = extractCookie(login);
+      const cookie = extractCookie(await postLogin(baseUrl, 'practice_data_test', 'FixtureUserPass1'));
       const send = await fetch(`${baseUrl}/api/messages/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Cookie: cookie },
@@ -358,8 +360,7 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     });
 
     it('lets a signed-in user look companies up', async () => {
-      const login = await postLogin(baseUrl, 'practice_data_test', 'FixtureUserPass1');
-      const cookie = extractCookie(login);
+      const cookie = extractCookie(await postLogin(baseUrl, 'practice_data_test', 'FixtureUserPass1'));
       process.env.COMPANIES_HOUSE_API_KEY = 'test-key';
       vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200 })));
       try {
@@ -414,8 +415,7 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     it('records a change, serves it to a signed-in user, and stops serving it once acknowledged', async () => {
       process.env.COMPANIES_HOUSE_STREAM_API_KEY = 'stream-key';
       try {
-        const login = await postLogin(baseUrl, 'practice_data_test', 'FixtureUserPass1');
-        const cookie = extractCookie(login);
+        const cookie = extractCookie(await postLogin(baseUrl, 'practice_data_test', 'FixtureUserPass1'));
 
         expect(await recordChange({ companyNumber: '01234567', type: 'changed', fieldsChanged: ['accounts.next_due'], publishedAt: '2026-09-12T10:00:00Z', timepoint: 100 })).toBe(true);
         // A reconnect replays from the last processed event: the same record
@@ -478,6 +478,181 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
       expect(watched.has('01234567')).toBe(true);
       expect(watched.has('1234567890')).toBe(false);
       await query('delete from practice_snapshots');
+    });
+  });
+
+  describe('hmrc making tax digital', () => {
+    const withCreds = async (fn) => {
+      process.env.HMRC_CLIENT_ID = 'test-client';
+      process.env.HMRC_CLIENT_SECRET = 'test-secret';
+      try {
+        return await fn();
+      } finally {
+        delete process.env.HMRC_CLIENT_ID;
+        delete process.env.HMRC_CLIENT_SECRET;
+      }
+    };
+
+    // One sign-in for the whole block: the login rate limiter locks a
+    // username after ten attempts in a window, and a test that signs in per
+    // case would trip it partway through and fail for the wrong reason.
+    let cookie;
+    beforeAll(async () => {
+      resetLoginLimits();
+      cookie = extractCookie(await postLogin(baseUrl, 'practice_data_test', 'FixtureUserPass1'));
+      expect(cookie).toBeTruthy();
+    });
+
+    beforeEach(async () => {
+      await query('delete from hmrc_agent_tokens');
+    });
+
+    it('reports itself off without credentials, so the app hides the integration', async () => {
+      delete process.env.HMRC_CLIENT_ID;
+      const res = await fetch(`${baseUrl}/api/hmrc/status`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ configured: false });
+    });
+
+    it('defaults to the sandbox, and says so — sandbox obligations are canned, not real deadlines', async () => {
+      await withCreds(async () => {
+        expect(await (await fetch(`${baseUrl}/api/hmrc/status`)).json()).toMatchObject({ configured: true, sandbox: true, connected: false });
+      });
+    });
+
+    it('refuses every authenticated route without a session', async () => {
+      await withCreds(async () => {
+        for (const [path, init] of [
+          ['/api/hmrc/connect', {}],
+          ['/api/hmrc/vat/123456789/obligations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }],
+        ]) {
+          expect((await fetch(`${baseUrl}${path}`, init)).status).toBe(401);
+        }
+      });
+    });
+
+    it('builds an authorisation URL against the sandbox with the scopes it needs', async () => {
+      await withCreds(async () => {
+        const body = await (await fetch(`${baseUrl}/api/hmrc/connect`, { headers: { Cookie: cookie } })).json();
+
+        const url = new URL(body.url);
+        expect(url.origin).toBe('https://test-api.service.hmrc.gov.uk');
+        expect(url.pathname).toBe('/oauth/authorize');
+        expect(url.searchParams.get('scope')).toBe('read:vat write:vat');
+        expect(url.searchParams.get('response_type')).toBe('code');
+        expect(url.searchParams.get('state')).toBeTruthy();
+      });
+    });
+
+    it('rejects a callback whose state it did not issue — otherwise anyone could hand it a code', async () => {
+      await withCreds(async () => {
+        const res = await fetch(`${baseUrl}/api/hmrc/callback?code=abc&state=not-one-we-issued`, { headers: { Cookie: cookie } });
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ error: 'invalid_state' });
+      });
+    });
+
+    it('will not spend a state value twice', async () => {
+      await withCreds(async () => {
+        const { url } = await (await fetch(`${baseUrl}/api/hmrc/connect`, { headers: { Cookie: cookie } })).json();
+        const state = new URL(url).searchParams.get('state');
+
+        // No code, so the exchange is never attempted — but the state is consumed.
+        expect((await fetch(`${baseUrl}/api/hmrc/callback?state=${state}`, { headers: { Cookie: cookie } })).status).toBe(400);
+        const second = await fetch(`${baseUrl}/api/hmrc/callback?code=abc&state=${state}`, { headers: { Cookie: cookie } });
+        expect(await second.json()).toEqual({ error: 'invalid_state' });
+      });
+    });
+
+    it('reports a refused consent as such rather than as a generic failure', async () => {
+      await withCreds(async () => {
+        const res = await fetch(`${baseUrl}/api/hmrc/callback?error=access_denied&state=x`, { headers: { Cookie: cookie } });
+        expect(res.status).toBe(400);
+        expect((await res.json()).error).toBe('consent_refused');
+      });
+    });
+
+    it('rejects a malformed VRN before any upstream call', async () => {
+      await withCreds(async () => {
+        const res = await fetch(`${baseUrl}/api/hmrc/vat/12345/obligations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Cookie: cookie },
+          body: JSON.stringify({ device: {} }),
+        });
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ error: 'invalid_vrn' });
+      });
+    });
+
+    it('refuses to call HMRC with an incomplete fraud header set, naming what is missing', async () => {
+      await withCreds(async () => {
+        // No device data, so the browser half of the headers is absent.
+        const res = await fetch(`${baseUrl}/api/hmrc/vat/123456789/obligations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Cookie: cookie },
+          body: JSON.stringify({}),
+        });
+        expect(res.status).toBe(400);
+        const body = await res.json();
+        expect(body.error).toBe('fraud_headers_incomplete');
+        expect(body.missing).toContain('Gov-Client-Screens');
+      });
+    });
+
+    it('stores tokens, reports the connection without ever exposing them, and disconnects', async () => {
+      await withCreds(async () => {
+
+        await writeTokens({ accessToken: 'access-1', refreshToken: 'refresh-1', scope: 'read:vat', expiresInSeconds: 14400, connectedBy: 'u_test' });
+        const status = await (await fetch(`${baseUrl}/api/hmrc/status`)).json();
+        expect(status).toMatchObject({ configured: true, connected: true, canRefresh: true });
+        // The whole point: a token must never reach the browser.
+        expect(JSON.stringify(status)).not.toContain('access-1');
+        expect(JSON.stringify(status)).not.toContain('refresh-1');
+
+        const res = await fetch(`${baseUrl}/api/hmrc/disconnect`, { method: 'POST', headers: { Cookie: cookie } });
+        expect(await res.json()).toEqual({ disconnected: true });
+        expect(await readTokens()).toBeNull();
+      });
+    });
+
+    it('keeps the existing refresh token when HMRC reissue only an access token', async () => {
+      await writeTokens({ accessToken: 'a1', refreshToken: 'r1', scope: 'read:vat', expiresInSeconds: 14400 });
+      await writeTokens({ accessToken: 'a2', refreshToken: null, expiresInSeconds: 14400 });
+      const tokens = await readTokens();
+      expect(tokens.accessToken).toBe('a2');
+      // Losing this on refresh would silently disconnect the practice.
+      expect(tokens.refreshToken).toBe('r1');
+      expect(tokens.scope).toBe('read:vat');
+    });
+
+    it('refreshes an expiring token before use rather than sending a dead one', async () => {
+      await writeTokens({ accessToken: 'old', refreshToken: 'r1', expiresInSeconds: 60 });
+      expect(isExpiring((await readTokens()).expiresAt)).toBe(true);
+
+      const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ access_token: 'fresh', refresh_token: 'r2', expires_in: 14400, scope: 'read:vat' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      const used = await withFreshToken(async (token) => token, { env: { HMRC_CLIENT_ID: 'a', HMRC_CLIENT_SECRET: 'b' }, fetchImpl });
+
+      expect(used).toBe('fresh');
+      expect((await readTokens()).accessToken).toBe('fresh');
+      expect(fetchImpl.mock.calls[0][0]).toBe('https://test-api.service.hmrc.gov.uk/oauth/token');
+    });
+
+    it('uses a still-valid token without spending a refresh', async () => {
+      await writeTokens({ accessToken: 'still-good', refreshToken: 'r1', expiresInSeconds: 14400 });
+      const fetchImpl = vi.fn();
+      expect(await withFreshToken(async (t) => t, { env: {}, fetchImpl })).toBe('still-good');
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it('reports a revoked refresh token as needing reconnection, not as a generic error', async () => {
+      await writeTokens({ accessToken: 'old', refreshToken: 'revoked', expiresInSeconds: 60 });
+      const fetchImpl = async () => new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+      await expect(withFreshToken(async (t) => t, { env: { HMRC_CLIENT_ID: 'a', HMRC_CLIENT_SECRET: 'b' }, fetchImpl })).rejects.toMatchObject({ code: 'refresh_failed' });
+    });
+
+    it('says not_connected when nobody has linked an agent account', async () => {
+      expect(await connectionStatus()).toEqual({ connected: false });
+      await expect(withFreshToken(async (t) => t, { env: {}, fetchImpl: vi.fn() })).rejects.toMatchObject({ code: 'not_connected' });
     });
   });
 
@@ -775,6 +950,7 @@ describe('auth + practice-data routers without a configured database', () => {
       app.use('/api/auth', authRouter);
       app.use('/api/practice-data', practiceDataRouter);
       app.use('/api/companies-house/stream', companiesHouseStreamRouter);
+      app.use('/api/hmrc', hmrcRouter);
       const server = app.listen(0);
       await new Promise((resolve) => server.once('listening', resolve));
       const baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -788,6 +964,16 @@ describe('auth + practice-data routers without a configured database', () => {
         expect((await fetch(`${baseUrl}/api/companies-house/stream/changes`)).status).toBe(503);
       } finally {
         delete process.env.COMPANIES_HOUSE_STREAM_API_KEY;
+      }
+      // HMRC needs somewhere to keep tokens, so it is off in this mode too.
+      process.env.HMRC_CLIENT_ID = 'x';
+      process.env.HMRC_CLIENT_SECRET = 'y';
+      try {
+        expect(await (await fetch(`${baseUrl}/api/hmrc/status`)).json()).toMatchObject({ configured: false });
+        expect((await fetch(`${baseUrl}/api/hmrc/connect`)).status).toBe(503);
+      } finally {
+        delete process.env.HMRC_CLIENT_ID;
+        delete process.env.HMRC_CLIENT_SECRET;
       }
       await new Promise((resolve) => server.close(resolve));
     } finally {
