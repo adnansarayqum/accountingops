@@ -113,6 +113,7 @@ confined to this folder plus the store's actions.
 | `responsiveness.ts` | Client behaviour bands and suggestions |
 | `masking.ts` | Display masking of identifiers |
 | `thresholds.ts` | Defaults for the configurable timing thresholds below, and merging a practice's overrides over them |
+| `penalties.ts` | Late-filing penalty exposure in pounds — Companies House bands (doubled after a late prior year), CT600 fixed steps (£1,000 each after three late in a row), SA £100/daily/£300 minimums, VAT late-submission points — from published figures, with percentage-of-tax steps and regimes with no fixed figure reported as unquantified rather than guessed |
 
 Every rule is deterministic, explainable and unit-tested.
 

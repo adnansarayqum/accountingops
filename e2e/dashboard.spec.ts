@@ -79,6 +79,16 @@ test.describe('dashboard — key deadlines and attention triage', () => {
     await expect(page).toHaveURL(/\/readiness$/);
   });
 
+  test('puts a pound figure on late filing, and carries it into the attention reasons', async ({ page }) => {
+    // The fixture's overdue accounts job is a few days late: £150 now, £375 after a month.
+    const card = page.getByTestId('penalty-exposure');
+    await expect(card).toContainText('£150');
+    await expect(card).toContainText('already incurred');
+    await card.getByTestId(/^penalty-job_/).first().click();
+    await expect(page).toHaveURL(/\/jobs\/job_/);
+    await expect(page.getByText(/Late filing penalty now £150\. Rises by £375 in \d+ days\./)).toBeVisible();
+  });
+
   test('every quick action goes to a route that exists', async ({ page }) => {
     const takeAction = page.locator('div.card', { has: page.getByRole('heading', { name: 'Quick actions' }) });
     for (const [name, url] of [

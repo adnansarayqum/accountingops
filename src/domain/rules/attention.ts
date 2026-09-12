@@ -3,6 +3,7 @@ import type { Approval, Client, Communication, InformationRequestItem, Job, Pers
 import { assessChasing } from './chasing';
 import { computeCompleteness } from './completeness';
 import { resolveThresholds } from './thresholds';
+import { formatPounds, penaltyExposureFor } from './penalties';
 import { CHANNEL_LABELS } from '../catalog';
 
 export type Severity = 'red' | 'amber';
@@ -74,6 +75,18 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
       label: `Send ${CHANNEL_LABELS[preferred]} reminder to client`,
       channel: preferred,
     });
+    // The penalty in pounds is the reason an accountant actually acts on —
+    // stated where it applies, and only when there is a fixed figure to state.
+    const penalty = penaltyExposureFor(job, ctx.jobs, ctx.today);
+    const penaltyReason = (): string | null => {
+      if (!penalty) return null;
+      if (penalty.incurred > 0) {
+        const rise = penalty.next && penalty.next.amount > 0 ? ` Rises by ${formatPounds(penalty.next.amount)} in ${penalty.next.inDays} day${penalty.next.inDays === 1 ? '' : 's'}.` : '';
+        return `Late filing penalty now ${formatPounds(penalty.incurred)}.${rise}`;
+      }
+      if (penalty.next && penalty.next.amount > 0 && penalty.daysLate < 1) return `${formatPounds(penalty.next.amount)} penalty if the deadline is missed.`;
+      return null;
+    };
 
     const candidates: Omit<AttentionItem, 'id' | 'jobId' | 'clientId' | 'ownerUserId' | 'dueDate' | 'daysUntilDue'>[] = [];
 
@@ -85,6 +98,7 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
         headline: `Overdue by ${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'}.`,
         reasons: [
           `Deadline passed ${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'} ago.`,
+          ...(penaltyReason() ? [penaltyReason()!] : []),
           `Client has not supplied ${listLabels(completeness.missing)}.`,
           chasing.remindersSent > 0 ? `${chasing.remindersSent} reminder${chasing.remindersSent === 1 ? '' : 's'} sent without a response.` : 'No reminder has been sent yet.',
         ],
@@ -98,7 +112,7 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
         severity: 'red',
         ruleCode: 'overdue',
         headline: `Overdue by ${Math.abs(days)} day${Math.abs(days) === 1 ? '' : 's'}.`,
-        reasons: [`Deadline passed and the job is still ${statusPhrase(job)}.`],
+        reasons: [`Deadline passed and the job is still ${statusPhrase(job)}.`, ...(penaltyReason() ? [penaltyReason()!] : [])],
         recommendedAction: actionForStatus(job, reminderAction),
         score: 900 + Math.abs(days) * 5,
       });
@@ -112,6 +126,7 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
         headline: `Due in ${days} day${days === 1 ? '' : 's'}.`,
         reasons: [
           `${missingPct}% of required information is still missing.`,
+          ...(penaltyReason() ? [penaltyReason()!] : []),
           `Still needed: ${listLabels(completeness.missing)}.`,
           chasing.remindersSent > 0 ? `Client has not responded to ${chasing.remindersSent} reminder${chasing.remindersSent === 1 ? '' : 's'}.` : 'No reminder has been sent yet.',
         ],

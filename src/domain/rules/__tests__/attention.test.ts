@@ -137,3 +137,15 @@ describe('configurable thresholds (Settings → Timing thresholds)', () => {
     expect(partial).toEqual(full);
   });
 });
+
+
+describe('penalty reasons', () => {
+  it('states the late-filing penalty in pounds on an overdue job, and what it rises to', () => {
+    const d = buildFixtureData(today);
+    const overdue = d.jobs.find((j) => j.status !== 'filed' && j.serviceCode === 'annual_accounts' && j.dueDate < today)!;
+    const items = evaluateAttention({ jobs: d.jobs, clients: d.clients, items: d.requestItems, comms: d.communications, approvals: d.approvals, personRoles: d.personRoles, sequences: d.reminderSequences, users: d.users, today });
+    const item = items.find((a) => a.jobId === overdue.id)!;
+    expect(item.reasons.some((r) => /^Late filing penalty now £\d/.test(r))).toBe(true);
+    expect(item.reasons.some((r) => /Rises by £\d+ in \d+ days?\./.test(r))).toBe(true);
+  });
+});
