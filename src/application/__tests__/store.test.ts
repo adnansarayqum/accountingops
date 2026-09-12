@@ -435,3 +435,41 @@ describe('application store — primary workflow', () => {
     });
   });
 });
+
+describe('application store — retention', () => {
+  beforeEach(() => {
+    configureRepository(new MemoryRepository());
+    useAppStore.setState({ data: buildFixtureData(today), today, ready: true, currentUserId: 'u_adnan' });
+  });
+
+  it('caps the feeds after every change, keeping the newest entries', async () => {
+    const { RETENTION } = await import('../../domain/retention');
+    const d = structuredClone(useAppStore.getState().data);
+    d.activities = Array.from({ length: RETENTION.activities }, (_, i) => ({ ...d.activities[0], id: `act_old_${i}` }));
+    d.notifications = Array.from({ length: RETENTION.notifications }, (_, i) => ({ ...d.notifications[0], id: `ntf_old_${i}`, read: true }));
+    d.auditEvents = Array.from({ length: RETENTION.auditEvents }, (_, i) => ({ ...d.auditEvents[0], id: `aud_old_${i}`, action: 'job.transition', before: { status: 'x' }, after: { status: 'y' } }));
+    useAppStore.setState({ data: d });
+
+    useAppStore.getState().sendReminder({ jobId: 'job_abc_accounts', channel: 'whatsapp', recipient: '077', body: 'capped', documentsRequested: [], stage: 'Firm' });
+
+    const s = useAppStore.getState().data;
+    expect(s.activities).toHaveLength(RETENTION.activities);
+    expect(s.activities[0].kind).toBe('reminder_sent');
+    expect(s.activities.at(-1)!.id).toBe(`act_old_${RETENTION.activities - 2}`);
+    expect(s.auditEvents).toHaveLength(RETENTION.auditEvents);
+    expect(s.auditEvents[0].action).toBe('communication.send');
+    expect(s.auditEvents[0].after).toBeDefined();
+    expect(s.auditEvents[RETENTION.auditDetail]).not.toHaveProperty('after');
+    expect(s.notifications.length).toBeLessThanOrEqual(RETENTION.notifications);
+    // Business records are never trimmed.
+    expect(s.communications.find((c) => c.body === 'capped')).toBeDefined();
+  });
+
+  it('records only a sample of names for a bulk import, not the whole roster', () => {
+    const rows = Array.from({ length: 60 }, (_, i) => ({ name: `Bulk Import ${i} Ltd`, companyNumber: String(20000000 + i) }));
+    useAppStore.getState().importClients(rows);
+    const entry = useAppStore.getState().data.auditEvents.find((e) => e.action === 'client.import')!;
+    expect(entry.after).toMatchObject({ count: 60 });
+    expect((entry.after as { names: string[] }).names).toHaveLength(20);
+  });
+});

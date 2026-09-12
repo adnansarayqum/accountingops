@@ -43,6 +43,15 @@ at start-up from `/health`:
   JSONB row per practice (`practice_snapshots`, bootstrapped by
   `server/lib/db.mjs` on first use). The server checks the shape before
   storing (`server/lib/practiceDataShape.mjs`) and caps the body at 2 MB.
+  On the client side, `src/domain/retention.ts` keeps the snapshot from
+  growing without bound: the activity feed and audit log are capped at
+  2,000 entries each and notifications at 500 (newest kept), audit entries
+  older than the newest 500 keep their header but lose their before/after
+  values (identity-related actions excepted), and any single before/after
+  payload over 2 KB of JSON is replaced by a short summary. The caps apply
+  after every change and to every snapshot on load, so one saved before
+  they existed shrinks on its next save. Business records — clients, jobs,
+  communications, documents, filings — are never trimmed.
 - `LocalStorageRepository` — the browser-only mode, used when no database
   is configured. Versioned envelope; a schema bump discards stale
   snapshots. A refused write (quota, private window) throws so the store

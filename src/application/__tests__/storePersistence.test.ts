@@ -125,6 +125,20 @@ describe('store persistence', () => {
   });
 
   describe('init()', () => {
+    it('caps over-long feeds on the way in, without writing anything', async () => {
+      const { RETENTION } = await import('../../domain/retention');
+      const stored = buildFixtureData(today);
+      stored.activities = Array.from({ length: RETENTION.activities + 50 }, (_, i) => ({ ...stored.activities[0], id: `act_${i}` }));
+      repo.stored = stored;
+      useAppStore.setState({ ready: false });
+      await useAppStore.getState().init();
+      expect(useAppStore.getState().data.activities).toHaveLength(RETENTION.activities);
+      expect(useAppStore.getState().data.activities[0].id).toBe('act_0');
+      // A load never writes: the trimmed snapshot is saved with the next change.
+      expect(repo.saves).toHaveLength(0);
+      expect(useAppStore.getState().unsaved).toBe(false);
+    });
+
     it('does not write anything when nothing is stored yet', async () => {
       repo.stored = null;
       useAppStore.setState({ ready: false });
