@@ -7,6 +7,7 @@ import { nowIso, todayIso } from '../domain/dates';
 import { normaliseCompanyNumber } from '../domain/companyNumber';
 import { birthMonthYearOf, isSamePerson, normalisePersonName, personNameKey } from '../domain/personNames';
 import { applyRetention } from '../domain/retention';
+import { applyPeopleMerge, findDuplicatePeople, type PeopleMergeSummary } from '../domain/peopleMerge';
 import { CHANNEL_LABELS, JOB_STATUS_LABELS, SERVICES, FILING_DESTINATION } from '../domain/catalog';
 import {
   canTransition,
@@ -143,6 +144,8 @@ export interface AppState {
   refreshClientsFromCompaniesHouse(
     updates: { clientId: string; profile: CompanyProfile | null; people: CompanyPeopleResponse | null }[],
   ): { clientsUpdated: number; peopleAdded: number };
+  /** Merges every group Settings → Duplicate people lists (see domain/peopleMerge.ts). Does nothing, and saves nothing, when there are none. */
+  mergeDuplicatePeople(): PeopleMergeSummary;
   /** Edits a contact's details (name, role, email, phone, WhatsApp). */
   updateContact(contactId: string, patch: Partial<Pick<Contact, 'name' | 'role' | 'email' | 'phone' | 'whatsapp'>>): void;
   /** Adds another contact to a client. The first contact added to a client with none becomes its primary. */
@@ -910,6 +913,21 @@ export const useAppStore = create<AppState>((set, get) => {
       return { clientsUpdated, peopleAdded };
     },
 
+    mergeDuplicatePeople() {
+      let summary: PeopleMergeSummary = { peopleRemoved: 0, rolesMoved: 0, rolesCombined: 0 };
+      if (findDuplicatePeople(get().data).length === 0) return summary;
+      mutate((d, ctx) => {
+        const groups = findDuplicatePeople(d);
+        summary = applyPeopleMerge(d, groups);
+        const n = summary.peopleRemoved;
+        ctx.activity('client_updated', `${n} duplicate ${n === 1 ? 'person' : 'people'} merged${groups.length > 0 ? ` (${groups.map((g) => normalisePersonName(g.keep.fullName)).join(', ')})` : ''}.`);
+        ctx.audit('people.merge', 'person', 'bulk', undefined, {
+          ...summary,
+          groups: groups.map((g) => ({ kept: g.keep.id, removed: g.duplicates.map((p) => p.id), clientIds: g.clientIds })),
+        });
+      });
+      return summary;
+    },
     updateContact(contactId, patch) {
       mutate((d, ctx) => {
         const contact = d.contacts.find((c) => c.id === contactId);

@@ -12,10 +12,11 @@ export const STORAGE_KEY = 'practiceops.data';
  * this fixture directly into localStorage before the app boots, exactly as
  * a returning user's previously-saved data would be loaded.
  */
-export async function seedFixture(page: Page): Promise<void> {
+export async function seedFixture(page: Page, adjust?: (data: ReturnType<typeof buildFixtureData>) => void): Promise<void> {
   await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
   await page.goto('/');
   const data = buildFixtureData(todayIso());
+  adjust?.(data);
   const envelope = { version: SCHEMA_VERSION, savedAt: new Date().toISOString(), data };
   await page.evaluate(({ key, value }) => localStorage.setItem(key, JSON.stringify(value)), { key: STORAGE_KEY, value: envelope });
   await page.reload();

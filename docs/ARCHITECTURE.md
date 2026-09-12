@@ -83,7 +83,11 @@ survives — and only after three lost races does it take the server's copy
 and tell the user their last change wasn't saved. Every accepted write is
 also kept in `practice_snapshot_history` (the last 50), listed under
 Settings → Version history; a restore writes the chosen version as a *new*
-version, so it is itself undoable.
+version, so it is itself undoable. Data clean-ups are built the same way
+rather than run against the database by hand: Settings → Duplicate people
+(`src/domain/peopleMerge.ts`) previews what a merge would do and applies
+it, on confirmation, as one saved change — so it too is a version that
+can be restored over.
 
 The whole-aggregate snapshot is still an interim adapter — two people
 editing the same record at the same moment replay by mutation, not by

@@ -7,6 +7,7 @@ import { Field, Input, Select } from '../ui/components/Form';
 import { Avatar } from '../ui/components/Avatar';
 import { SnapshotHistoryCard } from '../ui/components/SnapshotHistoryCard';
 import { MessagingStatusCard } from '../ui/components/MessagingStatusCard';
+import { DuplicatePeopleCard } from '../ui/components/DuplicatePeopleCard';
 import { useAppStore } from '../application/store';
 import { useData } from '../application/selectors';
 import { changePassword, logout, logoutEverywhere } from '../application/auth';
@@ -110,6 +111,7 @@ export function SettingsPage() {
       {authMode === 'server' && <AccountCard />}
       {authMode === 'server' && <SnapshotHistoryCard />}
       <MessagingStatusCard />
+      <DuplicatePeopleCard />
 
       <Card>
         <CardHeader title="Security posture" icon={<ShieldCheck />} />

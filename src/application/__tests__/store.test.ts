@@ -473,3 +473,49 @@ describe('application store — retention', () => {
     expect((entry.after as { names: string[] }).names).toHaveLength(20);
   });
 });
+
+describe('application store — merging duplicate people', () => {
+  beforeEach(() => {
+    configureRepository(new MemoryRepository());
+    const data = structuredClone(buildFixtureData(today));
+    // Dave Thompson again, the way an older import wrote him: surname first,
+    // a director role at the same client (which Dave already holds) and one
+    // at another client (which he doesn't).
+    data.people.push({ id: 'p_dave_dup', practiceId: data.practice.id, fullName: 'THOMPSON, Dave' });
+    data.personRoles.push(
+      { id: 'pr_dup_1', practiceId: data.practice.id, personId: 'p_dave_dup', clientId: 'cl_abc', kind: 'director', identityVerification: 'not_started', personalCodeCaptured: false, evidenceStatus: 'none' },
+      { id: 'pr_dup_2', practiceId: data.practice.id, personId: 'p_dave_dup', clientId: 'cl_greenfield', kind: 'director', identityVerification: 'in_progress', personalCodeCaptured: false, evidenceStatus: 'received' },
+    );
+    useAppStore.setState({ data, today, ready: true, currentUserId: 'u_adnan', toasts: [] });
+  });
+
+  it('merges the duplicate into the existing record as one saved change, with an activity and an audit entry', () => {
+    const before = useAppStore.getState().data;
+    expect(before.people.some((p) => p.id === 'p_dave_dup')).toBe(true);
+
+    const summary = useAppStore.getState().mergeDuplicatePeople();
+    expect(summary).toEqual({ peopleRemoved: 1, rolesMoved: 1, rolesCombined: 1 });
+
+    const s = useAppStore.getState().data;
+    expect(s.people.some((p) => p.id === 'p_dave_dup')).toBe(false);
+    expect(s.people.find((p) => p.id === 'p_dave')?.fullName).toBe('Dave Thompson');
+    expect(s.personRoles.find((r) => r.id === 'pr_dup_1')).toBeUndefined();
+    expect(s.personRoles.find((r) => r.id === 'pr_dup_2')).toMatchObject({ personId: 'p_dave' });
+    // Dave's verified director role at ABC is untouched by the not-started duplicate.
+    expect(s.personRoles.find((r) => r.id === 'pr_1')).toMatchObject({ identityVerification: 'verified', evidenceStatus: 'checked' });
+    expect(s.activities[0]).toMatchObject({ kind: 'client_updated', message: '1 duplicate person merged (Dave Thompson).' });
+    expect(s.auditEvents[0]).toMatchObject({ action: 'people.merge', after: { peopleRemoved: 1, groups: [{ kept: 'p_dave', removed: ['p_dave_dup'], clientIds: ['cl_abc', 'cl_greenfield'] }] } });
+    expect(useAppStore.getState().unsaved).toBe(true);
+  });
+
+  it('does nothing — and saves nothing — when there are no duplicates', () => {
+    useAppStore.getState().mergeDuplicatePeople();
+    const afterFirst = useAppStore.getState().data;
+    const activities = afterFirst.activities.length;
+    useAppStore.setState({ unsaved: false });
+    expect(useAppStore.getState().mergeDuplicatePeople()).toEqual({ peopleRemoved: 0, rolesMoved: 0, rolesCombined: 0 });
+    expect(useAppStore.getState().data).toBe(afterFirst);
+    expect(useAppStore.getState().data.activities).toHaveLength(activities);
+    expect(useAppStore.getState().unsaved).toBe(false);
+  });
+});
