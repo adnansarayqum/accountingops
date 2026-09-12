@@ -34,18 +34,41 @@ churn with no architectural payoff.
 ## Persistence boundary
 
 `src/application/persistence/repository.ts` defines `PracticeRepository`
-(`load / save / clear`). Two adapters exist:
+(`load / save / clear`). Three adapters exist, and `src/App.tsx` picks one
+at start-up from `/health`:
 
-- `LocalStorageRepository` — this build's only persistence. Versioned
-  envelope; a schema bump discards stale snapshots.
+- `HttpRepository` — the shared, server-backed mode. Used once a signed-in
+  session exists (`DATABASE_URL` configured). Every save PUTs the whole
+  `PracticeData` snapshot to `/api/practice-data`, which stores it as one
+  JSONB row per practice (`practice_snapshots`, bootstrapped by
+  `server/lib/db.mjs` on first use). The server checks the shape before
+  storing (`server/lib/practiceDataShape.mjs`) and caps the body at 2 MB.
+- `LocalStorageRepository` — the browser-only mode, used when no database
+  is configured. Versioned envelope; a schema bump discards stale
+  snapshots. A refused write (quota, private window) throws so the store
+  can say so.
 - `MemoryRepository` — tests.
 
-The next adapter is an HTTP client to a tenant-scoped API backed by
-PostgreSQL (`db/schema.sql`). Because components never touch storage, the
-swap is confined to this folder plus an `init()` change. The whole-aggregate
-`PracticeData` shape is a convenience for a client-only build; the server API
-will expose per-entity endpoints and the store will move from "clone the
-world" to optimistic per-entity updates behind the same action signatures.
+Two things the store does around every adapter (`src/application/store.ts`):
+saves are serialised — one in flight, only the newest queued snapshot sent
+behind it — and a load that fails leaves the store read-only (`loadFailed`)
+with a retry banner, because the first save from a writable empty
+stand-in would replace the real practice. `refresh()` re-reads the stored
+snapshot when the tab regains focus and before the background Companies
+House sync writes, so an idle tab doesn't carry on from a stale copy.
+
+**The mode seam.** `/health` reports `database` (configured) and
+`databaseReachable` (answered a ping just now) separately. No database is
+the browser-only mode; a configured database that isn't answering — or a
+server error from `/api/auth/me` — is an outage and shows a retry screen
+(`src/pages/UnavailablePage.tsx`), never the browser-only mode, so nothing
+gets typed into a local copy that would never reach the team.
+
+The whole-aggregate snapshot is still an interim adapter: it is
+last-write-wins across users (mitigated, not solved, by the refresh-on-focus
+above). The target is the per-entity, tenant-scoped API over
+`db/schema.sql`, with versioned writes; because components never touch
+storage, that swap stays confined to this folder plus the store's actions.
 
 ## Business rules (all in `src/domain/rules/`)
 
@@ -126,7 +149,14 @@ Companies House lookup (full detail in `docs/INTEGRATIONS.md`):
    proxy and falls back to a clearly-labelled sample dataset
    (`source: 'sample'`) when the proxy reports the credential isn't
    configured, or the network call fails — so a missing key degrades the
-   feature, it never breaks the page.
+   feature, it never breaks the page. Where a screen needs to say *why*
+   there was no live answer (the import preview), a `lookup*` variant
+   reports the outcome instead of substituting sample data.
+5. **The proxy is not open.** When a database (and therefore logins) is
+   configured, every lookup requires a signed-in session — the key is
+   spent on the caller's behalf. Each caller is limited to sixty lookups a
+   minute, company numbers and query length are validated before any
+   upstream call, and only the proxy's own error codes are echoed back.
 
 Companies House ships this way today: free key, no OAuth, read-only company
 search and profile lookup, used to auto-fill company details during
@@ -151,14 +181,36 @@ Front-end filtering is never the tenant boundary.
 
 ## Security posture and roadmap
 
-Present today: masked identifiers with audited reveal, no client data
-persisted server-side (everything lives in the browser until a real backend
-exists), simulated sends and filings, tenant id on every record, security
-headers on the web server, no bodies or identifiers in server logs.
+Present today:
 
-Required before real client data (in order): authentication (email + passkey
-or SSO), server-side persistence with RLS, RBAC (owner/manager/accountant/admin)
-with field-level authorisation for identifiers, encryption at rest for
+- **Authentication** for the three practice accounts (`server/routes/auth.mjs`):
+  username + password, scrypt-hashed, in an `httpOnly` `SameSite=Lax` session
+  cookie (14 days; `Secure` whenever the request arrived over TLS). Accounts
+  are seeded on first use from `*_TEMP_PASSWORD` variables with a forced
+  change on first sign-in; an account with no variable gets a random
+  temporary password logged once. Ten attempts per username and sixty per
+  address in fifteen minutes; unknown usernames cost a real verification so
+  timing doesn't reveal which names exist.
+- **Server-side persistence** of the whole practice snapshot behind that
+  session, shape-checked and size-capped before it can overwrite the stored
+  one (see *Persistence boundary*).
+- **Headers on every response** (`server/lib/securityHeaders.mjs`): a
+  Content-Security-Policy (self-only scripts — `index.html` carries no
+  inline script), HSTS over TLS, `nosniff`, `X-Frame-Options: DENY`,
+  referrer and permissions policies. The same middleware runs in `vite
+  preview`, so the e2e suite exercises the real policy.
+- Companies House proxy behind the login and rate-limited (see *External
+  integrations*); masked identifiers with audited reveal; simulated sends
+  and filings; tenant id on every record; no bodies or identifiers in
+  server logs.
+
+Known gaps, in the order they should close: the forced password change is
+enforced by the UI only (a temporary password read from the deploy logs
+can reach the data routes); changing a password does not revoke other
+sessions and session tokens are stored raw; the audit log lives inside the
+client-authored snapshot; the snapshot is last-write-wins across users.
+Then, before wider use: RBAC (owner/manager/accountant/admin) with
+field-level authorisation for identifiers, encryption at rest for
 `client_identifiers.value_encrypted` (envelope keys in a KMS), object storage
 with signed URLs for documents, redaction middleware for logs, retention and
 deletion policies, secrets in Railway variables only.
@@ -168,8 +220,14 @@ deletion policies, secrets in Railway variables only.
 Services:
 
 1. **web** — `npm ci && npm run build`, `npm start`, health check `/health`
-   (`railway.json`). Serves the SPA; API mounts under `/api`.
-2. **postgres** — Railway plugin; apply `db/schema.sql` via a migration tool
+   (`railway.json`). Serves the SPA; API mounts under `/api`. `/health`
+   stays 200 even when the database is unreachable — the payload says so —
+   because restarting a healthy container doesn't fix a database.
+2. **postgres** — Railway plugin, referenced as `DATABASE_URL`. The three
+   tables the interim snapshot adapter needs (`practice_snapshots`,
+   `practice_users`, `practice_sessions`) are created on first use by
+   `server/lib/db.mjs`; `db/schema.sql` is the target relational schema and
+   is not applied yet. When it is, apply it via a migration tool
    (recommended: `node-pg-migrate` or Drizzle migrations) in a release
    command.
 3. **worker** — added only when scheduled automation is real.
@@ -186,8 +244,20 @@ graceful on SIGTERM.
   dataset (`src/testing/fixtures.ts`), metrics, capacity.
 - **Integration** (`src/application/__tests__`) — store workflows: reminder,
   inbox confirm, final document → ready, approvals, filing → next job once,
-  reassignment, client creation, identifier reveal audit; assistant routing.
-- **E2E** (`e2e/`) — a brand-new empty practice (`empty-practice.spec.ts`),
-  the fixture's ten-scene journey on desktop and mobile
-  (`scenario-journey.spec.ts`), plus a render-cleanly sweep of every screen
-  (no console errors, no horizontal overflow).
+  reassignment, client creation, identifier reveal audit; assistant routing;
+  persistence (serialised saves, read-only after a failed load, refresh);
+  the mode seam in `auth.test.ts`.
+- **Server** (`server/**/__tests__`) — routers over a real local HTTP
+  server: headers, rate limits, shape validation, the Companies House
+  proxy with `fetch` stubbed. The auth and practice-data suite needs a
+  local Postgres (`DATABASE_URL`) and is skipped without one.
+- **E2E** (`e2e/`) — two modes that must both stay green. Without
+  `DATABASE_URL` (the default): a brand-new empty practice
+  (`empty-practice.spec.ts`), the fixture's ten-scene journey on desktop
+  and mobile (`scenario-journey.spec.ts`), a render-cleanly sweep of every
+  screen (no console errors, no horizontal overflow), the outage screen
+  (`persistence.spec.ts`), overlays, import, theme under the CSP. With
+  `DATABASE_URL` and the `*_TEMP_PASSWORD` variables set for the Playwright
+  web server: `auth.spec.ts` — sign in, forced change, shared data between
+  two accounts. Run the two separately; the login suite wipes the test
+  database between tests.

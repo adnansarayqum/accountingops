@@ -37,11 +37,27 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
-A brand-new practice starts empty — one signed-in owner, zero clients — and
-everything is stored in `localStorage`. Add your first client from **Clients
-→ New client** to see the workflow in action. (There's also a rich
-[test scenario](docs/TEST_SCENARIOS.md) used by the test suite, if you want
-to see the product with realistic data without hand-entering it.)
+The app runs in one of two modes, chosen at start-up from whether a
+database is configured:
+
+- **Browser-only** (no `DATABASE_URL`, what `npm run dev` gives you out of
+  the box): no sign-in, and everything is stored in this browser's
+  `localStorage`. A brand-new practice starts empty — one owner, zero
+  clients. Add your first client from **Clients → New client** to see the
+  workflow in action. (There's also a rich
+  [test scenario](docs/TEST_SCENARIOS.md) used by the test suite, if you
+  want to see the product with realistic data without hand-entering it.)
+- **Shared** (`DATABASE_URL` set — how it's deployed): sign in as one of the
+  three practice accounts and every change is saved to the shared database,
+  so all three see the same practice from their own devices. Accounts are
+  created on first run from `ADNAN_TEMP_PASSWORD`, `FARHAN_TEMP_PASSWORD`
+  and `RAYHAN_TEMP_PASSWORD` and must change their password on first
+  sign-in. A database that is configured but not answering shows an
+  outage screen rather than dropping into browser-only mode.
+
+To try the shared mode locally, point `DATABASE_URL` at a local Postgres
+(the tables are created for you) and set the three temporary passwords
+before `npm run dev`.
 
 ## Scripts
 
@@ -61,9 +77,13 @@ For Playwright in environments with a pre-installed browser, set
 
 ## Environment variables
 
-See [`.env.example`](.env.example). This build needs none to run. Railway injects
-`PORT`. `DATABASE_URL`, object storage and messaging provider keys are
-reserved for the server-side persistence and integration layers.
+See [`.env.example`](.env.example). None are needed for the browser-only
+mode. Railway injects `PORT`. `DATABASE_URL` turns on the shared mode with
+sign-in (with `ADNAN_TEMP_PASSWORD` / `FARHAN_TEMP_PASSWORD` /
+`RAYHAN_TEMP_PASSWORD` seeding the accounts), and `COMPANIES_HOUSE_API_KEY`
+turns on live company lookups (see [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md)).
+Object storage and messaging provider keys are reserved for integration
+layers that don't exist yet.
 
 ## Project layout
 
