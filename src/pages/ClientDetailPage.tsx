@@ -19,8 +19,8 @@ import { CHANNEL_LABELS, CLIENT_TYPE_LABELS, IDENTIFIER_LABELS, SERVICES } from 
 import { formatAgo, formatDate, formatDateTime, formatSince } from '../domain/dates';
 import { normaliseCompanyNumber } from '../domain/companyNumber';
 import { normalisePersonName } from '../domain/personNames';
-import { describeCompaniesHouseVerification } from '../domain/rules/readiness';
-import type { Channel, IdentifierKind, Job } from '../domain/types';
+import { describeCompaniesHouseVerification, groupRolesByPerson } from '../domain/rules/readiness';
+import type { Channel, IdentifierKind, Job, Person, PersonRole } from '../domain/types';
 import { cn } from '../ui/cn';
 import { ContactsCard } from '../ui/components/ContactsCard';
 import { getCompaniesHouseStatus, getCompanyPeople, getCompanyProfile } from '../integrations/companiesHouse';
@@ -404,25 +404,41 @@ export function ClientDetailPage() {
 
             {roles.length > 0 && (
               <Card>
-                <CardHeader title="Directors & PSCs" description="Identity verification status for Companies House." />
+                <CardHeader
+                  title="Directors & PSCs"
+                  description={`${roles.filter((r) => r.identityVerification === 'verified').length} of ${roles.length} verified for Companies House.`}
+                />
                 <CardBody className="pt-0">
                   <ul className="divide-y divide-slate-100">
-                    {roles.map((r) => {
-                      const person = data.people.find((p) => p.id === r.personId);
-                      const Icon = r.identityVerification === 'verified' ? ShieldCheck : r.identityVerification === 'in_progress' ? ShieldQuestion : ShieldAlert;
-                      return (
-                        <li key={r.id} className="py-2 flex items-center gap-3">
-                          <Icon className={cn('h-4 w-4', r.identityVerification === 'verified' ? 'text-emerald-500' : r.identityVerification === 'in_progress' ? 'text-amber-500' : 'text-red-500')} />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[13px] font-medium text-slate-900">{person ? normalisePersonName(person.fullName) : ''}</p>
-                            <p className="text-xs text-slate-500 capitalize">{r.kind === 'psc' ? 'PSC' : r.kind}</p>
-                            {r.naturesOfControl && r.naturesOfControl.length > 0 && <p className="text-xs text-slate-400">{r.naturesOfControl.join(', ')}</p>}
-                            {r.identityVerification !== 'verified' && describeCompaniesHouseVerification(r) && <p className="text-xs text-slate-400">{describeCompaniesHouseVerification(r)}</p>}
-                          </div>
-                          <Badge tone={r.identityVerification === 'verified' ? 'green' : r.identityVerification === 'in_progress' ? 'amber' : 'red'}>{r.identityVerification.replace(/_/g, ' ')}</Badge>
-                        </li>
-                      );
-                    })}
+                    {groupRolesByPerson(
+                      roles
+                        .map((r) => ({ role: r, person: data.people.find((p) => p.id === r.personId) }))
+                        .filter((x): x is { role: PersonRole; person: Person } => Boolean(x.person)),
+                    ).map(({ person, roles: personRoles }) => (
+                      <li key={person.id} className="py-2">
+                        <p className="text-[13px] font-medium text-slate-900">{normalisePersonName(person.fullName)}</p>
+                        <div className="mt-1.5 space-y-1.5">
+                          {personRoles.map((r) => {
+                            const Icon = r.identityVerification === 'verified' ? ShieldCheck : r.identityVerification === 'in_progress' ? ShieldQuestion : ShieldAlert;
+                            return (
+                              <div key={r.id} className="flex flex-wrap items-center gap-2">
+                                <Icon className={cn('h-4 w-4 shrink-0', r.identityVerification === 'verified' ? 'text-emerald-500' : r.identityVerification === 'in_progress' ? 'text-amber-500' : 'text-red-500')} />
+                                <span className="text-xs text-slate-500 capitalize">{r.kind === 'psc' ? 'PSC' : r.kind}</span>
+                                <Badge tone={r.identityVerification === 'verified' ? 'green' : r.identityVerification === 'in_progress' ? 'amber' : 'red'}>{r.identityVerification.replace(/_/g, ' ')}</Badge>
+                                {r.naturesOfControl && r.naturesOfControl.length > 0 && <span className="text-xs text-slate-400">{r.naturesOfControl.join(', ')}</span>}
+                              </div>
+                            );
+                          })}
+                          {personRoles
+                            .filter((r) => r.identityVerification !== 'verified' && describeCompaniesHouseVerification(r))
+                            .map((r) => (
+                              <p key={r.id} className={cn('text-xs', r.companiesHouseVerification?.dueOn ? 'text-amber-700' : 'text-slate-400')} data-testid={`companies-house-verification-${r.id}`}>
+                                {r.kind === 'psc' ? 'PSC' : r.kind.charAt(0).toUpperCase() + r.kind.slice(1)}: {describeCompaniesHouseVerification(r)}
+                              </p>
+                            ))}
+                        </div>
+                      </li>
+                    ))}
                   </ul>
                   <Link to="/readiness" className="mt-2 inline-block text-xs font-medium text-primary-700 hover:underline">
                     Manage in Readiness →

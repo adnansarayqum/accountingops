@@ -15,11 +15,12 @@ test.describe('merging duplicate people', () => {
     });
   });
 
-  test('lists the duplicate, merges it on confirmation, and the client shows the person once per role afterwards', async ({ page }) => {
-    // Before: ABC's Directors & PSCs card shows Dave three times (director, PSC, and the duplicate director).
+  test('lists the duplicate, merges it on confirmation, and the client groups the person under one entry afterwards', async ({ page }) => {
+    // Before: ABC's Directors & PSCs card lists Dave twice — his own entry (grouping his
+    // director + PSC roles) and the duplicate's separate one-role entry.
     await page.goto('/clients/cl_abc');
     const rolesCard = page.locator('div.card', { has: page.getByRole('heading', { name: 'Directors & PSCs' }) });
-    await expect(rolesCard.getByText('Dave Thompson', { exact: true })).toHaveCount(3);
+    await expect(rolesCard.getByText('Dave Thompson', { exact: true })).toHaveCount(2);
 
     await page.goto('/settings');
     const card = page.getByTestId('duplicate-people');
@@ -34,9 +35,9 @@ test.describe('merging duplicate people', () => {
     await expect(page.getByText('Duplicates merged')).toBeVisible();
     await expect(card).toContainText('No duplicate people found.');
 
-    // After: director + PSC only, and the moved Greenfield role now belongs to the kept record.
+    // After: one grouped entry (director + PSC), and the moved Greenfield role now belongs to the kept record.
     await page.goto('/clients/cl_abc');
-    await expect(rolesCard.getByText('Dave Thompson', { exact: true })).toHaveCount(2);
+    await expect(rolesCard.getByText('Dave Thompson', { exact: true })).toHaveCount(1);
     await page.goto('/clients/cl_greenfield');
     await expect(page.locator('div.card', { has: page.getByRole('heading', { name: 'Directors & PSCs' }) }).getByText('Dave Thompson', { exact: true })).toHaveCount(1);
 

@@ -8,7 +8,7 @@ import { Badge } from '../ui/components/Badge';
 import { Select } from '../ui/components/Form';
 import { useAppStore } from '../application/store';
 import { useData, useDerived } from '../application/selectors';
-import { describeCompaniesHouseVerification, evaluateIdentityReadiness, evaluateMtd } from '../domain/rules';
+import { describeCompaniesHouseVerification, evaluateIdentityReadiness, evaluateMtd, groupRolesByPerson } from '../domain/rules';
 import { normaliseCompanyNumber } from '../domain/companyNumber';
 import { formatDate } from '../domain/dates';
 import type { IdentityVerificationStatus, MtdStatus } from '../domain/types';
@@ -72,45 +72,52 @@ export function ReadinessPage() {
                   </a>
                 )}
                 <ul className="divide-y divide-slate-100">
-                  {row.roles.map(({ role, person }) => {
-                    const Icon = role.identityVerification === 'verified' ? ShieldCheck : role.identityVerification === 'in_progress' ? ShieldQuestion : ShieldAlert;
-                    return (
-                      <li key={role.id} className="py-2 flex flex-wrap items-center gap-3">
-                        <Icon className={cn('h-4 w-4 shrink-0', role.identityVerification === 'verified' ? 'text-emerald-500' : role.identityVerification === 'in_progress' ? 'text-amber-500' : 'text-red-500')} />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[13px] font-medium text-slate-900">{person.fullName}</p>
-                          <p className="text-xs text-slate-500">
-                            {role.kind === 'psc' ? 'PSC' : role.kind.charAt(0).toUpperCase() + role.kind.slice(1)} · personal code {role.personalCodeCaptured ? 'captured' : 'not captured'} · evidence {role.evidenceStatus}
-                          </p>
-                          {role.identityVerification === 'verified' && role.identityVerificationSource === 'companies_house' ? (
-                            <p className="text-xs text-emerald-700" data-testid={`verified-by-companies-house-${role.id}`}>
-                              Confirmed by Companies House{role.identityVerifiedOn ? ` · ${formatDate(role.identityVerifiedOn)}` : ''}
-                            </p>
-                          ) : (
-                            describeCompaniesHouseVerification(role) && (
-                              <p className={cn('text-xs', role.companiesHouseVerification?.verifiedOn ? 'text-emerald-700' : role.companiesHouseVerification?.dueOn ? 'text-amber-700' : 'text-slate-400')} data-testid={`companies-house-verification-${role.id}`}>
-                                {describeCompaniesHouseVerification(role)}
-                              </p>
-                            )
-                          )}
-                        </div>
-                        <Select
-                          value={role.identityVerification}
-                          onChange={(e) => {
-                            update(role.id, e.target.value as IdentityVerificationStatus);
-                            toast({ title: 'Verification updated', description: `${person.fullName}: ${e.target.value.replace(/_/g, ' ')}`, tone: 'success' });
-                          }}
-                          aria-label={`Verification status for ${person.fullName}`}
-                          className="w-40"
-                        >
-                          <option value="not_started">Not started</option>
-                          <option value="in_progress">In progress</option>
-                          <option value="verified">Verified</option>
-                          <option value="expired">Expired</option>
-                        </Select>
-                      </li>
-                    );
-                  })}
+                  {groupRolesByPerson(row.roles).map(({ person, roles: personRoles }) => (
+                    <li key={person.id} className="py-2">
+                      <p className="text-[13px] font-medium text-slate-900">{person.fullName}</p>
+                      <div className="mt-1.5 space-y-2">
+                        {personRoles.map((role) => {
+                          const Icon = role.identityVerification === 'verified' ? ShieldCheck : role.identityVerification === 'in_progress' ? ShieldQuestion : ShieldAlert;
+                          const kindLabel = role.kind === 'psc' ? 'PSC' : role.kind.charAt(0).toUpperCase() + role.kind.slice(1);
+                          return (
+                            <div key={role.id} className="flex flex-wrap items-center gap-3">
+                              <Icon className={cn('h-4 w-4 shrink-0', role.identityVerification === 'verified' ? 'text-emerald-500' : role.identityVerification === 'in_progress' ? 'text-amber-500' : 'text-red-500')} />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs text-slate-500">
+                                  {kindLabel} · personal code {role.personalCodeCaptured ? 'captured' : 'not captured'} · evidence {role.evidenceStatus}
+                                </p>
+                                {role.identityVerification === 'verified' && role.identityVerificationSource === 'companies_house' ? (
+                                  <p className="text-xs text-emerald-700" data-testid={`verified-by-companies-house-${role.id}`}>
+                                    Confirmed by Companies House{role.identityVerifiedOn ? ` · ${formatDate(role.identityVerifiedOn)}` : ''}
+                                  </p>
+                                ) : (
+                                  describeCompaniesHouseVerification(role) && (
+                                    <p className={cn('text-xs', role.companiesHouseVerification?.verifiedOn ? 'text-emerald-700' : role.companiesHouseVerification?.dueOn ? 'text-amber-700' : 'text-slate-400')} data-testid={`companies-house-verification-${role.id}`}>
+                                      {describeCompaniesHouseVerification(role)}
+                                    </p>
+                                  )
+                                )}
+                              </div>
+                              <Select
+                                value={role.identityVerification}
+                                onChange={(e) => {
+                                  update(role.id, e.target.value as IdentityVerificationStatus);
+                                  toast({ title: 'Verification updated', description: `${person.fullName} (${kindLabel}): ${e.target.value.replace(/_/g, ' ')}`, tone: 'success' });
+                                }}
+                                aria-label={`${kindLabel} verification status for ${person.fullName}`}
+                                className="w-40"
+                              >
+                                <option value="not_started">Not started</option>
+                                <option value="in_progress">In progress</option>
+                                <option value="verified">Verified</option>
+                                <option value="expired">Expired</option>
+                              </Select>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </li>
+                  ))}
                 </ul>
               </CardBody>
             </Card>
