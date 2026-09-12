@@ -104,7 +104,14 @@ company names, and refreshes automatically once a day per client, with a
 card. Companies House writes the same person two ways ("SMITH, Jane" in the
 officers list, "Mrs Jane Smith" in the PSC list); both are folded into
 "Jane Smith" and matched as one person, with month/year of birth as the
-tie-breaker (`src/domain/personNames.ts`).
+tie-breaker (`src/domain/personNames.ts`). People recorded twice before
+that folding existed (an import's "HASAN, Mohammad" next to a refresh's
+"Mr Mohammad Hasan", each with a role at the same client) are listed under
+Settings → Duplicate people and merged only on confirmation, as one
+ordinary saved change (`src/domain/peopleMerge.ts`): roles the kept record
+lacks move to it, roles both hold are combined keeping the furthest-along
+verification, and namesakes at different clients or with different birth
+months are never touched.
 
 **Architecture.** The browser never talks to Companies House directly and
 never sees the API key. It calls this app's own proxy
