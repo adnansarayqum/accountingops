@@ -6,6 +6,7 @@ import type { CompanyPeopleResponse, CompanyProfile } from '../integrations/comp
 import { nowIso, todayIso } from '../domain/dates';
 import { normaliseCompanyNumber } from '../domain/companyNumber';
 import { birthMonthYearOf, isSamePerson, normalisePersonName, personNameKey } from '../domain/personNames';
+import { applyRetention } from '../domain/retention';
 import { CHANNEL_LABELS, JOB_STATUS_LABELS, SERVICES, FILING_DESTINATION } from '../domain/catalog';
 import {
   canTransition,
@@ -203,9 +204,9 @@ function applyMutation(base: PracticeData, fn: Mutation, currentUserId: string):
   const draft = structuredClone(base);
   const result = fn(draft, ctx) ?? draft;
   result.activities = [...ctx.activities, ...result.activities];
-  result.auditEvents = [...ctx.audits, ...result.auditEvents].slice(0, 2000);
+  result.auditEvents = [...ctx.audits, ...result.auditEvents];
   result.notifications = [...ctx.notifications, ...result.notifications];
-  return result;
+  return applyRetention(result);
 }
 
 /**
@@ -256,7 +257,7 @@ async function drainSaves(get: () => AppState, set: (patch: Partial<AppState>) =
           // overwriting the other person's work or pretending ours saved.
           unsavedMutations = [];
           queued = null;
-          set({ data: err.current, unsaved: false });
+          set({ data: applyRetention(err.current), unsaved: false });
           get().toast({ title: "Someone else changed this first", description: 'Their version has been loaded. Your last change was not saved — please make it again.', tone: 'error' });
           continue;
         }
@@ -398,7 +399,9 @@ export const useAppStore = create<AppState>((set, get) => {
         // that was wrong (a misrouted request, say) must not become a real
         // empty snapshot on top of the one the practice actually has.
         unsavedMutations = [];
-        set({ data: loaded ?? buildEmptyPracticeData(), today, ready: true, loadFailed: false, unsaved: false });
+        // Feeds are capped on the way in as well as on every change, so a
+        // snapshot saved before the caps existed shrinks on its next save.
+        set({ data: loaded ? applyRetention(loaded) : buildEmptyPracticeData(), today, ready: true, loadFailed: false, unsaved: false });
       } catch (err) {
         // A transient failure here must never leave the app stuck on the
         // splash screen forever — show the shell with an empty, read-only
@@ -422,6 +425,7 @@ export const useAppStore = create<AppState>((set, get) => {
       // A mutation that started while the read was in flight is newer than
       // what was read — keep it.
       if (!loaded || get().unsaved || saveInFlight) return false;
+      loaded = applyRetention(loaded);
       if (JSON.stringify(loaded) === JSON.stringify(get().data)) return false;
       set({ data: loaded });
       return true;
@@ -875,7 +879,9 @@ export const useAppStore = create<AppState>((set, get) => {
         d.personRoles.push(...built.personRoles);
         created = built.clients.length;
         ctx.activity('client_created', `${created} client${created === 1 ? '' : 's'} imported from a spreadsheet.`);
-        ctx.audit('client.import', 'client', 'bulk', undefined, { count: created, names: built.clients.map((c) => c.name) });
+        // A few names for the log, not the whole roster: this entry is
+        // saved with every snapshot from now on.
+        ctx.audit('client.import', 'client', 'bulk', undefined, { count: created, names: built.clients.slice(0, 20).map((c) => c.name) });
       });
       return { created, skipped };
     },
