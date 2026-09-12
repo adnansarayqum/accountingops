@@ -9,6 +9,7 @@ import { Avatar } from '../ui/components/Avatar';
 import { Badge, DueBadge, ResponsivenessBadge } from '../ui/components/Badge';
 import { EmptyState } from '../ui/components/EmptyState';
 import { RefreshAllCompaniesHouseButton } from '../ui/components/RefreshAllCompaniesHouseButton';
+import { CompaniesHouseChangesCard } from '../ui/components/CompaniesHouseChangesCard';
 import { useData, useDerived } from '../application/selectors';
 import { CLIENT_TYPE_LABELS, SERVICES } from '../domain/catalog';
 import type { ClientType } from '../domain/types';
@@ -58,6 +59,10 @@ export function ClientsPage() {
           </>
         }
       />
+      {/* Renders nothing unless the live feed is configured and has something new. */}
+      <div className="mb-4 empty:mb-0">
+        <CompaniesHouseChangesCard />
+      </div>
       <div className="flex flex-col sm:flex-row gap-2 mb-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />

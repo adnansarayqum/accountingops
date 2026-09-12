@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath, URL } from 'node:url';
 import express from 'express';
 import companiesHouseRouter from './server/routes/companiesHouse.mjs';
+import companiesHouseStreamRouter from './server/routes/companiesHouseStream.mjs';
 import authRouter from './server/routes/auth.mjs';
 import practiceDataRouter from './server/routes/practiceData.mjs';
 import messagesRouter from './server/routes/messages.mjs';
@@ -40,6 +41,7 @@ function apiMiddleware(): Plugin {
     const app = express();
     app.use(securityHeaders(options));
     app.get('/health', async (_req, res) => res.json(await healthPayload()));
+    app.use('/api/companies-house/stream', companiesHouseStreamRouter);
     app.use('/api/companies-house', companiesHouseRouter);
     app.use('/api/messages', messagesRouter);
     app.use('/api/auth', authRouter);

@@ -4,6 +4,8 @@ import authRouter, { resetLoginLimits } from '../auth.mjs';
 import practiceDataRouter from '../practiceData.mjs';
 import companiesHouseRouter from '../companiesHouse.mjs';
 import messagesRouter from '../messages.mjs';
+import companiesHouseStreamRouter from '../companiesHouseStream.mjs';
+import { acknowledgeChanges, countPendingChanges, pendingChanges, readStreamState, recordChange, watchedCompanyNumbers, writeStreamState } from '../../lib/companiesHouseStreamStore.mjs';
 import { isDatabaseConfigured, query } from '../../lib/db.mjs';
 import { hashPassword, needsRehash, verifyPassword } from '../../lib/passwords.mjs';
 import { ensureSeedUsers } from '../../lib/bootstrapUsers.mjs';
@@ -61,6 +63,7 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     const app = express();
     app.use('/api/auth', authRouter);
     app.use('/api/practice-data', practiceDataRouter);
+    app.use('/api/companies-house/stream', companiesHouseStreamRouter);
     app.use('/api/companies-house', companiesHouseRouter);
     app.use('/api/messages', messagesRouter);
     server = app.listen(0);
@@ -376,6 +379,108 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     });
   });
 
+  describe('companies house stream', () => {
+    beforeEach(async () => {
+      await query('delete from companies_house_changes');
+      await query('delete from companies_house_stream_state');
+    });
+
+    it('reports itself off without a streaming key, so the app hides the feed rather than showing a dead one', async () => {
+      delete process.env.COMPANIES_HOUSE_STREAM_API_KEY;
+      const res = await fetch(`${baseUrl}/api/companies-house/stream/status`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ configured: false });
+    });
+
+    it('reports itself on once a streaming key is set', async () => {
+      process.env.COMPANIES_HOUSE_STREAM_API_KEY = 'stream-key';
+      try {
+        expect(await (await fetch(`${baseUrl}/api/companies-house/stream/status`)).json()).toEqual({ configured: true });
+      } finally {
+        delete process.env.COMPANIES_HOUSE_STREAM_API_KEY;
+      }
+    });
+
+    it('refuses to hand out changes without a session', async () => {
+      process.env.COMPANIES_HOUSE_STREAM_API_KEY = 'stream-key';
+      try {
+        const res = await fetch(`${baseUrl}/api/companies-house/stream/changes`);
+        expect(res.status).toBe(401);
+      } finally {
+        delete process.env.COMPANIES_HOUSE_STREAM_API_KEY;
+      }
+    });
+
+    it('records a change, serves it to a signed-in user, and stops serving it once acknowledged', async () => {
+      process.env.COMPANIES_HOUSE_STREAM_API_KEY = 'stream-key';
+      try {
+        const login = await postLogin(baseUrl, 'practice_data_test', 'FixtureUserPass1');
+        const cookie = extractCookie(login);
+
+        expect(await recordChange({ companyNumber: '01234567', type: 'changed', fieldsChanged: ['accounts.next_due'], publishedAt: '2026-09-12T10:00:00Z', timepoint: 100 })).toBe(true);
+        // A reconnect replays from the last processed event: the same record
+        // arriving twice must not show up as two changes.
+        expect(await recordChange({ companyNumber: '01234567', type: 'changed', fieldsChanged: ['accounts.next_due'], publishedAt: '2026-09-12T10:00:00Z', timepoint: 100 })).toBe(false);
+        expect(await countPendingChanges()).toBe(1);
+
+        const res = await fetch(`${baseUrl}/api/companies-house/stream/changes`, { headers: { Cookie: cookie } });
+        expect(res.status).toBe(200);
+        const body = await res.json();
+        expect(body.pending).toBe(1);
+        expect(body.changes[0]).toMatchObject({ companyNumber: '01234567', type: 'changed', fieldsChanged: ['accounts.next_due'] });
+
+        const ack = await fetch(`${baseUrl}/api/companies-house/stream/changes/ack`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Cookie: cookie },
+          body: JSON.stringify({ companyNumbers: [] }),
+        });
+        expect(await ack.json()).toEqual({ acknowledged: 1 });
+        expect(await countPendingChanges()).toBe(0);
+        expect((await pendingChanges()).length).toBe(0);
+      } finally {
+        delete process.env.COMPANIES_HOUSE_STREAM_API_KEY;
+      }
+    });
+
+    it('acknowledges only the company numbers named', async () => {
+      await recordChange({ companyNumber: 'AA111111', type: 'changed', fieldsChanged: [], publishedAt: null, timepoint: 1 });
+      await recordChange({ companyNumber: 'BB222222', type: 'changed', fieldsChanged: [], publishedAt: null, timepoint: 2 });
+      expect(await acknowledgeChanges(['aa111111'])).toBe(1);
+      expect((await pendingChanges()).map((c) => c.companyNumber)).toEqual(['BB222222']);
+    });
+
+    it('remembers the timepoint across a restart, and clears a stored error when it reconnects', async () => {
+      await writeStreamState({ timepoint: 500, lastError: 'socket hang up' });
+      expect(await readStreamState()).toMatchObject({ timepoint: 500, lastError: 'socket hang up' });
+
+      // A later write that only touches one field must not wipe the others.
+      await writeStreamState({ lastEventAt: new Date().toISOString() });
+      expect((await readStreamState()).timepoint).toBe(500);
+
+      await writeStreamState({ connectedAt: new Date().toISOString(), lastError: '' });
+      expect((await readStreamState()).lastError).toBeNull();
+      expect((await readStreamState()).timepoint).toBe(500);
+    });
+
+    it('watches the company numbers held in the stored practice snapshot', async () => {
+      await query('delete from practice_snapshots');
+      await query("insert into practice_snapshots (practice_id, data, version) values ($1, $2, 1)", [
+        'prac_stream_test',
+        JSON.stringify({ identifiers: [
+          { kind: 'company_number', value: ' sc123456 ' },
+          { kind: 'company_number', value: '01234567' },
+          { kind: 'utr', value: '1234567890' },
+        ] }),
+      ]);
+      const watched = await watchedCompanyNumbers();
+      // Upper-cased and trimmed, so a roster's "sc123456" matches the register's "SC123456".
+      expect(watched.has('SC123456')).toBe(true);
+      expect(watched.has('01234567')).toBe(true);
+      expect(watched.has('1234567890')).toBe(false);
+      await query('delete from practice_snapshots');
+    });
+  });
+
   describe('must-change-password gate', () => {
     let cookie;
 
@@ -669,11 +774,21 @@ describe('auth + practice-data routers without a configured database', () => {
       const app = express();
       app.use('/api/auth', authRouter);
       app.use('/api/practice-data', practiceDataRouter);
+      app.use('/api/companies-house/stream', companiesHouseStreamRouter);
       const server = app.listen(0);
       await new Promise((resolve) => server.once('listening', resolve));
       const baseUrl = `http://127.0.0.1:${server.address().port}`;
       expect((await fetch(`${baseUrl}/api/auth/me`)).status).toBe(503);
       expect((await fetch(`${baseUrl}/api/practice-data`)).status).toBe(503);
+      // The stream needs somewhere to record what it sees, so it reports
+      // itself off in the browser-only mode even with a key set.
+      process.env.COMPANIES_HOUSE_STREAM_API_KEY = 'stream-key';
+      try {
+        expect(await (await fetch(`${baseUrl}/api/companies-house/stream/status`)).json()).toEqual({ configured: false });
+        expect((await fetch(`${baseUrl}/api/companies-house/stream/changes`)).status).toBe(503);
+      } finally {
+        delete process.env.COMPANIES_HOUSE_STREAM_API_KEY;
+      }
       await new Promise((resolve) => server.close(resolve));
     } finally {
       if (original !== undefined) process.env.DATABASE_URL = original;
