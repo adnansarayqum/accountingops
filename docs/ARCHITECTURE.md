@@ -240,6 +240,12 @@ Present today:
   session for that account, keeping only the one making the change signed
   in; **Sign out everywhere** revokes all of them, including the current one,
   for "I think someone else has access" without knowing which session that is.
+  A lost password is reset by setting the account's `*_RESET_PASSWORD`
+  variable and restarting: the password becomes that value, a change is
+  forced on the next sign-in, every session is signed out, and the value is
+  applied once (a hash of it is remembered in `password_reset_applied`) so
+  a variable left set can't keep resetting a password the person has since
+  changed.
 - **Server-side persistence** of the whole practice snapshot behind that
   session, shape-checked and size-capped before it can overwrite the stored
   one (see *Persistence boundary*).

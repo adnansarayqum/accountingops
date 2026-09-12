@@ -5,7 +5,7 @@ import practiceDataRouter from '../practiceData.mjs';
 import companiesHouseRouter from '../companiesHouse.mjs';
 import messagesRouter from '../messages.mjs';
 import { isDatabaseConfigured, query } from '../../lib/db.mjs';
-import { hashPassword, needsRehash } from '../../lib/passwords.mjs';
+import { hashPassword, needsRehash, verifyPassword } from '../../lib/passwords.mjs';
 import { ensureSeedUsers } from '../../lib/bootstrapUsers.mjs';
 
 /**
@@ -544,7 +544,7 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
  * concurrently. Sequential within one file avoids that.
  */
 describe.skipIf(!RUN)('ensureSeedUsers logging', () => {
-  const ENV_KEYS = ['ADNAN_TEMP_PASSWORD', 'FARHAN_TEMP_PASSWORD', 'RAYHAN_TEMP_PASSWORD', 'LOG_GENERATED_PASSWORDS'];
+  const ENV_KEYS = ['ADNAN_TEMP_PASSWORD', 'FARHAN_TEMP_PASSWORD', 'RAYHAN_TEMP_PASSWORD', 'LOG_GENERATED_PASSWORDS', 'ADNAN_RESET_PASSWORD', 'FARHAN_RESET_PASSWORD', 'RAYHAN_RESET_PASSWORD'];
   const original = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 
   beforeEach(async () => {
@@ -593,6 +593,60 @@ describe.skipIf(!RUN)('ensureSeedUsers logging', () => {
     expect(adnanLine.temporaryPassword).toBeUndefined();
     expect(JSON.stringify(lines)).not.toContain('FromEnvTemp123');
     logSpy.mockRestore();
+  });
+
+  it('resets a password from *_RESET_PASSWORD exactly once per value, signing the account out everywhere and forcing a change', async () => {
+    process.env.ADNAN_TEMP_PASSWORD = 'OriginalTemp1';
+    await ensureSeedUsers();
+    // The person has since set their own password and is signed in somewhere.
+    const own = await hashPassword('MyOwnPassword1');
+    await query('update practice_users set password_hash = $1, password_salt = $2, must_change_password = false where username = $3', [own.hash, own.salt, 'adnan']);
+    await query("insert into practice_sessions (token, user_id, expires_at) values ('tok_reset_test', 'u_adnan', now() + interval '1 day')");
+
+    process.env.ADNAN_RESET_PASSWORD = 'ResetMe12345';
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await ensureSeedUsers();
+    const { rows: [afterReset] } = await query('select password_hash, password_salt, must_change_password, password_reset_applied from practice_users where username = $1', ['adnan']);
+    expect(await verifyPassword('ResetMe12345', afterReset.password_hash, afterReset.password_salt)).toBe(true);
+    expect(await verifyPassword('MyOwnPassword1', afterReset.password_hash, afterReset.password_salt)).toBe(false);
+    expect(afterReset.must_change_password).toBe(true);
+    expect(afterReset.password_reset_applied).toBeTruthy();
+    expect((await query('select 1 from practice_sessions where user_id = $1', ['u_adnan'])).rows).toEqual([]);
+    const logged = JSON.stringify(logSpy.mock.calls.map((c) => c[0]));
+    expect(logged).toContain('reset from ADNAN_RESET_PASSWORD');
+    expect(logged).not.toContain('ResetMe12345');
+    logSpy.mockClear();
+
+    // Restart with the variable still set: nothing changes, even after the
+    // person has replaced the reset password with their own again.
+    const replaced = await hashPassword('ReplacedAgain1');
+    await query('update practice_users set password_hash = $1, password_salt = $2, must_change_password = false where username = $3', [replaced.hash, replaced.salt, 'adnan']);
+    await ensureSeedUsers();
+    const { rows: [afterRestart] } = await query('select password_hash, must_change_password from practice_users where username = $1', ['adnan']);
+    expect(afterRestart.password_hash).toBe(replaced.hash);
+    expect(afterRestart.must_change_password).toBe(false);
+    expect(JSON.stringify(logSpy.mock.calls.map((c) => c[0]))).toContain('already applied');
+
+    // A different value is a new reset.
+    process.env.ADNAN_RESET_PASSWORD = 'AnotherReset1';
+    await ensureSeedUsers();
+    const { rows: [afterSecond] } = await query('select password_hash, password_salt, must_change_password from practice_users where username = $1', ['adnan']);
+    expect(await verifyPassword('AnotherReset1', afterSecond.password_hash, afterSecond.password_salt)).toBe(true);
+    expect(afterSecond.must_change_password).toBe(true);
+    logSpy.mockRestore();
+  });
+
+  it('ignores a reset password shorter than eight characters, saying so', async () => {
+    await ensureSeedUsers();
+    const { rows: [before] } = await query('select password_hash from practice_users where username = $1', ['farhan']);
+    process.env.FARHAN_RESET_PASSWORD = 'short';
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await ensureSeedUsers();
+    const { rows: [after] } = await query('select password_hash, password_reset_applied from practice_users where username = $1', ['farhan']);
+    expect(after.password_hash).toBe(before.password_hash);
+    expect(after.password_reset_applied).toBeNull();
+    expect(JSON.stringify(errSpy.mock.calls.map((c) => c[0]))).toContain('at least 8 characters');
+    errSpy.mockRestore();
   });
 
   it('is idempotent: an already-seeded account is left untouched and not logged again', async () => {
