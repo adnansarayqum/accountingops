@@ -1,45 +1,16 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, Send, UserPlus, ShieldCheck, FileCheck, Play } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Avatar } from './Avatar';
 import { SeverityBadge, StatusBadge, WaitingOnBadge } from './Badge';
 import { Button } from './Button';
-import { ReminderComposer } from './ReminderComposer';
+import { useAttentionAction } from './useAttentionAction';
 import type { AttentionItem } from '../../domain/rules';
 import type { JobView } from '../../application/selectors';
 import { formatDate } from '../../domain/dates';
-import { useAppStore } from '../../application/store';
 import { cn } from '../cn';
 
 export function AttentionCard({ item, view, compact }: { item: AttentionItem; view: JobView; compact?: boolean }) {
-  const [composer, setComposer] = useState(false);
-  const navigate = useNavigate();
-  const transition = useAppStore((s) => s.transitionJob);
-  const fileJob = useAppStore((s) => s.fileJob);
-  const toast = useAppStore((s) => s.toast);
+  const action = useAttentionAction(item, view);
   const owner = view.assignee;
-
-  const act = () => {
-    switch (item.recommendedAction.kind) {
-      case 'send_reminder':
-      case 'chase_approval':
-        setComposer(true);
-        return;
-      case 'file': {
-        const r = fileJob(view.job.id);
-        toast({ title: 'Job marked as filed', description: r.nextJob ? `Simulated submission recorded. Next job created: ${r.nextJob.name}.` : 'Simulated submission recorded.', tone: 'success' });
-        return;
-      }
-      case 'start_work':
-        transition(view.job.id, 'in_progress');
-        toast({ title: 'Work started', tone: 'success' });
-        return;
-      default:
-        navigate(`/jobs/${view.job.id}`);
-    }
-  };
-
-  const ActionIcon = { send_reminder: Send, chase_approval: Send, assign_reviewer: UserPlus, reassign: UserPlus, verify_identity: ShieldCheck, file: FileCheck, start_work: Play, review_job: ArrowRight }[item.recommendedAction.kind];
 
   return (
     <div className={cn('card animate-in border-l-4', item.severity === 'red' ? 'border-l-red-500' : 'border-l-amber-500')} data-testid="attention-card" data-severity={item.severity}>
@@ -83,8 +54,8 @@ export function AttentionCard({ item, view, compact }: { item: AttentionItem; vi
             {compact && <p className="mt-1 text-xs text-slate-500">{item.reasons[0]}</p>}
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0 md:flex-col md:items-stretch">
-            <Button onClick={act} icon={<ActionIcon />} data-testid="attention-action">
-              {item.recommendedAction.label.replace(/ to client$/, '')}
+            <Button onClick={action.run} icon={action.icon} data-testid="attention-action">
+              {action.label}
             </Button>
             <Link to={`/jobs/${view.job.id}`} className="text-[13px] font-medium text-slate-600 hover:text-primary-700 text-center py-1">
               Open job
@@ -92,7 +63,7 @@ export function AttentionCard({ item, view, compact }: { item: AttentionItem; vi
           </div>
         </div>
       </div>
-      {composer && <ReminderComposer job={view.job} open={composer} onClose={() => setComposer(false)} initialChannel={item.recommendedAction.channel} />}
+      {action.composer}
     </div>
   );
 }

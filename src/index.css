@@ -43,6 +43,18 @@
   --color-slate-800: #1e293b;
   --color-slate-900: #0f172a;
 
+  /*
+   * The navigation rail's own dark palette. Unlike the slate ramp these do
+   * NOT invert for dark mode: the rail is a deliberately dark surface in
+   * both themes, the way it reads in the design reference, so a theme flip
+   * would turn it into a pale strip and lose the anchor it gives the page.
+   */
+  --color-nav-900: #0b1729;
+  --color-nav-850: #0f1f3a;
+  --color-nav-800: #16294a;
+  --color-nav-700: #1e3557;
+  --color-nav-text: #93a4bd;
+
   --radius-card: 0.75rem;
   --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06);
   --shadow-pop: 0 10px 30px -10px rgba(15, 23, 42, 0.25), 0 4px 12px -4px rgba(15, 23, 42, 0.1);

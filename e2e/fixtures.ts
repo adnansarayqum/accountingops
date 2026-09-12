@@ -20,5 +20,7 @@ export async function seedFixture(page: Page, adjust?: (data: ReturnType<typeof 
   const envelope = { version: SCHEMA_VERSION, savedAt: new Date().toISOString(), data };
   await page.evaluate(({ key, value }) => localStorage.setItem(key, JSON.stringify(value)), { key: STORAGE_KEY, value: envelope });
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Practice Today' })).toBeVisible();
+  // The dashboard's own heading is a time-of-day greeting, so the readiness
+  // signal is the page itself rather than a string that changes at noon.
+  await expect(page.getByTestId('dashboard')).toBeVisible();
 }

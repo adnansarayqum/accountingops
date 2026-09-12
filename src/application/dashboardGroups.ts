@@ -87,3 +87,35 @@ export function serviceStatuses(views: JobView[], dueSoonDays: number, alwaysInc
     })
     .sort((a, b) => (a.nextDueInDays ?? Infinity) - (b.nextDueInDays ?? Infinity));
 }
+
+export interface WorkloadSlice {
+  key: 'overdue' | 'waiting' | 'dueSoon' | 'other';
+  label: string;
+  value: number;
+  colour: string;
+}
+
+/**
+ * How the open pipeline splits for the workload donut. Every open job lands
+ * in exactly one slice, worst first, so the four add up to the open total
+ * and the chart can't double-count a job that is both overdue and blocked.
+ */
+export function workloadSlices(views: JobView[], dueSoonDays: number): WorkloadSlice[] {
+  let overdue = 0;
+  let waiting = 0;
+  let dueSoon = 0;
+  let other = 0;
+  for (const view of views) {
+    if (view.job.status === 'filed') continue;
+    if (view.daysUntilDue < 0) overdue += 1;
+    else if (view.job.waitingOn === 'client') waiting += 1;
+    else if (view.daysUntilDue <= dueSoonDays) dueSoon += 1;
+    else other += 1;
+  }
+  return [
+    { key: 'overdue', label: 'Overdue', value: overdue, colour: '#ef4444' },
+    { key: 'waiting', label: 'Waiting on client', value: waiting, colour: '#f59e0b' },
+    { key: 'dueSoon', label: 'Due soon', value: dueSoon, colour: '#2563eb' },
+    { key: 'other', label: 'Scheduled', value: other, colour: '#cbd5e1' },
+  ];
+}

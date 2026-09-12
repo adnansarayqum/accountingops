@@ -26,7 +26,7 @@ test.describe('import clients', () => {
     await page.goto('/');
     await page.evaluate(() => localStorage.clear());
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Practice Today' })).toBeVisible();
+    await expect(page.getByTestId('dashboard')).toBeVisible();
   });
 
   test('parses a roster, previews it, and creates clients on confirm', async ({ page }) => {

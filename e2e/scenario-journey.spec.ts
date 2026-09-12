@@ -18,7 +18,7 @@ test.describe('primary scenario journey', () => {
   test('dashboard → attention → client → job → reminder → inbox → ready → dashboard', async ({ page }) => {
     // Scene 1: dashboard shows what needs attention
     await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible();
-    const attentionBefore = await page.getByTestId('attention-card').count();
+    const attentionBefore = await page.getByTestId('attention-row').count();
     expect(attentionBefore).toBeGreaterThan(0);
 
     // Scene 2: Needs Attention explains ABC Construction
