@@ -19,6 +19,7 @@ import { CHANNEL_LABELS, CLIENT_TYPE_LABELS, IDENTIFIER_LABELS, SERVICES } from 
 import { formatAgo, formatDate, formatDateTime, formatSince } from '../domain/dates';
 import { normaliseCompanyNumber } from '../domain/companyNumber';
 import { normalisePersonName } from '../domain/personNames';
+import { describeCompaniesHouseVerification } from '../domain/rules/readiness';
 import type { Channel, IdentifierKind, Job } from '../domain/types';
 import { cn } from '../ui/cn';
 import { ContactsCard } from '../ui/components/ContactsCard';
@@ -416,6 +417,7 @@ export function ClientDetailPage() {
                             <p className="text-[13px] font-medium text-slate-900">{person ? normalisePersonName(person.fullName) : ''}</p>
                             <p className="text-xs text-slate-500 capitalize">{r.kind === 'psc' ? 'PSC' : r.kind}</p>
                             {r.naturesOfControl && r.naturesOfControl.length > 0 && <p className="text-xs text-slate-400">{r.naturesOfControl.join(', ')}</p>}
+                            {r.identityVerification !== 'verified' && describeCompaniesHouseVerification(r) && <p className="text-xs text-slate-400">{describeCompaniesHouseVerification(r)}</p>}
                           </div>
                           <Badge tone={r.identityVerification === 'verified' ? 'green' : r.identityVerification === 'in_progress' ? 'amber' : 'red'}>{r.identityVerification.replace(/_/g, ' ')}</Badge>
                         </li>

@@ -118,7 +118,13 @@ an appointment verification statement still in force) marks that role
 clears the confirmation-statement warning in Needs Attention. It only ever
 upgrades — a status the practice set by hand is kept, and Companies House
 saying nothing is never read as "not verified" (it omits the details for
-many people who have verified directly, so the manual path stays). People
+many people who have verified directly, so the manual path stays). Whatever
+it did say is recorded on the role and shown under it on Readiness and the
+client's Directors & PSCs card — "verified 4 Mar 2026", "verification
+statement due by 28 Sep 2026", or "nothing published yet" — and a Needs
+Attention item counts the statements the register is expecting and by
+when. Each Readiness card links to the company's officers page on the
+register for the authoritative view. People
 recorded twice before
 that folding existed (an import's "HASAN, Mohammad" next to a refresh's
 "Mr Mohammad Hasan", each with a role at the same client) are listed under

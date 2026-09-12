@@ -1,4 +1,4 @@
-import { daysSince, daysUntil } from '../dates';
+import { daysSince, daysUntil, formatDate } from '../dates';
 import type { Approval, Client, Communication, InformationRequestItem, Job, PersonRole, ReminderSequence, User } from '../types';
 import { assessChasing } from './chasing';
 import { computeCompleteness } from './completeness';
@@ -164,11 +164,20 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
     if (job.serviceCode === 'confirmation_statement' && days <= 45) {
       const unverified = ctx.personRoles.filter((r) => r.clientId === job.clientId && r.identityVerification !== 'verified');
       if (unverified.length > 0) {
+        // Where Companies House has set a date for a verification statement,
+        // say so — "4 still need verification" reads very differently once it
+        // is "2 statements due by 28 Sep".
+        const dueDates = unverified.map((r) => r.companiesHouseVerification?.dueOn).filter((d): d is string => Boolean(d)).sort();
+        const dueReason = dueDates.length > 0 ? `Companies House expects ${dueDates.length} verification statement${dueDates.length === 1 ? '' : 's'} by ${formatDate(dueDates[0], { year: true })}.` : null;
         candidates.push({
           severity: days <= 14 ? 'red' : 'amber',
           ruleCode: 'identity_incomplete',
           headline: `Due in ${days} days — director identity verification incomplete.`,
-          reasons: [`${unverified.length} director${unverified.length === 1 ? '' : 's'}/PSC${unverified.length === 1 ? '' : 's'} still need identity verification.`, 'Companies House will reject the filing without it.'],
+          reasons: [
+            `${unverified.length} director${unverified.length === 1 ? '' : 's'}/PSC${unverified.length === 1 ? '' : 's'} still need identity verification.`,
+            ...(dueReason ? [dueReason] : []),
+            'Companies House will reject the filing without it.',
+          ],
           recommendedAction: { kind: 'verify_identity', label: 'Complete identity verification' },
           score: 470 + (45 - days) * 3,
         });

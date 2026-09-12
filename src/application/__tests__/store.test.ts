@@ -555,6 +555,24 @@ describe('application store — identity verification confirmed by Companies Hou
     expect(flagged(s)).toEqual([]);
   });
 
+  it('records what Companies House said about every role it matched — a date, a due date, or nothing', () => {
+    useAppStore.getState().refreshClientFromCompaniesHouse('cl_greenfield', null, {
+      directors: [
+        { ...chPerson('GREENFIELD, Olivia'), identityVerification: { verifiedOn: null, statementDueOn: '2026-10-05', verifiedBy: null } },
+        chPerson('GREENFIELD, Tom'),
+      ],
+      pscs: [{ ...chPerson('Mrs Olivia Greenfield', 'psc'), identityVerification: { verifiedOn: '2026-03-04', statementDueOn: null, verifiedBy: null } }],
+      source: 'companies_house',
+    });
+    const roles = useAppStore.getState().data.personRoles;
+    expect(roles.find((r) => r.id === 'pr_9')?.companiesHouseVerification).toMatchObject({ verifiedOn: null, dueOn: '2026-10-05' });
+    expect(roles.find((r) => r.id === 'pr_10')?.companiesHouseVerification).toMatchObject({ verifiedOn: '2026-03-04', dueOn: null });
+    expect(roles.find((r) => r.id === 'pr_8')?.companiesHouseVerification).toMatchObject({ verifiedOn: null, dueOn: null });
+    expect(roles.find((r) => r.id === 'pr_8')?.companiesHouseVerification?.checkedAt).toBeTruthy();
+    // A due date alone never changes the practice's status.
+    expect(roles.find((r) => r.id === 'pr_9')?.identityVerification).toBe('not_started');
+  });
+
   it('never downgrades: Companies House saying nothing leaves a status alone, and a hand-set status is kept', () => {
     useAppStore.getState().updatePersonRoleVerification('pr_9', 'in_progress');
     useAppStore.getState().refreshClientFromCompaniesHouse('cl_greenfield', null, {

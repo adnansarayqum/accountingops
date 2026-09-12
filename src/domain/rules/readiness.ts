@@ -1,4 +1,5 @@
 import type { Client, MtdReadiness, MtdStatus, Person, PersonRole } from '../types';
+import { formatDate } from '../dates';
 
 export interface MtdEvaluation {
   status: MtdStatus;
@@ -43,4 +44,18 @@ export function evaluateIdentityReadiness(client: Client, roles: PersonRole[], p
   const anyInProgress = own.some((x) => x.role.identityVerification === 'in_progress');
   const status: IdentityReadinessStatus = verified === own.length ? 'ready' : anyInProgress && verified + own.filter((x) => x.role.identityVerification === 'in_progress').length === own.length ? 'in_progress' : 'blocked';
   return { client, roles: own, verified, total: own.length, status, confirmationStatementBlocked: verified < own.length };
+}
+
+/**
+ * One line on what Companies House itself says about a role's identity
+ * verification, as of the last refresh — so "still needs verification"
+ * can be read against the register rather than guessed at. Null before
+ * any refresh has looked.
+ */
+export function describeCompaniesHouseVerification(role: PersonRole): string | null {
+  const seen = role.companiesHouseVerification;
+  if (!seen) return null;
+  if (seen.verifiedOn) return `Companies House: verified ${formatDate(seen.verifiedOn, { year: true })}`;
+  if (seen.dueOn) return `Companies House: verification statement due by ${formatDate(seen.dueOn, { year: true })}`;
+  return `Companies House: nothing published yet (checked ${formatDate(seen.checkedAt)})`;
 }

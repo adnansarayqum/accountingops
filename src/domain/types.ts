@@ -125,6 +125,14 @@ export interface Person {
 export type PersonRoleKind = 'director' | 'psc' | 'partner' | 'proprietor';
 export type IdentityVerificationStatus = 'verified' | 'in_progress' | 'not_started' | 'expired';
 
+export interface CompaniesHouseVerification {
+  checkedAt: IsoDateTime;
+  /** Verified on this date (by an authorised agent, or an appointment verification statement in force); null when Companies House shows no verification. */
+  verifiedOn: IsoDate | null;
+  /** The date by which Companies House expects a verification statement for this appointment, when it has set one. */
+  dueOn: IsoDate | null;
+}
+
 export interface PersonRole {
   id: Id;
   practiceId: Id;
@@ -136,6 +144,8 @@ export interface PersonRole {
   identityVerificationSource?: 'practice' | 'companies_house';
   /** The date Companies House records the verification against, when it was confirmed from there. */
   identityVerifiedOn?: IsoDate;
+  /** What Companies House last published about this role's verification, recorded on every refresh — including that it published nothing. */
+  companiesHouseVerification?: CompaniesHouseVerification;
   personalCodeCaptured: boolean;
   evidenceStatus: 'none' | 'requested' | 'received' | 'checked';
   /** How control is held — only ever populated for a 'psc' role, from Companies House. */
