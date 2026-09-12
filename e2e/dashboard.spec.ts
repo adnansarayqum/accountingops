@@ -16,6 +16,11 @@ test.describe('dashboard — due soon split by service', () => {
     await expect(accounts).toContainText('overdue');
     await expect(page.getByTestId('service-tile-grid').getByRole('link').first()).toContainText('Accounts due');
 
+    // Corporation tax and payroll always have a tile, even when the practice
+    // tracks no such work — "nothing tracked yet" is the useful answer there.
+    await expect(tiles.getByRole('link', { name: /CT600 due/ })).toBeVisible();
+    await expect(tiles.getByRole('link', { name: /Payroll due/ })).toContainText('open');
+
     // Every tile links to that service's jobs.
     await accounts.click();
     await expect(page).toHaveURL(/\/jobs\?service=annual_accounts/);

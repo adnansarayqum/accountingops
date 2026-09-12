@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupDueSoonByService, serviceStatuses } from '../dashboardGroups';
+import { CORE_TILE_SERVICES, groupDueSoonByService, serviceStatuses } from '../dashboardGroups';
 import { computeDerived } from '../selectors';
 import { buildFixtureData } from '../../testing/fixtures';
 import type { JobView } from '../selectors';
@@ -112,6 +112,29 @@ describe('serviceStatuses', () => {
       14,
     );
     expect(statuses.map((s) => s.serviceCode)).toEqual(['annual_accounts', 'vat', 'payroll']);
+  });
+
+  it('keeps a core service visible at zero, so "nobody is tracking corporation tax" is a thing you can see', () => {
+    const statuses = serviceStatuses([view('vat', 'vat', 3)], 14, ['corporation_tax', 'payroll']);
+    const ct = statuses.find((s) => s.serviceCode === 'corporation_tax');
+    expect(ct).toEqual({ serviceCode: 'corporation_tax', label: 'CT600', overdue: 0, dueSoon: 0, due: 0, open: 0, nextDueInDays: null });
+    expect(statuses.map((s) => s.serviceCode)).toEqual(['vat', 'corporation_tax', 'payroll']);
+  });
+
+  it('counts a core service normally once it does have work', () => {
+    const [ct] = serviceStatuses([view('ct', 'corporation_tax', -2)], 14, ['corporation_tax']);
+    expect(ct).toMatchObject({ serviceCode: 'corporation_tax', overdue: 1, due: 1, open: 1, nextDueInDays: -2 });
+  });
+
+  it('never double-counts a service that is both core and has work', () => {
+    const statuses = serviceStatuses([view('a', 'payroll', 5), view('b', 'payroll', 9)], 14, ['payroll']);
+    expect(statuses).toHaveLength(1);
+    expect(statuses[0]).toMatchObject({ open: 2, dueSoon: 2 });
+  });
+
+  it('covers corporation tax and payroll in the core set', () => {
+    expect(CORE_TILE_SERVICES).toContain('corporation_tax');
+    expect(CORE_TILE_SERVICES).toContain('payroll');
   });
 
   it('matches the real fixture practice: every open job is counted exactly once, in the right service', () => {

@@ -46,15 +46,25 @@ export interface ServiceStatus {
 }
 
 /**
- * One status line per service the practice has open work for — "CS due",
- * "VAT due" and so on — for the dashboard's tile row. Takes every job view,
- * not a pre-filtered set, so "open" here always means the same thing.
- *
- * Only services with at least one open job appear, ordered by their nearest
- * deadline, which puts anything overdue (a negative count of days) first.
+ * The statutory work a practice of this shape always wants in view, even
+ * at zero — a tile reading "CT600 due 0 · nothing tracked yet" says
+ * something worth knowing (nobody is tracking corporation tax) that a
+ * missing tile does not. Anything else appears once there's open work.
  */
-export function serviceStatuses(views: JobView[], dueSoonDays: number): ServiceStatus[] {
+export const CORE_TILE_SERVICES: ServiceCode[] = ['annual_accounts', 'corporation_tax', 'vat', 'payroll', 'confirmation_statement', 'self_assessment'];
+
+/**
+ * One status line per service for the dashboard's tile row — "CS due",
+ * "VAT due" and so on. Takes every job view, not a pre-filtered set, so
+ * "open" here always means the same thing.
+ *
+ * A service appears when it has at least one open job, or when it's one of
+ * `alwaysInclude` (which then reads as zero). Ordered by nearest deadline,
+ * which puts anything overdue first and anything with no open work last.
+ */
+export function serviceStatuses(views: JobView[], dueSoonDays: number, alwaysInclude: ServiceCode[] = []): ServiceStatus[] {
   const byService = new Map<ServiceCode, JobView[]>();
+  for (const code of alwaysInclude) byService.set(code, []);
   for (const view of views) {
     if (view.job.status === 'filed') continue;
     const list = byService.get(view.job.serviceCode);
