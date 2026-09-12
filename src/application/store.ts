@@ -8,6 +8,7 @@ import { normaliseCompanyNumber } from '../domain/companyNumber';
 import { birthMonthYearOf, isSamePerson, normalisePersonName, personNameKey } from '../domain/personNames';
 import { applyRetention } from '../domain/retention';
 import { applyPeopleMerge, findDuplicatePeople, type PeopleMergeSummary } from '../domain/peopleMerge';
+import { applyCorporationTaxBackfill, findMissingCorporationTax, type CorporationTaxBackfillSummary } from '../domain/corporationTax';
 import { CHANNEL_LABELS, JOB_STATUS_LABELS, SERVICES, FILING_DESTINATION } from '../domain/catalog';
 import {
   canTransition,
@@ -150,6 +151,8 @@ export interface AppState {
   ): { clientsUpdated: number; peopleAdded: number; verificationsConfirmed: number };
   /** Merges every group Settings → Duplicate people lists (see domain/peopleMerge.ts). Does nothing, and saves nothing, when there are none. */
   mergeDuplicatePeople(): PeopleMergeSummary;
+  /** Creates the corporation tax obligation and first job for every limited company Settings → Corporation tax lists (see domain/corporationTax.ts). Does nothing, and saves nothing, when there are none. */
+  generateCorporationTaxObligations(): CorporationTaxBackfillSummary;
   /** Edits a contact's details (name, role, email, phone, WhatsApp). */
   updateContact(contactId: string, patch: Partial<Pick<Contact, 'name' | 'role' | 'email' | 'phone' | 'whatsapp'>>): void;
   /** Adds another contact to a client. The first contact added to a client with none becomes its primary. */
@@ -980,6 +983,22 @@ export const useAppStore = create<AppState>((set, get) => {
         ctx.audit('people.merge', 'person', 'bulk', undefined, {
           ...summary,
           groups: groups.map((g) => ({ kept: g.keep.id, removed: g.duplicates.map((p) => p.id), clientIds: g.clientIds })),
+        });
+      });
+      return summary;
+    },
+    generateCorporationTaxObligations() {
+      let summary: CorporationTaxBackfillSummary = { clientsUpdated: 0, jobsCreated: 0, overdueCreated: 0 };
+      const today = nowIso().slice(0, 10);
+      if (findMissingCorporationTax(get().data, today).length === 0) return summary;
+      mutate((d, ctx) => {
+        const rows = findMissingCorporationTax(d, today);
+        summary = applyCorporationTaxBackfill(d, rows, newId);
+        const n = summary.jobsCreated;
+        ctx.activity('note', `Corporation tax added for ${n} ${n === 1 ? 'client' : 'clients'}.`);
+        ctx.audit('obligations.corporation_tax', 'job', 'bulk', undefined, {
+          ...summary,
+          clients: rows.map((r) => ({ clientId: r.clientId, periodEnd: r.periodEnd, dueDate: r.dueDate })),
         });
       });
       return summary;
