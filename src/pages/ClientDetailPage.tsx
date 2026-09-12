@@ -23,6 +23,7 @@ import { describeCompaniesHouseVerification, groupRolesByPerson } from '../domai
 import type { Channel, IdentifierKind, Job, Person, PersonRole } from '../domain/types';
 import { cn } from '../ui/cn';
 import { ContactsCard } from '../ui/components/ContactsCard';
+import { AmlReviewCard, TurnoverCard } from '../ui/components/ComplianceCards';
 import { getCompaniesHouseStatus, getCompanyPeople, getCompanyProfile } from '../integrations/companiesHouse';
 
 const ID_ORDER: IdentifierKind[] = ['utr', 'nino', 'company_number', 'vat_number', 'paye_reference', 'accounts_office_ref', 'ch_auth_code', 'personal_code', 'gateway_credentials'];
@@ -354,6 +355,9 @@ export function ClientDetailPage() {
                 </CardBody>
               </Card>
             )}
+
+            <AmlReviewCard client={client} />
+            <TurnoverCard client={client} />
 
             <Card>
               <CardHeader title="Identifiers" description="Masked by default. Reveals are recorded in the audit log." />

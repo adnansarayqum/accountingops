@@ -113,6 +113,8 @@ confined to this folder plus the store's actions.
 | `responsiveness.ts` | Client behaviour bands and suggestions |
 | `masking.ts` | Display masking of identifiers |
 | `thresholds.ts` | Defaults for the configurable timing thresholds below, and merging a practice's overrides over them |
+| `aml.ts` | AML review cycle: risk rating per client, next review by rating (annual high, two-yearly standard, three-yearly low — the practice's policy defaults, since the regulations set the principle not the number), never-reviewed treated as overdue |
+| `vatThreshold.ts` | VAT registration threshold watch: hand-entered rolling twelve-month turnover against £90,000, flagged from 85%, dated so a stale figure reads as stale; only unregistered clients are watched |
 | `penalties.ts` | Late-filing penalty exposure in pounds — Companies House bands (doubled after a late prior year), CT600 fixed steps (£1,000 each after three late in a row), SA £100/daily/£300 minimums, VAT late-submission points — from published figures, with percentage-of-tax steps and regimes with no fixed figure reported as unquantified rather than guessed |
 
 Every rule is deterministic, explainable and unit-tested.

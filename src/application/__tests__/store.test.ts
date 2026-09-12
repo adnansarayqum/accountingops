@@ -568,6 +568,36 @@ describe('application store — generating corporation tax obligations', () => {
   });
 });
 
+describe('application store — AML review and turnover', () => {
+  beforeEach(() => {
+    configureRepository(new MemoryRepository());
+    useAppStore.setState({ data: structuredClone(buildFixtureData(today)), today, ready: true, currentUserId: 'u_adnan', toasts: [] });
+  });
+
+  it('records an AML review dated today, with the rating and note, and leaves an audit trail', () => {
+    useAppStore.getState().recordAmlReview('cl_abc', { rating: 'high', note: '  Cash-heavy trade.  ' });
+    const s = useAppStore.getState().data;
+    expect(s.clients.find((c) => c.id === 'cl_abc')).toMatchObject({ amlRiskRating: 'high', amlLastReviewedOn: today, amlReviewNote: 'Cash-heavy trade.' });
+    expect(s.activities[0]).toMatchObject({ kind: 'client_updated', clientId: 'cl_abc', message: 'AML review recorded for ABC Construction Ltd: high risk.' });
+    expect(s.auditEvents[0]).toMatchObject({ action: 'client.aml_review', entityId: 'cl_abc', after: { amlRiskRating: 'high', amlLastReviewedOn: today } });
+    expect(useAppStore.getState().unsaved).toBe(true);
+  });
+
+  it('records turnover dated today, rounds to whole pounds, and clears it on null', () => {
+    useAppStore.getState().recordTurnover('cl_abc', 76_499.6);
+    expect(useAppStore.getState().data.clients.find((c) => c.id === 'cl_abc')).toMatchObject({ rolling12MonthTurnover: 76_500, turnoverRecordedOn: today });
+    useAppStore.getState().recordTurnover('cl_abc', null);
+    const client = useAppStore.getState().data.clients.find((c) => c.id === 'cl_abc')!;
+    expect(client.rolling12MonthTurnover).toBeUndefined();
+    expect(client.turnoverRecordedOn).toBeUndefined();
+  });
+
+  it('ignores a negative or non-finite turnover rather than storing nonsense', () => {
+    useAppStore.getState().recordTurnover('cl_abc', -1);
+    expect(useAppStore.getState().data.clients.find((c) => c.id === 'cl_abc')!.rolling12MonthTurnover).toBeUndefined();
+  });
+});
+
 describe('application store — applying client portal activity', () => {
   beforeEach(() => {
     configureRepository(new MemoryRepository());

@@ -4,6 +4,7 @@ import { buildImportedClientRecords, PLACEHOLDER_CONTACT_NAME, type ClientRoster
 import type { AuthUser } from './auth';
 import type { CompanyPeopleResponse, CompanyProfile } from '../integrations/companiesHouseTypes';
 import type { PortalActivity } from '../integrations/portal';
+import { AML_RATING_LABELS } from '../domain/rules/aml';
 import { nowIso, todayIso } from '../domain/dates';
 import { normaliseCompanyNumber } from '../domain/companyNumber';
 import { birthMonthYearOf, isSamePerson, normalisePersonName, personNameKey } from '../domain/personNames';
@@ -20,7 +21,7 @@ import {
   sanitizeThresholdPatch,
   suggestedTransitionOnCompleteness,
 } from '../domain/rules';
-import type {
+import type { AmlRiskRating,
   Activity,
   ActivityKind,
   ApprovalKind,
@@ -134,6 +135,10 @@ export interface AppState {
 
   // clients & people
   updateClient(clientId: string, patch: Partial<Client>): void;
+  /** Records an AML review: the risk rating decided today and an optional note. Audited, since the trail is the point. */
+  recordAmlReview(clientId: string, input: { rating: AmlRiskRating; note?: string }): void;
+  /** Records the client's rolling twelve-month turnover, dated today, for the VAT threshold watch. */
+  recordTurnover(clientId: string, amount: number | null): void;
   createClient(input: {
     name: string;
     type: ClientType;
@@ -882,6 +887,35 @@ export const useAppStore = create<AppState>((set, get) => {
         item.suggestion.confidence = 1;
         item.suggestion.rationale = 'Confirmed manually by the practice.';
         ctx.audit('inbox.reclassify', 'inbox_item', itemId, before, { ...item.suggestion });
+      });
+    },
+
+    recordAmlReview(clientId, input) {
+      mutate((d, ctx) => {
+        const client = d.clients.find((c) => c.id === clientId);
+        if (!client) return;
+        const before = { amlRiskRating: client.amlRiskRating, amlLastReviewedOn: client.amlLastReviewedOn, amlReviewNote: client.amlReviewNote };
+        client.amlRiskRating = input.rating;
+        client.amlLastReviewedOn = get().today;
+        client.amlReviewNote = input.note?.trim() || undefined;
+        ctx.activity('client_updated', `AML review recorded for ${client.name}: ${AML_RATING_LABELS[input.rating].toLowerCase()}.`, undefined, clientId);
+        ctx.audit('client.aml_review', 'client', clientId, before, { amlRiskRating: client.amlRiskRating, amlLastReviewedOn: client.amlLastReviewedOn, amlReviewNote: client.amlReviewNote });
+      });
+    },
+
+    recordTurnover(clientId, amount) {
+      mutate((d, ctx) => {
+        const client = d.clients.find((c) => c.id === clientId);
+        if (!client) return;
+        const before = { rolling12MonthTurnover: client.rolling12MonthTurnover, turnoverRecordedOn: client.turnoverRecordedOn };
+        if (amount === null || !Number.isFinite(amount) || amount < 0) {
+          client.rolling12MonthTurnover = undefined;
+          client.turnoverRecordedOn = undefined;
+        } else {
+          client.rolling12MonthTurnover = Math.round(amount);
+          client.turnoverRecordedOn = get().today;
+        }
+        ctx.audit('client.turnover', 'client', clientId, before, { rolling12MonthTurnover: client.rolling12MonthTurnover, turnoverRecordedOn: client.turnoverRecordedOn });
       });
     },
 
