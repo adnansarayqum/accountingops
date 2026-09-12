@@ -50,6 +50,7 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     await query('delete from practice_sessions');
     await query('delete from practice_users');
     await query('delete from practice_snapshots');
+    await query('delete from practice_snapshot_history').catch(() => {});
     resetLoginLimits();
     const app = express();
     app.use('/api/auth', authRouter);
@@ -169,13 +170,21 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
       cookie = extractCookie(login);
     });
 
-    function put(body, headers = {}) {
-      return fetch(`${baseUrl}/api/practice-data`, {
+    let version = 0;
+
+    /** PUT with the version this test last saw, unless the body names one itself. */
+    async function put(body, headers = {}) {
+      const payload = typeof body === 'string' ? body : JSON.stringify({ expectedVersion: version, ...body });
+      const res = await fetch(`${baseUrl}/api/practice-data`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Cookie: cookie, ...headers },
-        body: typeof body === 'string' ? body : JSON.stringify(body),
+        body: payload,
       });
+      if (res.ok) version = (await res.clone().json()).version;
+      return res;
     }
+
+    const get = () => fetch(`${baseUrl}/api/practice-data`, { headers: { Cookie: cookie } });
 
     it('rejects an unauthenticated request', async () => {
       const res = await fetch(`${baseUrl}/api/practice-data`);
@@ -196,30 +205,95 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
       expect(res.status).toBe(404);
     });
 
-    it('saves and reloads a practice data snapshot', async () => {
+    it('saves and reloads a practice data snapshot, numbering it version 1', async () => {
       const data = snapshot({ clients: [{ id: 'cl_1', name: 'Example Ltd' }] });
       const res = await put({ data });
       expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, version: 1 });
 
-      const get = await fetch(`${baseUrl}/api/practice-data`, { headers: { Cookie: cookie } });
-      expect(get.status).toBe(200);
-      expect((await get.json()).data).toEqual(data);
+      const loaded = await get();
+      expect(loaded.status).toBe(200);
+      const body = await loaded.json();
+      expect(body.data).toEqual(data);
+      expect(body.version).toBe(1);
     });
 
-    it('overwrites the previous snapshot on a second save', async () => {
-      await put({ data: snapshot() });
-      const get = await fetch(`${baseUrl}/api/practice-data`, { headers: { Cookie: cookie } });
-      expect((await get.json()).data.clients).toEqual([]);
+    it('overwrites the previous snapshot on a second save, moving the version on', async () => {
+      const res = await put({ data: snapshot() });
+      expect((await res.json()).version).toBe(2);
+      const body = await (await get()).json();
+      expect(body.data.clients).toEqual([]);
+      expect(body.version).toBe(2);
+    });
+
+    it('refuses a save built on a version that has since been overwritten, and hands back what is stored', async () => {
+      const stored = await (await get()).json();
+      const stale = await put({ data: snapshot({ clients: [{ id: 'cl_stale', name: 'Stale Ltd' }] }), expectedVersion: stored.version - 1 });
+      expect(stale.status).toBe(409);
+      const body = await stale.json();
+      expect(body.error).toBe('version_conflict');
+      expect(body.version).toBe(stored.version);
+      expect(body.data).toEqual(stored.data);
+      // Nothing changed.
+      expect(await (await get()).json()).toEqual(stored);
+    });
+
+    it('requires the caller to say which version it was working from', async () => {
+      const res = await put({ data: snapshot(), expectedVersion: undefined });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: 'expected_version_required' });
+      const negative = await put({ data: snapshot(), expectedVersion: -1 });
+      expect(negative.status).toBe(400);
+    });
+
+    it('keeps every version in the history, newest first, and can bring one back as a new version', async () => {
+      const history = await (await fetch(`${baseUrl}/api/practice-data/history`, { headers: { Cookie: cookie } })).json();
+      expect(history.current).toBe(version);
+      expect(history.versions.map((v) => v.version)).toEqual([2, 1]);
+      expect(history.versions[0].savedBy).toBe('u_practice_data_test');
+
+      // Version 1 had Example Ltd; the current one has no clients.
+      const restore = await fetch(`${baseUrl}/api/practice-data/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ version: 1, expectedVersion: history.current }),
+      });
+      expect(restore.status).toBe(200);
+      const restored = await restore.json();
+      expect(restored.version).toBe(3);
+      expect(restored.data.clients).toEqual([{ id: 'cl_1', name: 'Example Ltd' }]);
+      version = restored.version;
+
+      const now = await (await get()).json();
+      expect(now.version).toBe(3);
+      expect(now.data.clients).toEqual([{ id: 'cl_1', name: 'Example Ltd' }]);
+      const after = await (await fetch(`${baseUrl}/api/practice-data/history`, { headers: { Cookie: cookie } })).json();
+      expect(after.versions.map((v) => v.version)).toEqual([3, 2, 1]);
+    });
+
+    it('refuses a restore over a version the caller has not seen, and an unknown version', async () => {
+      const stale = await fetch(`${baseUrl}/api/practice-data/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ version: 1, expectedVersion: version - 1 }),
+      });
+      expect(stale.status).toBe(409);
+      const missing = await fetch(`${baseUrl}/api/practice-data/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ version: 999, expectedVersion: version }),
+      });
+      expect(missing.status).toBe(404);
     });
 
     it('refuses to overwrite the snapshot with something that is not one', async () => {
-      const before = await (await fetch(`${baseUrl}/api/practice-data`, { headers: { Cookie: cookie } })).json();
+      const before = await (await get()).json();
       for (const body of [{ data: ['not', 'an', 'object'] }, { data: {} }, {}, { data: null }, { data: snapshot({ clients: 'not-an-array' }) }]) {
         const res = await put(body);
         expect(res.status).toBe(400);
         expect((await res.json()).error).toBe('invalid_shape');
       }
-      const after = await (await fetch(`${baseUrl}/api/practice-data`, { headers: { Cookie: cookie } })).json();
+      const after = await (await get()).json();
       expect(after).toEqual(before);
     });
 

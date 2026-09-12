@@ -41,6 +41,7 @@ import type {
 import { newId } from './ids';
 import { LocalStorageRepository } from './persistence/localStorageRepository';
 import type { PracticeRepository } from './persistence/repository';
+import { SnapshotConflictError } from './persistence/httpRepository';
 
 export interface Toast {
   id: string;
@@ -169,6 +170,8 @@ export interface AppState {
 
 let repository: PracticeRepository = new LocalStorageRepository();
 
+type Mutation = (d: PracticeData, ctx: MutationContext) => PracticeData | void;
+
 // One save in flight at a time, and at most one waiting behind it. Two
 // quick actions used to fire two independent PUTs, and nothing stopped the
 // first from landing after the second — persisting the older snapshot over
@@ -177,10 +180,30 @@ let repository: PracticeRepository = new LocalStorageRepository();
 let saveInFlight = false;
 let queued: PracticeData | null = null;
 
+// The mutations behind every snapshot not yet confirmed saved. When the
+// server refuses a save because someone else saved first, these are
+// replayed on top of what they saved, so neither person's work is lost.
+let unsavedMutations: Mutation[] = [];
+
+/** How many times one save may lose the race before we stop replaying and take the server's copy. */
+const MAX_CONFLICT_REPLAYS = 3;
+
 export function configureRepository(repo: PracticeRepository): void {
   repository = repo;
   saveInFlight = false;
   queued = null;
+  unsavedMutations = [];
+}
+
+/** Runs one mutation against a copy of `base` and returns the result — the pure half of mutate(). */
+function applyMutation(base: PracticeData, fn: Mutation, currentUserId: string): PracticeData {
+  const ctx = new MutationContext(currentUserId, base.practice.id);
+  const draft = structuredClone(base);
+  const result = fn(draft, ctx) ?? draft;
+  result.activities = [...ctx.activities, ...result.activities];
+  result.auditEvents = [...ctx.audits, ...result.auditEvents].slice(0, 2000);
+  result.notifications = [...ctx.notifications, ...result.notifications];
+  return result;
 }
 
 /**
@@ -197,14 +220,44 @@ function persist(get: () => AppState, set: (patch: Partial<AppState>) => void): 
 
 async function drainSaves(get: () => AppState, set: (patch: Partial<AppState>) => void): Promise<void> {
   saveInFlight = true;
+  let replays = 0;
   try {
     while (queued) {
       const data = queued;
       queued = null;
+      // The mutations this snapshot carries — everything unsaved so far.
+      const carried = unsavedMutations.length;
       try {
         await repository.save(data);
+        unsavedMutations = unsavedMutations.slice(carried);
         if (!queued) set({ unsaved: false });
       } catch (err) {
+        if (err instanceof SnapshotConflictError && replays < MAX_CONFLICT_REPLAYS) {
+          // Someone else saved first. Rebuild our change on top of theirs and
+          // try again — the mutations are pure, so replaying them onto the
+          // newer snapshot gives the result the user would have got had they
+          // started from it.
+          replays += 1;
+          try {
+            let rebased = err.current;
+            for (const fn of unsavedMutations) rebased = applyMutation(rebased, fn, get().currentUserId);
+            set({ data: rebased });
+            queued = rebased;
+            continue;
+          } catch (replayErr) {
+            console.error('Could not replay a change onto the newer snapshot', replayErr);
+          }
+        }
+        if (err instanceof SnapshotConflictError) {
+          // Replay isn't possible (or keeps losing the race): take the server's
+          // copy and tell the user exactly what happened, rather than either
+          // overwriting the other person's work or pretending ours saved.
+          unsavedMutations = [];
+          queued = null;
+          set({ data: err.current, unsaved: false });
+          get().toast({ title: "Someone else changed this first", description: 'Their version has been loaded. Your last change was not saved — please make it again.', tone: 'error' });
+          continue;
+        }
         console.error('Persist failed', err);
         get().toast({ title: "We couldn't save that change", description: "It's still on screen but not saved. Try the action again, and keep this tab open until it saves.", tone: 'error' });
       }
@@ -317,12 +370,8 @@ export const useAppStore = create<AppState>((set, get) => {
       state.toast({ title: 'Changes are paused', description: "Practice data didn't load, so nothing can be changed until it does. Use Try again at the top of the page.", tone: 'error' });
       return;
     }
-    const ctx = new MutationContext(state.currentUserId, state.data.practice.id);
-    const draft = structuredClone(state.data);
-    const result = fn(draft, ctx) ?? draft;
-    result.activities = [...ctx.activities, ...result.activities];
-    result.auditEvents = [...ctx.audits, ...result.auditEvents].slice(0, 2000);
-    result.notifications = [...ctx.notifications, ...result.notifications];
+    const result = applyMutation(state.data, fn, state.currentUserId);
+    unsavedMutations.push(fn);
     set({ data: result, unsaved: true });
     persist(get, set);
   };
@@ -346,6 +395,7 @@ export const useAppStore = create<AppState>((set, get) => {
         // something is actually added to it — a "nothing stored yet" answer
         // that was wrong (a misrouted request, say) must not become a real
         // empty snapshot on top of the one the practice actually has.
+        unsavedMutations = [];
         set({ data: loaded ?? buildEmptyPracticeData(), today, ready: true, loadFailed: false, unsaved: false });
       } catch (err) {
         // A transient failure here must never leave the app stuck on the

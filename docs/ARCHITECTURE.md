@@ -64,11 +64,23 @@ server error from `/api/auth/me` — is an outage and shows a retry screen
 (`src/pages/UnavailablePage.tsx`), never the browser-only mode, so nothing
 gets typed into a local copy that would never reach the team.
 
-The whole-aggregate snapshot is still an interim adapter: it is
-last-write-wins across users (mitigated, not solved, by the refresh-on-focus
-above). The target is the per-entity, tenant-scoped API over
-`db/schema.sql`, with versioned writes; because components never touch
-storage, that swap stays confined to this folder plus the store's actions.
+**Versioned writes.** Every stored snapshot carries a version. `load()`
+remembers it, `save()` sends it as `expectedVersion`, and the server refuses
+a write built on an older version with **409** and the snapshot actually
+stored (`server/routes/practiceData.mjs`, row-locked in one transaction).
+The store then replays the unsaved mutations on top of that snapshot and
+saves again — they are pure functions of the data, so both people's work
+survives — and only after three lost races does it take the server's copy
+and tell the user their last change wasn't saved. Every accepted write is
+also kept in `practice_snapshot_history` (the last 50), listed under
+Settings → Version history; a restore writes the chosen version as a *new*
+version, so it is itself undoable.
+
+The whole-aggregate snapshot is still an interim adapter — two people
+editing the same record at the same moment replay by mutation, not by
+field. The target is the per-entity, tenant-scoped API over
+`db/schema.sql`; because components never touch storage, that swap stays
+confined to this folder plus the store's actions.
 
 ## Business rules (all in `src/domain/rules/`)
 
@@ -208,7 +220,7 @@ Known gaps, in the order they should close: the forced password change is
 enforced by the UI only (a temporary password read from the deploy logs
 can reach the data routes); changing a password does not revoke other
 sessions and session tokens are stored raw; the audit log lives inside the
-client-authored snapshot; the snapshot is last-write-wins across users.
+client-authored snapshot.
 Then, before wider use: RBAC (owner/manager/accountant/admin) with
 field-level authorisation for identifiers, encryption at rest for
 `client_identifiers.value_encrypted` (envelope keys in a KMS), object storage

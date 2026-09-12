@@ -19,6 +19,7 @@ export async function resetServerState(): Promise<void> {
   const p = getPool();
   await p.query('delete from practice_sessions');
   await p.query('delete from practice_snapshots');
+  await p.query('delete from practice_snapshot_history').catch(() => {});
   // Re-seeded on next request. Pin ADNAN_TEMP_PASSWORD / FARHAN_TEMP_PASSWORD
   // / RAYHAN_TEMP_PASSWORD when running this suite so the seeded passwords
   // are deterministic across repeated runs, not freshly randomised each time.
