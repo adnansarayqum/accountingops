@@ -68,6 +68,11 @@ async function runMigrations() {
     )
   `);
   await query('create index if not exists practice_sessions_expires_idx on practice_sessions (expires_at)');
+  // A one-shot password reset from a *_RESET_PASSWORD variable remembers
+  // (as a hash) which value it already applied, so a restart with the
+  // variable still set doesn't reset the password again (see
+  // lib/bootstrapUsers.mjs).
+  await query('alter table practice_users add column if not exists password_reset_applied text');
   // Versioned writes: every save names the version it was based on and is
   // refused if the stored one has moved on (see routes/practiceData.mjs).
   // Existing rows pick up version 1 and keep loading unchanged.
