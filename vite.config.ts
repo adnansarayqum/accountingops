@@ -7,6 +7,7 @@ import express from 'express';
 import companiesHouseRouter from './server/routes/companiesHouse.mjs';
 import companiesHouseStreamRouter from './server/routes/companiesHouseStream.mjs';
 import hmrcRouter from './server/routes/hmrc.mjs';
+import portalRouter from './server/routes/portal.mjs';
 import authRouter from './server/routes/auth.mjs';
 import practiceDataRouter from './server/routes/practiceData.mjs';
 import messagesRouter from './server/routes/messages.mjs';
@@ -45,6 +46,7 @@ function apiMiddleware(): Plugin {
     app.use('/api/companies-house/stream', companiesHouseStreamRouter);
     app.use('/api/companies-house', companiesHouseRouter);
     app.use('/api/hmrc', hmrcRouter);
+    app.use('/api/portal', portalRouter);
     app.use('/api/messages', messagesRouter);
     app.use('/api/auth', authRouter);
     app.use('/api/practice-data', practiceDataRouter);

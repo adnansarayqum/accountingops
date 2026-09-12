@@ -124,6 +124,67 @@ async function runMigrations() {
       updated_at     timestamptz not null default now()
     )
   `);
+  // Client portal: single-purpose links a client can act on with no account,
+  // the files they send, and a queue of what they did for the app to pull in.
+  // Files live here for now — the documented target is object storage
+  // (.env.example), and this table is the interim the way practice_snapshots
+  // is. Never the practice snapshot: a public route must not race a save.
+  await query(`
+    create table if not exists portal_links (
+      id             text primary key,
+      token_hash     text not null unique,
+      practice_id    text not null,
+      client_id      text not null,
+      job_id         text not null,
+      purpose        text not null,
+      message        text,
+      attachment_id  text,
+      created_by     text,
+      created_at     timestamptz not null default now(),
+      expires_at     timestamptz not null,
+      used_at        timestamptz,
+      revoked_at     timestamptz,
+      last_opened_at timestamptz
+    )
+  `);
+  await query('create index if not exists portal_links_job_idx on portal_links (job_id)');
+  await query(`
+    create table if not exists portal_uploads (
+      id              text primary key,
+      link_id         text references portal_links(id) on delete cascade,
+      practice_id     text not null,
+      client_id       text not null,
+      job_id          text not null,
+      direction       text not null,
+      request_item_id text,
+      file_name       text not null,
+      content_type    text not null,
+      size_bytes      integer not null,
+      content         bytea not null,
+      created_at      timestamptz not null default now()
+    )
+  `);
+  await query('create index if not exists portal_uploads_link_idx on portal_uploads (link_id)');
+  await query(`
+    create table if not exists portal_activity (
+      id              text primary key,
+      link_id         text references portal_links(id) on delete cascade,
+      practice_id     text not null,
+      client_id       text not null,
+      job_id          text not null,
+      kind            text not null,
+      request_item_id text,
+      upload_id       text,
+      file_name       text,
+      size_kb         integer,
+      decision        text,
+      actor_name      text,
+      note            text,
+      created_at      timestamptz not null default now(),
+      applied_at      timestamptz
+    )
+  `);
+  await query('create index if not exists portal_activity_pending_idx on portal_activity (created_at) where applied_at is null');
   await query(`
     create table if not exists practice_snapshot_history (
       id          bigserial primary key,

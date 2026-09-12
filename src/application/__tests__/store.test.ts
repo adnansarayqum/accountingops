@@ -568,6 +568,53 @@ describe('application store — generating corporation tax obligations', () => {
   });
 });
 
+describe('application store — applying client portal activity', () => {
+  beforeEach(() => {
+    configureRepository(new MemoryRepository());
+    useAppStore.setState({ data: structuredClone(buildFixtureData(today)), today, ready: true, currentUserId: 'u_adnan', toasts: [] });
+  });
+
+  const base = { linkId: 'pl_1', clientId: 'cl_abc', jobId: 'job_abc_accounts', createdAt: '2026-09-12T10:00:00Z', decision: null, actorName: null, note: null, requestItemId: null, uploadId: null, fileName: null, sizeKb: null } as const;
+
+  it('marks the requested item received through the ordinary action, keeping a handle to the stored file', () => {
+    const item = useAppStore.getState().data.requestItems.find((i) => i.jobId === 'job_abc_accounts' && i.status !== 'received')!;
+    const result = useAppStore.getState().applyPortalActivity([{ ...base, id: 'pa_1', kind: 'upload', requestItemId: item.id, uploadId: 'up_1', fileName: 'loan.pdf', sizeKb: 88 }]);
+    expect(result).toEqual({ applied: ['pa_1'], skipped: [] });
+    const after = useAppStore.getState().data;
+    expect(after.requestItems.find((i) => i.id === item.id)).toMatchObject({ status: 'received' });
+    const doc = after.documents.find((d) => d.portalUploadId === 'up_1');
+    expect(doc).toMatchObject({ fileName: 'loan.pdf', source: 'portal', sizeKb: 88, jobId: 'job_abc_accounts' });
+    expect(after.activities[0].message).toContain('received');
+  });
+
+  it('keeps a file sent against no particular request as a document on the job', () => {
+    const before = useAppStore.getState().data.documents.length;
+    const result = useAppStore.getState().applyPortalActivity([{ ...base, id: 'pa_2', kind: 'upload', uploadId: 'up_2', fileName: 'extra.pdf', sizeKb: 12 }]);
+    expect(result.applied).toEqual(['pa_2']);
+    const after = useAppStore.getState().data;
+    expect(after.documents).toHaveLength(before + 1);
+    expect(after.documents.find((d) => d.portalUploadId === 'up_2')).toMatchObject({ source: 'portal', documentType: 'Other' });
+  });
+
+  it('records a client approval exactly as an accountant would, moving the job on', () => {
+    const data = useAppStore.getState().data;
+    const job = data.jobs.find((j) => j.status === 'waiting_client_approval')!;
+    const result = useAppStore.getState().applyPortalActivity([{ ...base, id: 'pa_3', clientId: job.clientId, jobId: job.id, kind: 'approval', decision: 'approved', actorName: 'Jane Smith', note: 'Fine.' }]);
+    expect(result.applied).toEqual(['pa_3']);
+    const after = useAppStore.getState().data;
+    expect(after.jobs.find((j) => j.id === job.id)).toMatchObject({ status: 'ready_to_file', waitingOn: 'nothing' });
+    expect(after.approvals.find((a) => a.jobId === job.id && a.kind === 'client')).toMatchObject({ status: 'approved', reviewerName: 'Jane Smith (via portal)', note: 'Fine.' });
+  });
+
+  it('skips activity for a job it cannot match, and reports it so it is not offered forever', () => {
+    const result = useAppStore.getState().applyPortalActivity([
+      { ...base, id: 'pa_4', jobId: 'job_gone', kind: 'upload', uploadId: 'up_4', fileName: 'x.pdf', sizeKb: 1 },
+      { ...base, id: 'pa_5', clientId: 'cl_wrong', kind: 'upload', uploadId: 'up_5', fileName: 'y.pdf', sizeKb: 1 },
+    ]);
+    expect(result).toEqual({ applied: [], skipped: ['pa_4', 'pa_5'] });
+  });
+});
+
 describe('application store — identity verification confirmed by Companies House', () => {
   beforeEach(() => {
     configureRepository(new MemoryRepository());

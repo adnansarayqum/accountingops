@@ -6,6 +6,8 @@ import companiesHouseRouter from '../companiesHouse.mjs';
 import messagesRouter from '../messages.mjs';
 import companiesHouseStreamRouter from '../companiesHouseStream.mjs';
 import hmrcRouter from '../hmrc.mjs';
+import portalRouter from '../portal.mjs';
+import { hashToken } from '../../lib/portal.mjs';
 import { connectionStatus, isExpiring, readTokens, withFreshToken, writeTokens } from '../../lib/hmrc/tokenStore.mjs';
 import { acknowledgeChanges, countPendingChanges, pendingChanges, readStreamState, recordChange, watchedCompanyNumbers, writeStreamState } from '../../lib/companiesHouseStreamStore.mjs';
 import { isDatabaseConfigured, query } from '../../lib/db.mjs';
@@ -68,6 +70,7 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     app.use('/api/companies-house/stream', companiesHouseStreamRouter);
     app.use('/api/companies-house', companiesHouseRouter);
     app.use('/api/hmrc', hmrcRouter);
+    app.use('/api/portal', portalRouter);
     app.use('/api/messages', messagesRouter);
     server = app.listen(0);
     await new Promise((resolve) => server.once('listening', resolve));
@@ -656,6 +659,161 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     });
   });
 
+  describe('client portal', () => {
+    let cookie;
+    const snapshot = {
+      practice: { id: 'prac_main', name: 'Test Practice' },
+      clients: [{ id: 'cl_p', name: 'Portal Client Ltd', notes: 'secret note' }],
+      jobs: [
+        { id: 'job_up', clientId: 'cl_p', name: '2026 Annual Accounts', periodEnd: '2026-03-31', dueDate: '2026-12-31', status: 'waiting_for_records' },
+        { id: 'job_ap', clientId: 'cl_p', name: 'VAT Return 2026 Q2', periodEnd: '2026-06-30', dueDate: '2026-08-07', status: 'waiting_client_approval' },
+      ],
+      requestItems: [{ id: 'req_bank', jobId: 'job_up', clientId: 'cl_p', label: 'Bank statements', status: 'missing' }],
+      approvals: [{ id: 'ap_1', jobId: 'job_ap', kind: 'client', status: 'pending' }],
+      identifiers: [{ clientId: 'cl_p', kind: 'utr', value: '9988776655' }],
+    };
+    const pdf = Buffer.from('%PDF-1.4 test').toString('base64');
+    const json = (extra = {}) => ({ 'Content-Type': 'application/json', ...extra });
+
+    beforeAll(async () => {
+      resetLoginLimits();
+      cookie = extractCookie(await postLogin(baseUrl, 'practice_data_test', 'FixtureUserPass1'));
+      expect(cookie).toBeTruthy();
+    });
+
+    beforeEach(async () => {
+      await query('delete from portal_activity');
+      await query('delete from portal_uploads');
+      await query('delete from portal_links');
+      await query('delete from practice_snapshots');
+      await query('insert into practice_snapshots (practice_id, data, version) values ($1, $2, 1)', ['prac_main', JSON.stringify(snapshot)]);
+    });
+
+    async function makeLink(body) {
+      const res = await fetch(`${baseUrl}/api/portal/links`, { method: 'POST', headers: json({ Cookie: cookie }), body: JSON.stringify(body) });
+      expect(res.status).toBe(201);
+      const created = await res.json();
+      return { ...created, token: created.url.split('/portal/')[1] };
+    }
+
+    it('refuses the practice side without a session, but answers the public side with a uniform 404 for any bad token', async () => {
+      expect((await fetch(`${baseUrl}/api/portal/links?jobId=job_up`)).status).toBe(401);
+      expect((await fetch(`${baseUrl}/api/portal/activity`)).status).toBe(401);
+      for (const token of ['nope', 'x'.repeat(43), "'; drop table portal_links; --"]) {
+        const res = await fetch(`${baseUrl}/api/portal/p/${encodeURIComponent(token)}`);
+        expect(res.status).toBe(404);
+        expect(await res.json()).toEqual({ error: 'not_found' });
+      }
+    });
+
+    it('creates a link whose token is returned once and stored only as a hash', async () => {
+      const { id, token } = await makeLink({ clientId: 'cl_p', jobId: 'job_up', purpose: 'upload' });
+      const { rows } = await query('select token_hash from portal_links where id = $1', [id]);
+      expect(rows[0].token_hash).toBe(hashToken(token));
+      expect(rows[0].token_hash).not.toContain(token);
+      // The list never carries the token, because nothing does any more.
+      const list = await (await fetch(`${baseUrl}/api/portal/links?jobId=job_up`, { headers: { Cookie: cookie } })).json();
+      expect(JSON.stringify(list)).not.toContain(token);
+      expect(list.links[0]).toMatchObject({ id, purpose: 'upload', state: 'live' });
+    });
+
+    it('refuses to make a link for a job that is not the named client’s — a link can never cross clients', async () => {
+      const res = await fetch(`${baseUrl}/api/portal/links`, { method: 'POST', headers: json({ Cookie: cookie }), body: JSON.stringify({ clientId: 'cl_other', jobId: 'job_up', purpose: 'upload' }) });
+      expect(res.status).toBe(404);
+    });
+
+    it('shows the client exactly their job and nothing else', async () => {
+      const { token } = await makeLink({ clientId: 'cl_p', jobId: 'job_up', purpose: 'upload', message: 'Bank statements please.' });
+      const res = await fetch(`${baseUrl}/api/portal/p/${token}`);
+      expect(res.status).toBe(200);
+      const view = await res.json();
+      expect(view).toMatchObject({ clientName: 'Portal Client Ltd', jobName: '2026 Annual Accounts', purpose: 'upload', outstanding: [{ id: 'req_bank', label: 'Bank statements' }], message: 'Bank statements please.' });
+      const serialised = JSON.stringify(view);
+      expect(serialised).not.toContain('9988776655');
+      expect(serialised).not.toContain('secret note');
+      expect(serialised).not.toContain('VAT Return');
+    });
+
+    it('accepts an upload against a request item, stores the bytes, and queues it for the app', async () => {
+      const { token } = await makeLink({ clientId: 'cl_p', jobId: 'job_up', purpose: 'upload' });
+      const res = await fetch(`${baseUrl}/api/portal/p/${token}/upload`, { method: 'POST', headers: json(), body: JSON.stringify({ fileName: 'statements.pdf', contentType: 'application/pdf', contentBase64: pdf, requestItemId: 'req_bank' }) });
+      expect(res.status).toBe(201);
+      const { uploadId } = await res.json();
+
+      const activity = await (await fetch(`${baseUrl}/api/portal/activity`, { headers: { Cookie: cookie } })).json();
+      expect(activity.activity).toHaveLength(1);
+      expect(activity.activity[0]).toMatchObject({ kind: 'upload', jobId: 'job_up', requestItemId: 'req_bank', uploadId, fileName: 'statements.pdf' });
+
+      // The practice can read the bytes back; nobody without a session can.
+      const download = await fetch(`${baseUrl}/api/portal/uploads/${uploadId}`, { headers: { Cookie: cookie } });
+      expect(download.status).toBe(200);
+      expect(Buffer.from(await download.arrayBuffer()).toString()).toBe('%PDF-1.4 test');
+      expect((await fetch(`${baseUrl}/api/portal/uploads/${uploadId}`)).status).toBe(401);
+
+      // Acknowledged, it stops being offered.
+      await fetch(`${baseUrl}/api/portal/activity/ack`, { method: 'POST', headers: json({ Cookie: cookie }), body: JSON.stringify({ ids: [activity.activity[0].id] }) });
+      expect((await (await fetch(`${baseUrl}/api/portal/activity`, { headers: { Cookie: cookie } })).json()).activity).toHaveLength(0);
+    });
+
+    it('ignores a request item that belongs to a different job rather than letting a client tick off someone else’s list', async () => {
+      const { token } = await makeLink({ clientId: 'cl_p', jobId: 'job_ap', purpose: 'upload' });
+      const res = await fetch(`${baseUrl}/api/portal/p/${token}/upload`, { method: 'POST', headers: json(), body: JSON.stringify({ fileName: 'x.pdf', contentType: 'application/pdf', contentBase64: pdf, requestItemId: 'req_bank' }) });
+      expect(res.status).toBe(201);
+      const activity = await (await fetch(`${baseUrl}/api/portal/activity`, { headers: { Cookie: cookie } })).json();
+      expect(activity.activity[0].requestItemId).toBeNull();
+    });
+
+    it('refuses an executable, and an upload on an approval link', async () => {
+      const up = await makeLink({ clientId: 'cl_p', jobId: 'job_up', purpose: 'upload' });
+      const bad = await fetch(`${baseUrl}/api/portal/p/${up.token}/upload`, { method: 'POST', headers: json(), body: JSON.stringify({ fileName: 'virus.exe', contentType: 'application/x-msdownload', contentBase64: pdf }) });
+      expect(bad.status).toBe(400);
+      expect(await bad.json()).toEqual({ error: 'unsupported_type' });
+
+      const ap = await makeLink({ clientId: 'cl_p', jobId: 'job_ap', purpose: 'approve' });
+      expect((await fetch(`${baseUrl}/api/portal/p/${ap.token}/upload`, { method: 'POST', headers: json(), body: JSON.stringify({ fileName: 'x.pdf', contentType: 'application/pdf', contentBase64: pdf }) })).status).toBe(404);
+    });
+
+    it('records an approval decision exactly once — the link is dead afterwards', async () => {
+      const { token } = await makeLink({ clientId: 'cl_p', jobId: 'job_ap', purpose: 'approve', attachment: { fileName: 'accounts.pdf', contentType: 'application/pdf', contentBase64: pdf } });
+
+      const view = await (await fetch(`${baseUrl}/api/portal/p/${token}`)).json();
+      expect(view).toMatchObject({ purpose: 'approve', approvalPending: true, hasAttachment: true });
+      const attachment = await fetch(`${baseUrl}/api/portal/p/${token}/attachment`);
+      expect(attachment.status).toBe(200);
+      expect(attachment.headers.get('content-type')).toContain('application/pdf');
+
+      const noName = await fetch(`${baseUrl}/api/portal/p/${token}/approve`, { method: 'POST', headers: json(), body: JSON.stringify({ decision: 'approved' }) });
+      expect(await noName.json()).toEqual({ error: 'name_required' });
+
+      const ok = await fetch(`${baseUrl}/api/portal/p/${token}/approve`, { method: 'POST', headers: json(), body: JSON.stringify({ decision: 'approved', name: 'Jane Smith', note: 'Looks right.' }) });
+      expect(ok.status).toBe(200);
+
+      // Second use, and even just viewing, is now a 404 like any dead link.
+      expect((await fetch(`${baseUrl}/api/portal/p/${token}/approve`, { method: 'POST', headers: json(), body: JSON.stringify({ decision: 'approved', name: 'Again' }) })).status).toBe(404);
+      expect((await fetch(`${baseUrl}/api/portal/p/${token}`)).status).toBe(404);
+
+      const activity = await (await fetch(`${baseUrl}/api/portal/activity`, { headers: { Cookie: cookie } })).json();
+      expect(activity.activity).toHaveLength(1);
+      expect(activity.activity[0]).toMatchObject({ kind: 'approval', decision: 'approved', actorName: 'Jane Smith', note: 'Looks right.' });
+    });
+
+    it('revokes a link, after which the client sees the same 404 as for any bad token', async () => {
+      const { id, token } = await makeLink({ clientId: 'cl_p', jobId: 'job_up', purpose: 'upload' });
+      expect((await fetch(`${baseUrl}/api/portal/p/${token}`)).status).toBe(200);
+      const res = await fetch(`${baseUrl}/api/portal/links/${id}/revoke`, { method: 'POST', headers: { Cookie: cookie } });
+      expect(await res.json()).toEqual({ revoked: true });
+      expect((await fetch(`${baseUrl}/api/portal/p/${token}`)).status).toBe(404);
+      const list = await (await fetch(`${baseUrl}/api/portal/links?jobId=job_up`, { headers: { Cookie: cookie } })).json();
+      expect(list.links[0].state).toBe('revoked');
+    });
+
+    it('treats an expired link as dead', async () => {
+      const { id, token } = await makeLink({ clientId: 'cl_p', jobId: 'job_up', purpose: 'upload' });
+      await query("update portal_links set expires_at = now() - interval '1 minute' where id = $1", [id]);
+      expect((await fetch(`${baseUrl}/api/portal/p/${token}`)).status).toBe(404);
+    });
+  });
+
   describe('must-change-password gate', () => {
     let cookie;
 
@@ -951,6 +1109,7 @@ describe('auth + practice-data routers without a configured database', () => {
       app.use('/api/practice-data', practiceDataRouter);
       app.use('/api/companies-house/stream', companiesHouseStreamRouter);
       app.use('/api/hmrc', hmrcRouter);
+      app.use('/api/portal', portalRouter);
       const server = app.listen(0);
       await new Promise((resolve) => server.once('listening', resolve));
       const baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -975,6 +1134,10 @@ describe('auth + practice-data routers without a configured database', () => {
         delete process.env.HMRC_CLIENT_ID;
         delete process.env.HMRC_CLIENT_SECRET;
       }
+      // The portal needs somewhere to keep links and files, so it reports itself
+      // off — as a 200, so the browser does not log an error on every page.
+      expect(await (await fetch(`${baseUrl}/api/portal/status`)).json()).toMatchObject({ configured: false });
+      expect((await fetch(`${baseUrl}/api/portal/p/${'a'.repeat(43)}`)).status).toBe(503);
       await new Promise((resolve) => server.close(resolve));
     } finally {
       if (original !== undefined) process.env.DATABASE_URL = original;

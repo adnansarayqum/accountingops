@@ -311,6 +311,8 @@ export interface Document {
   receivedAt: IsoDateTime;
   source: 'inbox' | 'upload' | 'email' | 'portal';
   sizeKb: number;
+  /** Set when the file itself is held by the server (a client portal upload) and can be downloaded from /api/portal/uploads/:id. */
+  portalUploadId?: Id;
 }
 
 // ---------------------------------------------------------------------------

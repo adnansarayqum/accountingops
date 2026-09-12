@@ -12,6 +12,7 @@ import { useData } from '../../application/selectors';
 import { useCompaniesHouseSync } from '../../application/useCompaniesHouseSync';
 import { useRefreshOnFocus, useUnsavedChangesWarning } from '../../application/usePersistenceGuards';
 import { useLiveToday } from '../../application/useLiveToday';
+import { usePortalActivity } from '../../application/usePortalActivity';
 import { LoadFailedBanner } from '../components/LoadFailedBanner';
 
 export function AppShell() {
@@ -26,6 +27,7 @@ export function AppShell() {
   useRefreshOnFocus();
   useUnsavedChangesWarning();
   useLiveToday();
+  usePortalActivity();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
