@@ -22,6 +22,8 @@ const MINUTE_MS = 60 * 1000;
 export interface RefreshAllProgress {
   done: number;
   total: number;
+  /** Set while sitting out the rate limit: when (epoch ms) lookups resume. */
+  pausedUntil?: number;
 }
 
 export interface RefreshAllUpdate {
@@ -68,7 +70,17 @@ export async function refreshAllClients(candidates: SyncCandidate[], deps: Refre
 
   const updates: RefreshAllUpdate[] = [];
   let done = 0;
-  deps.onProgress?.({ done, total: candidates.length });
+  const total = candidates.length;
+  deps.onProgress?.({ done, total });
+
+  // A pause is always announced: a button that just sits on "25 of 27" for
+  // most of a minute looks stuck, when it is simply keeping under the limit.
+  const pause = async (ms: number) => {
+    if (ms <= 0) return;
+    deps.onProgress?.({ done, total, pausedUntil: now() + ms });
+    await sleep(ms);
+    deps.onProgress?.({ done, total });
+  };
 
   for (let start = 0; start < candidates.length; start += CLIENTS_PER_MINUTE) {
     const chunk = candidates.slice(start, start + CLIENTS_PER_MINUTE);
@@ -77,7 +89,7 @@ export async function refreshAllClients(candidates: SyncCandidate[], deps: Refre
       let outcome = await deps.lookup(candidate.companyNumber);
       if (!outcome.ok && outcome.reason === 'rate_limited') {
         // Sit out the rest of this minute's allowance, then one more try.
-        await sleep(Math.max(0, MINUTE_MS - (now() - chunkStartedAt)));
+        await pause(MINUTE_MS - (now() - chunkStartedAt));
         outcome = await deps.lookup(candidate.companyNumber);
       }
       if (outcome.ok) {
@@ -87,10 +99,10 @@ export async function refreshAllClients(candidates: SyncCandidate[], deps: Refre
         result.failed.push({ clientId: candidate.clientId, companyNumber: candidate.companyNumber, reason: outcome.reason });
       }
       done += 1;
-      deps.onProgress?.({ done, total: candidates.length });
+      deps.onProgress?.({ done, total });
     });
     const remaining = start + CLIENTS_PER_MINUTE < candidates.length;
-    if (remaining) await sleep(Math.max(0, MINUTE_MS - (now() - chunkStartedAt)));
+    if (remaining) await pause(MINUTE_MS - (now() - chunkStartedAt));
   }
 
   if (updates.length > 0) {

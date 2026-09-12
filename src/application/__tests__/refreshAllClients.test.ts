@@ -63,6 +63,28 @@ describe('refreshAllClients', () => {
     }
   });
 
+  it('announces every pause, with when lookups resume, so the button can count it down', async () => {
+    let clock = 1_000_000;
+    const sleep = vi.fn(async (ms: number) => {
+      clock += ms;
+    });
+    const progress: { done: number; pausedUntil?: number }[] = [];
+    const total = CLIENTS_PER_MINUTE + 2;
+    await refreshAllClients(candidates(total), {
+      lookup: async (n) => live(n),
+      apply: () => ({ peopleAdded: 0, verificationsConfirmed: 0 }),
+      sleep,
+      now: () => clock,
+      onProgress: (p) => progress.push({ done: p.done, pausedUntil: p.pausedUntil }),
+    });
+    const paused = progress.filter((p) => p.pausedUntil !== undefined);
+    expect(paused).toEqual([{ done: CLIENTS_PER_MINUTE, pausedUntil: 1_000_000 + 60_000 }]);
+    // The pause is followed by a "resumed" report with no pausedUntil, then the last two.
+    const afterPause = progress.slice(progress.indexOf(paused[0]) + 1);
+    expect(afterPause[0]).toEqual({ done: CLIENTS_PER_MINUTE, pausedUntil: undefined });
+    expect(afterPause.at(-1)).toEqual({ done: total, pausedUntil: undefined });
+  });
+
   it('waits out the minute and retries once when the proxy rate-limits a lookup', async () => {
     let calls = 0;
     const lookup = vi.fn(async (n: string): Promise<LookupOutcome> => {

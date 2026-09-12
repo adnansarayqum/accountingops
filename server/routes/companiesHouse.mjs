@@ -43,13 +43,17 @@ function authHeader() {
   return `Basic ${Buffer.from(`${key}:`).toString('base64')}`;
 }
 
+/** How long to wait on Companies House before giving up on one lookup — a hung upstream must not hang a whole refresh-all. */
+const UPSTREAM_TIMEOUT_MS = 20_000;
+
 async function companiesHouseFetch(path) {
   const auth = authHeader();
   if (!auth) throw new ApiError(503, 'not_configured');
   let res;
   try {
-    res = await fetch(`${BASE_URL}${path}`, { headers: { Authorization: auth, Accept: 'application/json' } });
-  } catch {
+    res = await fetch(`${BASE_URL}${path}`, { headers: { Authorization: auth, Accept: 'application/json' }, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) });
+  } catch (err) {
+    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') throw new ApiError(504, 'upstream_timeout');
     throw new ApiError(502, 'upstream_unreachable');
   }
   if (res.status === 404) throw new ApiError(404, 'not_found');

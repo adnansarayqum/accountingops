@@ -103,7 +103,9 @@ company names, and refreshes automatically once a day per client, with a
 "Synced … ago" line and a Refresh button on the client's Companies House
 card. **Refresh all from Companies House** on the Clients page does every
 limited company with a company number in one pass, paced under the proxy's
-rate limit (`src/application/refreshAllClients.ts`) and saved as one change,
+rate limit (`src/application/refreshAllClients.ts`; past 25 clients it
+pauses, with a countdown on the button, before the next batch) and saved as
+one change,
 for when the whole roster should be brought up to date now rather than
 over the background sync's next few hours. Companies House writes the same person two ways ("SMITH, Jane" in the
 officers list, "Mrs Jane Smith" in the PSC list); both are folded into
