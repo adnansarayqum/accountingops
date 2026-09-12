@@ -11,6 +11,7 @@ import { seedFixture, STORAGE_KEY } from './fixtures';
  */
 test.describe('primary scenario journey', () => {
   test.beforeEach(async ({ page }) => {
+    await page.context().route(/wa\.me/, (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<title>wa.me stub</title>' }));
     await seedFixture(page);
   });
 
@@ -48,8 +49,14 @@ test.describe('primary scenario journey', () => {
     await expect(page.getByRole('dialog')).toBeVisible();
     await expect(page.getByRole('radio', { name: /WhatsApp/ })).toHaveAttribute('aria-checked', 'true');
     await expect(page.getByLabel('Message')).toContainText('loan statement and director expenses');
+    // WhatsApp is handed to the accountant's own WhatsApp: Send opens wa.me
+    // with the message filled in, and the reminder is logged as handed off.
+    const popupPromise = page.context().waitForEvent('page');
     await page.getByTestId('send-reminder-confirm').click();
-    await expect(page.getByText('Reminder sent', { exact: true })).toBeVisible();
+    const popup = await popupPromise;
+    expect(popup.url()).toMatch(/^https:\/\/wa\.me\/447700900123\?text=/);
+    await popup.close();
+    await expect(page.getByText('WhatsApp opened', { exact: true })).toBeVisible();
     await expect(page.getByTestId('job-comms').locator('li')).toHaveCount(commsBefore + 1);
     await expect(page.getByTestId('job-comms').locator('li').first()).toContainText('WhatsApp');
 

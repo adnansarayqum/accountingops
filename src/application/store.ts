@@ -106,6 +106,8 @@ export interface AppState {
     body: string;
     documentsRequested: string[];
     stage: string;
+    /** How the message actually left (or didn't). Omitted = simulated, the original behaviour. */
+    delivery?: { status: 'sent' | 'handed_off' | 'simulated'; providerName: string; providerMessageId?: string };
   }): void;
 
   // inbox
@@ -656,6 +658,7 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     sendReminder(input) {
+      const delivery = input.delivery ?? { status: 'simulated' as const, providerName: 'simulated' };
       mutate((d, ctx) => {
         const job = d.jobs.find((j) => j.id === input.jobId);
         if (!job) return;
@@ -675,7 +678,10 @@ export const useAppStore = create<AppState>((set, get) => {
           reminderStage: input.stage,
           documentsRequested: input.documentsRequested,
           responseStatus: 'awaiting',
-          simulated: true,
+          simulated: delivery.status === 'simulated',
+          deliveryStatus: delivery.status,
+          providerName: delivery.providerName,
+          providerMessageId: delivery.providerMessageId,
         });
         for (const item of d.requestItems.filter((i) => i.jobId === job.id && i.status === 'missing')) {
           item.status = 'requested';
@@ -683,7 +689,7 @@ export const useAppStore = create<AppState>((set, get) => {
         }
         const what = input.documentsRequested.length > 0 ? ` (${input.documentsRequested.map((s) => s.toLowerCase()).join(', ')})` : '';
         ctx.activity('reminder_sent', `${CHANNEL_LABELS[input.channel]} reminder sent to ${client?.name} for ${job.name}${what}.`, job);
-        ctx.audit('communication.send', 'communication', job.id, undefined, { channel: input.channel, stage: input.stage, simulated: true });
+        ctx.audit('communication.send', 'communication', job.id, undefined, { channel: input.channel, stage: input.stage, delivery: delivery.status, provider: delivery.providerName });
       });
     },
 

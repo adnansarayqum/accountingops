@@ -7,6 +7,7 @@ import express from 'express';
 import companiesHouseRouter from './server/routes/companiesHouse.mjs';
 import authRouter from './server/routes/auth.mjs';
 import practiceDataRouter from './server/routes/practiceData.mjs';
+import messagesRouter from './server/routes/messages.mjs';
 import { healthPayload } from './server/lib/health.mjs';
 import { securityHeaders } from './server/lib/securityHeaders.mjs';
 
@@ -38,6 +39,7 @@ function apiMiddleware(): Plugin {
     app.use(securityHeaders(options));
     app.get('/health', async (_req, res) => res.json(await healthPayload()));
     app.use('/api/companies-house', companiesHouseRouter);
+    app.use('/api/messages', messagesRouter);
     app.use('/api/auth', authRouter);
     app.use('/api/practice-data', practiceDataRouter);
     return app;

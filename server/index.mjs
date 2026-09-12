@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import companiesHouseRouter from './routes/companiesHouse.mjs';
 import authRouter from './routes/auth.mjs';
 import practiceDataRouter from './routes/practiceData.mjs';
+import messagesRouter from './routes/messages.mjs';
 import { healthPayload } from './lib/health.mjs';
 import { securityHeaders } from './lib/securityHeaders.mjs';
 
@@ -54,6 +55,7 @@ app.get('/health', async (_req, res) => {
 // External integrations. Each router owns its own credentials — the
 // browser only ever talks to /api/*, never to a third-party API directly.
 app.use('/api/companies-house', companiesHouseRouter);
+app.use('/api/messages', messagesRouter);
 
 // Authentication and shared practice-data persistence. Both return 503 when
 // DATABASE_URL isn't configured, so the client falls back to the original
