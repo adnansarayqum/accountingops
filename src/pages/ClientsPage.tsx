@@ -8,6 +8,7 @@ import { Input, Select } from '../ui/components/Form';
 import { Avatar } from '../ui/components/Avatar';
 import { Badge, DueBadge, ResponsivenessBadge } from '../ui/components/Badge';
 import { EmptyState } from '../ui/components/EmptyState';
+import { RefreshAllCompaniesHouseButton } from '../ui/components/RefreshAllCompaniesHouseButton';
 import { useData, useDerived } from '../application/selectors';
 import { CLIENT_TYPE_LABELS, SERVICES } from '../domain/catalog';
 import type { ClientType } from '../domain/types';
@@ -47,6 +48,7 @@ export function ClientsPage() {
         description={`${data.clients.length} clients · search by name, contact, company number, UTR, VAT or PAYE reference.`}
         actions={
           <>
+            <RefreshAllCompaniesHouseButton />
             <LinkButton to="/clients/import" variant="secondary" icon={<Upload />}>
               Import clients
             </LinkButton>
