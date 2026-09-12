@@ -10,12 +10,15 @@ import { Badge, DueBadge } from '../ui/components/Badge';
 import { Input } from '../ui/components/Form';
 import { Button } from '../ui/components/Button';
 import { useData, useDerived, useToday } from '../application/selectors';
-import { groupDueSoonByService, serviceStatuses, type ServiceStatus } from '../application/dashboardGroups';
+import { CORE_TILE_SERVICES, groupDueSoonByService, serviceStatuses, type ServiceStatus } from '../application/dashboardGroups';
 import { EXAMPLE_QUESTIONS } from '../application/assistant/router';
 import { formatAgo, formatDate, weekdayName } from '../domain/dates';
 
 /** The line under a service tile: what's overdue, what's due soon, and how much is open in total. */
 function serviceTileHint(status: ServiceStatus, dueSoonDays: number): string {
+  // A core service with nothing on file is worth saying plainly — it means
+  // nobody is tracking that work, not that there's none to do.
+  if (status.open === 0) return 'nothing tracked yet';
   const parts =
     status.overdue > 0
       ? [`${status.overdue} overdue`, status.dueSoon > 0 ? `${status.dueSoon} due soon` : null]
@@ -37,7 +40,7 @@ export function DashboardPage() {
   const dueSoonDays = derived.thresholds.dueSoonDays;
   const dueSoonViews = derived.jobViews.filter((v) => v.job.status !== 'filed' && v.daysUntilDue >= 0 && v.daysUntilDue <= dueSoonDays);
   const dueSoonGroups = groupDueSoonByService(dueSoonViews);
-  const byService = serviceStatuses(derived.jobViews, dueSoonDays);
+  const byService = serviceStatuses(derived.jobViews, dueSoonDays, CORE_TILE_SERVICES);
   // Identity verification is its own axis, not one more reason a job might be flagged — split
   // out here rather than left to compete with (and sometimes lose to) a job's other attention rules.
   const identityDue = derived.attention.filter((a) => a.ruleCode === 'identity_incomplete');
