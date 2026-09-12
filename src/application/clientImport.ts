@@ -3,6 +3,7 @@ import { SERVICES } from '../domain/catalog';
 import { jobNameFor, periodKeyFor } from '../domain/rules';
 import { newId } from './ids';
 import { birthMonthYearOf, isSamePerson, normalisePersonName } from '../domain/personNames';
+import { buildCorporationTaxRecords } from '../domain/corporationTax';
 import type { Client, ClientIdentifier, Contact, IdentifierKind, InformationRequestItem, IsoDate, Job, Obligation, Person, PersonRole, PersonRoleKind, RegisteredAddress, ServiceSubscription } from '../domain/types';
 import type { CompanyPeopleResponse, CompanyPerson, CompanyProfile } from '../integrations/companiesHouseTypes';
 
@@ -157,6 +158,17 @@ export function buildImportedClientRecords(rows: ClientRosterRow[], practiceId: 
       addObligationAndJob(
         { practiceId, clientId, serviceCode: 'annual_accounts', periodEnd: row.accountsPeriodEnd, dueDate: row.accountsDue, periodLengthMonths: 12 },
         { subscriptions, obligations, jobs, requestItems, today },
+      );
+    }
+
+    // Corporation tax isn't in the roster — no spreadsheet carries a CT600 date —
+    // but it's derivable: the return is due 12 months after the same accounting
+    // period end the accounts are made up to (see domain/corporationTax.ts).
+    if (row.accountsPeriodEnd) {
+      buildCorporationTaxRecords(
+        { practiceId, clientId, periodEnd: row.accountsPeriodEnd, today },
+        { subscriptions, obligations, jobs, requestItems },
+        newId,
       );
     }
 

@@ -87,7 +87,9 @@ version, so it is itself undoable. Data clean-ups are built the same way
 rather than run against the database by hand: Settings → Duplicate people
 (`src/domain/peopleMerge.ts`) previews what a merge would do and applies
 it, on confirmation, as one saved change — so it too is a version that
-can be restored over.
+can be restored over. Settings → Corporation tax
+(`src/domain/corporationTax.ts`) works the same way, filling in the CT600
+work a spreadsheet roster import never created.
 
 The whole-aggregate snapshot is still an interim adapter — two people
 editing the same record at the same moment replay by mutation, not by
@@ -122,6 +124,16 @@ rather than hardcoded numbers. A practice's overrides live at
 `resolveThresholds()` fills in the same defaults every rule used before this
 existed, so an untouched practice behaves exactly as it always did) and are
 edited from Settings → Timing thresholds, one saved change like any other.
+
+**Corporation tax dates** (`src/domain/corporationTax.ts`) are the one place
+two statutory deadlines hang off a single accounting period end: the CT600 is
+due 12 months after it, but the tax itself is payable 9 months and a day after
+it — three months earlier. The job's `dueDate` is the filing deadline, since
+filing is the work being tracked; the payment date is derived wherever a
+corporation tax job is shown, so nobody reads "due in 12 months" and misses
+the earlier one. No roster spreadsheet carries a CT600 date, so both the
+import and the Settings → Corporation tax backfill derive it from the
+accounts period end through the same builder.
 
 ## Status vs blocker
 

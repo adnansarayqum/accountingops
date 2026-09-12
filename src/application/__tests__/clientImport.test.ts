@@ -33,9 +33,9 @@ describe('buildImportedClientRecords', () => {
     expect(idKinds).toEqual(['ch_auth_code', 'company_number', 'utr']);
     expect(built.identifiers.every((i) => i.clientId === client.id)).toBe(true);
 
-    // Two obligations/jobs: annual accounts and confirmation statement.
-    expect(built.obligations).toHaveLength(2);
-    expect(built.jobs).toHaveLength(2);
+    // Three obligations/jobs: annual accounts, corporation tax and confirmation statement.
+    expect(built.obligations).toHaveLength(3);
+    expect(built.jobs).toHaveLength(3);
 
     const accountsJob = built.jobs.find((j) => j.serviceCode === 'annual_accounts')!;
     expect(accountsJob.periodEnd).toBe('2026-06-30');
@@ -46,6 +46,25 @@ describe('buildImportedClientRecords', () => {
     const csJob = built.jobs.find((j) => j.serviceCode === 'confirmation_statement')!;
     expect(csJob.dueDate).toBe('2026-11-15');
     expect(csJob.periodEnd).toBe('2026-11-01'); // 14 days before the due date
+  });
+
+  it('creates corporation tax from the accounting period end, which no roster carries a date for', () => {
+    const row: ClientRosterRow = { name: 'Example Trading Ltd', companyNumber: '12345678', accountsPeriodEnd: '2026-06-30', accountsDue: '2027-03-31' };
+    const built = buildImportedClientRecords([row], practiceId, ownerUserId, today);
+
+    const ctJob = built.jobs.find((j) => j.serviceCode === 'corporation_tax')!;
+    expect(ctJob).toBeDefined();
+    expect(ctJob.periodEnd).toBe('2026-06-30');
+    expect(ctJob.periodStart).toBe('2025-07-01');
+    expect(ctJob.dueDate).toBe('2027-06-30'); // 12 months after the period end
+    expect(built.subscriptions.some((s) => s.serviceCode === 'corporation_tax')).toBe(true);
+    expect(built.requestItems.some((r) => r.jobId === ctJob.id)).toBe(true);
+  });
+
+  it('creates no corporation tax without an accounting period end to derive it from', () => {
+    const row: ClientRosterRow = { name: 'CS Only Ltd', companyNumber: '12345678', confirmationStatementDue: '2026-11-15' };
+    const built = buildImportedClientRecords([row], practiceId, ownerUserId, today);
+    expect(built.jobs.map((j) => j.serviceCode)).toEqual(['confirmation_statement']);
   });
 
   it('creates a client with no jobs when no dates are given', () => {
@@ -65,7 +84,9 @@ describe('buildImportedClientRecords', () => {
     const built = buildImportedClientRecords(rows, practiceId, ownerUserId, today);
     expect(built.clients).toHaveLength(2);
     expect(built.clients.map((c) => c.name)).toEqual(['Alpha Ltd', 'Beta Ltd']);
-    expect(built.jobs).toHaveLength(1);
+    // Only Alpha has an accounting period, so only Alpha gets accounts and corporation tax work.
+    expect(built.jobs.map((j) => j.serviceCode)).toEqual(['annual_accounts', 'corporation_tax']);
+    expect(built.jobs.every((j) => j.clientId === built.clients[0].id)).toBe(true);
   });
 
   it('carries Companies House enrichment fields through onto the created client', () => {

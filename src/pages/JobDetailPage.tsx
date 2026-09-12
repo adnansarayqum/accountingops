@@ -15,6 +15,7 @@ import { useAppStore } from '../application/store';
 import { useData, useDerived, useToday } from '../application/selectors';
 import { CHANNEL_LABELS, JOB_STATUS_LABELS, JOB_STATUS_ORDER, SERVICES, WAITING_ON_LABELS, FILING_DESTINATION } from '../domain/catalog';
 import { formatDate, formatDateTime, daysSince } from '../domain/dates';
+import { corporationTaxPaymentDue } from '../domain/corporationTax';
 import { ALLOWED_TRANSITIONS, primaryActionLabel, primaryActionTarget } from '../domain/rules';
 import type { WaitingOn } from '../domain/types';
 import { cn } from '../ui/cn';
@@ -99,6 +100,13 @@ export function JobDetailPage() {
             <WaitingOnBadge waitingOn={job.waitingOn} />
             {job.status !== 'filed' && <DueBadge days={view.daysUntilDue} />}
             <span className="text-slate-500">Due {formatDate(job.dueDate)}</span>
+            {/* The CT600 is due 12 months after the period end but the tax is payable at 9 months and a day —
+                showing only the filing deadline would hide the earlier one that actually costs interest. */}
+            {job.serviceCode === 'corporation_tax' && (
+              <span className="text-slate-500" data-testid="ct-payment-due">
+                · Tax payable {formatDate(corporationTaxPaymentDue(job.periodEnd), { year: true })}
+              </span>
+            )}
           </span>
         }
         actions={

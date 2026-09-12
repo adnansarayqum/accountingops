@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { findMissingCorporationTax } from '../../domain/corporationTax';
 import { configureRepository, useAppStore } from '../store';
 import { PLACEHOLDER_CONTACT_NAME } from '../clientImport';
 import { MemoryRepository } from '../persistence/memoryRepository';
@@ -514,6 +515,53 @@ describe('application store — merging duplicate people', () => {
     const activities = afterFirst.activities.length;
     useAppStore.setState({ unsaved: false });
     expect(useAppStore.getState().mergeDuplicatePeople()).toEqual({ peopleRemoved: 0, rolesMoved: 0, rolesCombined: 0 });
+    expect(useAppStore.getState().data).toBe(afterFirst);
+    expect(useAppStore.getState().data.activities).toHaveLength(activities);
+    expect(useAppStore.getState().unsaved).toBe(false);
+  });
+});
+
+describe('application store — generating corporation tax obligations', () => {
+  beforeEach(() => {
+    configureRepository(new MemoryRepository());
+    const data = structuredClone(buildFixtureData(today));
+    // The state a spreadsheet import leaves behind: a limited company with an
+    // accounts obligation and no corporation tax anywhere.
+    data.obligations = data.obligations.filter((o) => o.serviceCode !== 'corporation_tax');
+    data.jobs = data.jobs.filter((j) => j.serviceCode !== 'corporation_tax');
+    data.subscriptions = data.subscriptions.filter((sub) => sub.serviceCode !== 'corporation_tax');
+    useAppStore.setState({ data, today, ready: true, currentUserId: 'u_adnan', toasts: [] });
+  });
+
+  it('creates a CT600 job per limited company as one saved change, with an activity and an audit entry', () => {
+    const expected = findMissingCorporationTax(useAppStore.getState().data, today);
+    expect(expected.length).toBeGreaterThan(0);
+
+    const summary = useAppStore.getState().generateCorporationTaxObligations();
+    expect(summary.jobsCreated).toBe(expected.length);
+    expect(summary.clientsUpdated).toBe(expected.length);
+
+    const s = useAppStore.getState().data;
+    const created = s.jobs.filter((j) => j.serviceCode === 'corporation_tax');
+    expect(created).toHaveLength(expected.length);
+    for (const row of expected) {
+      const job = created.find((j) => j.clientId === row.clientId)!;
+      expect(job.dueDate).toBe(row.dueDate);
+      expect(job.periodEnd).toBe(row.periodEnd);
+      expect(s.requestItems.some((r) => r.jobId === job.id)).toBe(true);
+      expect(s.subscriptions.some((sub) => sub.clientId === row.clientId && sub.serviceCode === 'corporation_tax')).toBe(true);
+    }
+    expect(s.activities[0]).toMatchObject({ kind: 'note', message: `Corporation tax added for ${expected.length} clients.` });
+    expect(s.auditEvents[0]).toMatchObject({ action: 'obligations.corporation_tax', after: { jobsCreated: expected.length } });
+    expect(useAppStore.getState().unsaved).toBe(true);
+  });
+
+  it('does nothing — and saves nothing — on a second run', () => {
+    useAppStore.getState().generateCorporationTaxObligations();
+    const afterFirst = useAppStore.getState().data;
+    const activities = afterFirst.activities.length;
+    useAppStore.setState({ unsaved: false });
+    expect(useAppStore.getState().generateCorporationTaxObligations()).toEqual({ clientsUpdated: 0, jobsCreated: 0, overdueCreated: 0 });
     expect(useAppStore.getState().data).toBe(afterFirst);
     expect(useAppStore.getState().data.activities).toHaveLength(activities);
     expect(useAppStore.getState().unsaved).toBe(false);

@@ -8,6 +8,7 @@ import { Avatar } from '../ui/components/Avatar';
 import { SnapshotHistoryCard } from '../ui/components/SnapshotHistoryCard';
 import { MessagingStatusCard } from '../ui/components/MessagingStatusCard';
 import { DuplicatePeopleCard } from '../ui/components/DuplicatePeopleCard';
+import { CorporationTaxCard } from '../ui/components/CorporationTaxCard';
 import { useAppStore } from '../application/store';
 import { useData } from '../application/selectors';
 import { changePassword, logout, logoutEverywhere } from '../application/auth';
@@ -115,6 +116,7 @@ export function SettingsPage() {
       <ThresholdsCard />
       <MessagingStatusCard />
       <DuplicatePeopleCard />
+      <CorporationTaxCard />
 
       <Card>
         <CardHeader title="Security posture" icon={<ShieldCheck />} />
