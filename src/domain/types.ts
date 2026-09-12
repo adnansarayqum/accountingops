@@ -97,7 +97,17 @@ export interface Client {
   previousNames?: string[];
   /** When the Companies House fields above were last pulled. Absent means never — the client came from a spreadsheet or was typed in by hand. */
   companiesHouseSyncedAt?: IsoDateTime;
+  /** Anti-money-laundering risk rating from the practice's last review (see domain/rules/aml.ts). Absent means never rated. */
+  amlRiskRating?: AmlRiskRating;
+  amlLastReviewedOn?: IsoDate;
+  amlReviewNote?: string;
+  /** Taxable turnover over the last twelve months, entered by hand, for the VAT registration threshold watch (see domain/rules/vatThreshold.ts). */
+  rolling12MonthTurnover?: number;
+  /** When that figure was recorded, so a stale one reads as stale. */
+  turnoverRecordedOn?: IsoDate;
 }
+
+export type AmlRiskRating = 'low' | 'standard' | 'high';
 
 /** A UK registered office address, as returned by Companies House. */
 export interface RegisteredAddress {

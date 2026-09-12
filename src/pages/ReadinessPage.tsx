@@ -7,8 +7,8 @@ import { Tabs } from '../ui/components/Tabs';
 import { Badge } from '../ui/components/Badge';
 import { Select } from '../ui/components/Form';
 import { useAppStore } from '../application/store';
-import { useData, useDerived } from '../application/selectors';
-import { describeCompaniesHouseVerification, evaluateIdentityReadiness, evaluateMtd, groupRolesByPerson } from '../domain/rules';
+import { useData, useDerived, useToday } from '../application/selectors';
+import { AML_RATING_LABELS, amlSummary, describeCompaniesHouseVerification, evaluateIdentityReadiness, evaluateMtd, formatPounds, groupRolesByPerson, VAT_REGISTRATION_THRESHOLD, vatThresholdSummary } from '../domain/rules';
 import { normaliseCompanyNumber } from '../domain/companyNumber';
 import { formatDate } from '../domain/dates';
 import type { IdentityVerificationStatus, MtdStatus } from '../domain/types';
@@ -23,7 +23,11 @@ export function ReadinessPage() {
   const derived = useDerived();
   const update = useAppStore((s) => s.updatePersonRoleVerification);
   const toast = useAppStore((s) => s.toast);
-  const [tab, setTab] = useState<'mtd' | 'identity'>('identity');
+  const [tab, setTab] = useState<'mtd' | 'identity' | 'compliance'>('identity');
+  const today = useToday();
+  const aml = amlSummary(data.clients, today);
+  const vat = vatThresholdSummary(data.clients, data.identifiers, today);
+  const complianceCount = aml.neverReviewed.length + aml.overdue.length + aml.dueSoon.length + vat.over.length + vat.approaching.length;
 
   const mtdRows = data.mtdReadiness.map((r) => ({ r, client: derived.clientById.get(r.clientId)!, ev: evaluateMtd(r) })).filter((x) => x.client);
   const identityRows = data.clients.filter((c) => c.type === 'limited_company').map((c) => evaluateIdentityReadiness(c, data.personRoles, data.people)).filter((x) => x.total > 0).sort((a, b) => Number(a.status === 'ready') - Number(b.status === 'ready'));
@@ -34,7 +38,7 @@ export function ReadinessPage() {
 
   return (
     <div className="animate-in">
-      <PageHeader title="Readiness" description="Regulatory changes that need action before deadlines: MTD for Income Tax and Companies House identity verification." />
+      <PageHeader title="Readiness" description="Regulatory obligations that need action before they bite: Companies House identity verification, MTD for Income Tax, AML reviews and the VAT registration threshold." />
       <Tabs
         value={tab}
         onChange={setTab}
@@ -42,8 +46,54 @@ export function ReadinessPage() {
         options={[
           { value: 'identity', label: 'Companies House identity', count: identityRows.filter((r) => r.status !== 'ready').length },
           { value: 'mtd', label: 'MTD Income Tax', count: mtdRows.filter((r) => r.ev.status === 'action_needed' || r.ev.status === 'review').length },
+          { value: 'compliance', label: 'AML & VAT threshold', count: complianceCount },
         ]}
       />
+
+      {tab === 'compliance' && (
+        <div className="grid gap-4 lg:grid-cols-2" data-testid="compliance-tab">
+          <Card>
+            <CardHeader title="AML reviews" description={`${aml.current} of ${aml.total} active clients current. The regulations expect a risk rating per client and periodic re-review — annual for high risk, two-yearly for standard, three-yearly for low.`} />
+            <CardBody className="pt-0">
+              {aml.neverReviewed.length === 0 && aml.overdue.length === 0 && aml.dueSoon.length === 0 ? (
+                <p className="text-sm text-slate-500">Every active client has a current review.</p>
+              ) : (
+                <ul className="divide-y divide-slate-100" data-testid="aml-list">
+                  {[...aml.neverReviewed.map((s) => ({ s, label: 'Never reviewed', tone: 'red' as const })), ...aml.overdue.map((s) => ({ s, label: `Overdue by ${-(s.daysUntilDue ?? 0)} days`, tone: 'red' as const })), ...aml.dueSoon.map((s) => ({ s, label: `Due in ${s.daysUntilDue} days`, tone: 'amber' as const }))].map(({ s, label, tone }) => (
+                    <li key={s.clientId} className="py-2 flex items-center justify-between gap-2" data-testid={`aml-row-${s.clientId}`}>
+                      <Link to={`/clients/${s.clientId}`} className="text-[13px] text-slate-800 hover:text-primary-700 truncate">
+                        {derived.clientById.get(s.clientId)?.name ?? s.clientId}
+                        {s.rating && <span className="text-slate-400"> · {AML_RATING_LABELS[s.rating].toLowerCase()}</span>}
+                      </Link>
+                      <Badge tone={tone}>{label}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardBody>
+          </Card>
+          <Card>
+            <CardHeader title="VAT registration threshold" description={`${formatPounds(VAT_REGISTRATION_THRESHOLD)} of taxable turnover in twelve months. ${vat.registered} registered · ${vat.clear} clear · ${vat.noFigure} with no turnover on file.`} />
+            <CardBody className="pt-0">
+              {vat.over.length === 0 && vat.approaching.length === 0 ? (
+                <p className="text-sm text-slate-500">Nobody unregistered is near the threshold — of those with a figure on file.</p>
+              ) : (
+                <ul className="divide-y divide-slate-100" data-testid="vat-watch-list">
+                  {[...vat.over.map((s) => ({ s, tone: 'red' as const, label: `${formatPounds(-s.headroom!)} over` })), ...vat.approaching.map((s) => ({ s, tone: 'amber' as const, label: `${formatPounds(s.headroom!)} to go` }))].map(({ s, tone, label }) => (
+                    <li key={s.clientId} className="py-2 flex items-center justify-between gap-2" data-testid={`vat-row-${s.clientId}`}>
+                      <Link to={`/clients/${s.clientId}`} className="text-[13px] text-slate-800 hover:text-primary-700 truncate">
+                        {derived.clientById.get(s.clientId)?.name ?? s.clientId}
+                        <span className="text-slate-400"> · {formatPounds(s.turnover!)}{s.stale ? ' · stale figure' : ''}</span>
+                      </Link>
+                      <Badge tone={tone}>{label}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardBody>
+          </Card>
+        </div>
+      )}
 
       {tab === 'identity' && (
         <div className="grid gap-4 lg:grid-cols-2">
