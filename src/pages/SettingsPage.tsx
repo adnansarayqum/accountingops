@@ -9,6 +9,7 @@ import { SnapshotHistoryCard } from '../ui/components/SnapshotHistoryCard';
 import { MessagingStatusCard } from '../ui/components/MessagingStatusCard';
 import { DuplicatePeopleCard } from '../ui/components/DuplicatePeopleCard';
 import { CorporationTaxCard } from '../ui/components/CorporationTaxCard';
+import { HmrcConnectionCard } from '../ui/components/HmrcConnectionCard';
 import { useAppStore } from '../application/store';
 import { useData } from '../application/selectors';
 import { changePassword, logout, logoutEverywhere } from '../application/auth';
@@ -114,6 +115,7 @@ export function SettingsPage() {
       {authMode === 'server' && <AccountCard />}
       {authMode === 'server' && <SnapshotHistoryCard />}
       <ThresholdsCard />
+      <HmrcConnectionCard />
       <MessagingStatusCard />
       <DuplicatePeopleCard />
       <CorporationTaxCard />

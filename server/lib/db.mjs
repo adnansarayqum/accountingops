@@ -108,6 +108,22 @@ async function runMigrations() {
   // event can arrive twice; the unique key makes recording it idempotent.
   await query('create unique index if not exists companies_house_changes_event_idx on companies_house_changes (company_number, timepoint)');
   await query('create index if not exists companies_house_changes_pending_idx on companies_house_changes (seen_at) where acknowledged_at is null');
+  // HMRC Making Tax Digital: the agent's OAuth tokens. One row per agent
+  // services account, not per client — HMRC authorise the agent, and the
+  // agent's authority over each client is checked by them on every call.
+  // Tokens are credentials: nothing here is ever sent to the browser.
+  await query(`
+    create table if not exists hmrc_agent_tokens (
+      id             text primary key,
+      access_token   text not null,
+      refresh_token  text,
+      scope          text,
+      expires_at     timestamptz not null,
+      connected_by   text,
+      connected_at   timestamptz not null default now(),
+      updated_at     timestamptz not null default now()
+    )
+  `);
   await query(`
     create table if not exists practice_snapshot_history (
       id          bigserial primary key,

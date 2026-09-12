@@ -198,34 +198,70 @@ Browser → CompanyLookup component → /api/companies-house/search
 Companies House. Confirmation statements and accounts are still filed
 (simulated) the way the rest of the product already does.
 
-## HMRC (Making Tax Digital) — architected, not connected
+## HMRC (Making Tax Digital) — built, sandbox-first, awaiting credentials
 
-This is genuinely a different scale of problem, not a smaller version of
-the Companies House integration:
+The VAT (MTD) integration is written and tested. What it is waiting on is
+HMRC, not code: sandbox credentials are issued on registration, but
+**production** credentials additionally require HMRC to review the
+application's fraud prevention headers and approve it. That is weeks, on
+their timeline.
 
-- Your firm must register as a **recognised software vendor** with HMRC and
-  pass their compliance process (fraud-prevention headers, a working
-  sandbox integration, a production application review). This takes weeks
-  and is on HMRC's timeline, not something that can be coded into
-  existence.
-- Access is **per-client OAuth 2.0**: each client must separately authorise
-  your firm as their agent through HMRC's agent-services flow before you
-  can call the API on their behalf. There's no single firm-wide key.
-- VAT, Income Tax (ITSA) and Corporation Tax are **separate API products**
-  with separate scopes and separate testing requirements.
+**Why this matters to the practice.** The roster import creates accounts,
+confirmation statement and corporation tax work. It creates nothing for
+VAT, and VAT comes round four times a year. HMRC's *retrieve VAT
+obligations* endpoint returns each filing period and the statutory due date
+**they** hold, so a changed stagger corrects itself instead of going stale
+in a spreadsheet.
 
-None of that can be faked into a working integration without misrepresenting
-what the product does. What exists instead:
+**One authorisation, not one per client.** An earlier version of this
+document said access was per-client OAuth; that is wrong, and worth
+correcting because it changes the design. HMRC issue an OAuth token to the
+*agent*: the practice signs in once with its agent services account and
+grants this software access. The practice's authority over each individual
+client is a separate relationship — clients are linked to the agent
+services account — and HMRC check it themselves on every call. So
+`hmrc_agent_tokens` holds one row, not one per client
+(`server/lib/hmrc/tokenStore.mjs`).
 
-- `WaitingOn = 'hmrc'` and `FILING_DESTINATION` already model HMRC as a
-  destination in the domain layer (`src/domain/catalog.ts`).
-- Filing stays explicitly simulated (`FilingRecord.simulated: true`,
-  labelled in the UI) until real MTD access is in place.
-- The natural next step, when your firm has HMRC vendor recognition, is a
-  `server/routes/hmrc.mjs` proxy following the exact same pattern as
-  Companies House: credentials never reach the browser, and each client's
-  OAuth tokens would be stored server-side (see `docs/ARCHITECTURE.md`'s
-  security roadmap for where encrypted token storage fits).
+**Fraud prevention headers are the gate.** HMRC require sixteen headers on
+every call for this app's architecture ("web application via server") and
+audit them before granting production credentials — an incomplete or
+badly-formatted set is the most common reason an application is refused.
+Several describe the *end user's* device (screen, window, timezone, browser
+user agent, a stable device id) which a server cannot know, so the browser
+collects them (`src/integrations/hmrcDeviceData.ts`) and posts them with
+each request; the server adds its own half and formats the set
+(`server/lib/hmrc/fraudPreventionHeaders.mjs`). That device id is a random
+UUID identifying the browser — no name, no account, nothing derived from
+practice data.
+
+The client **refuses to call HMRC at all** with an incomplete set, naming
+what is missing. HMRC would accept it in the sandbox and refuse the
+application at approval time, which is the worst place to find out.
+
+**Sandbox unless told otherwise.** `HMRC_ENVIRONMENT` has to say exactly
+`production` to leave the sandbox — a typo must never point live traffic at
+the real thing. Sandbox obligations are canned test scenarios selected with
+a `Gov-Test-Scenario` header, not real deadlines, and the UI labels them as
+such. That header is never sent at production, where it would be
+meaningless.
+
+**No sample-data fallback.** Companies House has one because approximating
+a public register is harmless. A VAT deadline is not: a failed call reports
+why (`not_connected`, `client_not_authorised`, `invalid_vrn`,
+`fraud_headers_incomplete`) rather than showing a plausible date nobody
+should act on.
+
+**Turning it on:** register at <https://developer.service.hmrc.gov.uk/>,
+subscribe the application to the VAT (MTD) API, and set `HMRC_CLIENT_ID`
+and `HMRC_CLIENT_SECRET` (plus `HMRC_VENDOR_PUBLIC_IP` for the vendor
+headers). `GET /api/hmrc/status` reports whether credentials are present,
+which environment, and whether an agent account is connected — never the
+tokens. Settings → HMRC connects and disconnects it.
+
+Filing itself stays explicitly simulated (`FilingRecord.simulated: true`,
+labelled in the UI). Reading obligations is a much smaller commitment than
+submitting returns, and is where the value is.
 
 ## Accounting software (Xero, QuickBooks, FreeAgent, Sage) — deliberately out of scope for now
 
