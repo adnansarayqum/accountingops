@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, Clock, FileCheck, Inbox, Sparkles, UserX } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, Clock, FileCheck, Inbox, ShieldAlert, Sparkles, UserX } from 'lucide-react';
 import { PageHeader } from '../ui/components/PageHeader';
 import { KpiCard, Stat } from '../ui/components/Kpi';
 import { Card, CardBody, CardHeader } from '../ui/components/Card';
@@ -10,9 +10,9 @@ import { Badge, DueBadge } from '../ui/components/Badge';
 import { Input } from '../ui/components/Form';
 import { Button } from '../ui/components/Button';
 import { useData, useDerived, useToday } from '../application/selectors';
+import { groupDueSoonByService } from '../application/dashboardGroups';
 import { EXAMPLE_QUESTIONS } from '../application/assistant/router';
 import { formatAgo, formatDate, weekdayName } from '../domain/dates';
-import { SERVICES } from '../domain/catalog';
 
 export function DashboardPage() {
   const derived = useDerived();
@@ -23,7 +23,11 @@ export function DashboardPage() {
   const m = derived.metrics;
   const topAttention = derived.attention.slice(0, 4);
   const readyToFile = derived.jobViews.filter((v) => v.job.status === 'ready_to_file');
-  const dueSoon = derived.jobViews.filter((v) => v.job.status !== 'filed' && v.daysUntilDue >= 0 && v.daysUntilDue <= 14).slice(0, 8);
+  const dueSoonViews = derived.jobViews.filter((v) => v.job.status !== 'filed' && v.daysUntilDue >= 0 && v.daysUntilDue <= 14);
+  const dueSoonGroups = groupDueSoonByService(dueSoonViews);
+  // Identity verification is its own axis, not one more reason a job might be flagged — split
+  // out here rather than left to compete with (and sometimes lose to) a job's other attention rules.
+  const identityDue = derived.attention.filter((a) => a.ruleCode === 'identity_incomplete');
   const waitingClients = new Set(derived.jobViews.filter((v) => v.job.status !== 'filed' && v.job.waitingOn === 'client').map((v) => v.client.id)).size;
 
   return (
@@ -62,6 +66,75 @@ export function DashboardPage() {
                   const view = derived.jobViewById.get(a.jobId);
                   return view ? <AttentionCard key={a.id} item={a} view={view} compact /> : null;
                 })}
+              </div>
+            )}
+          </section>
+
+          <section aria-labelledby="due-soon">
+            <div className="flex items-end justify-between mb-2.5">
+              <div>
+                <h2 id="due-soon" className="text-base font-semibold text-slate-900">
+                  Due soon
+                </h2>
+                <p className="text-[13px] text-slate-500">
+                  {dueSoonViews.length === 0 ? 'Nothing due in the next two weeks.' : `${dueSoonViews.length} open job${dueSoonViews.length === 1 ? '' : 's'} due in the next 14 days, split by what they are.`}
+                </p>
+              </div>
+              <Link to="/jobs?due=14" className="text-[13px] font-medium text-primary-700 hover:underline inline-flex items-center gap-1">
+                View all <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </div>
+            {dueSoonGroups.length === 0 && identityDue.length === 0 ? (
+              <Card>
+                <EmptyState icon={<Clock />} title="Nothing due soon" description="No open jobs are due in the next two weeks." compact />
+              </Card>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {dueSoonGroups.map((group) => (
+                  <Card key={group.serviceCode}>
+                    <CardHeader title={group.label} description={`${group.views.length} due`} />
+                    <CardBody className="pt-0">
+                      <ul className="divide-y divide-slate-100">
+                        {group.views.slice(0, 4).map((v) => (
+                          <li key={v.job.id}>
+                            <Link to={`/jobs/${v.job.id}`} className="py-2 flex items-center justify-between gap-2 hover:text-primary-700">
+                              <span className="text-[13px] font-medium text-slate-800 truncate">{v.client.name}</span>
+                              <DueBadge days={v.daysUntilDue} />
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                      {group.views.length > 4 && (
+                        <Link to={`/jobs?due=14&service=${group.serviceCode}`} className="mt-2 inline-block text-xs font-medium text-primary-700 hover:underline">
+                          View all {group.views.length} →
+                        </Link>
+                      )}
+                    </CardBody>
+                  </Card>
+                ))}
+                {identityDue.length > 0 && (
+                  <Card>
+                    <CardHeader title="Identity verification" icon={<ShieldAlert />} description={`${identityDue.length} confirmation statement${identityDue.length === 1 ? '' : 's'} at risk`} />
+                    <CardBody className="pt-0">
+                      <ul className="divide-y divide-slate-100">
+                        {identityDue.slice(0, 4).map((a) => {
+                          const view = derived.jobViewById.get(a.jobId);
+                          return view ? (
+                            <li key={a.id}>
+                              <Link to={`/jobs/${a.jobId}`} className="py-2 flex items-center justify-between gap-2 hover:text-primary-700">
+                                <span className="text-[13px] font-medium text-slate-800 truncate">{view.client.name}</span>
+                                <DueBadge days={a.daysUntilDue} />
+                              </Link>
+                            </li>
+                          ) : null;
+                        })}
+                      </ul>
+                      <Link to="/readiness" className="mt-2 inline-block text-xs font-medium text-primary-700 hover:underline">
+                        Manage in Readiness →
+                      </Link>
+                    </CardBody>
+                  </Card>
+                )}
               </div>
             )}
           </section>
@@ -119,29 +192,6 @@ export function DashboardPage() {
                   </li>
                 ))}
               </ul>
-            </CardBody>
-          </Card>
-
-          <Card>
-            <CardHeader title="Due in the next 14 days" icon={<Clock />} action={<Link to="/jobs?due=14" className="text-[13px] font-medium text-primary-700 hover:underline">All</Link>} />
-            <CardBody className="pt-0">
-              {dueSoon.length === 0 ? (
-                <p className="text-sm text-slate-500 py-2">Nothing due in the next two weeks.</p>
-              ) : (
-                <ul className="divide-y divide-slate-100">
-                  {dueSoon.map((v) => (
-                    <li key={v.job.id}>
-                      <Link to={`/jobs/${v.job.id}`} className="py-2 flex items-center justify-between gap-2 hover:text-primary-700">
-                        <div className="min-w-0">
-                          <p className="text-[13px] font-medium text-slate-800 truncate">{v.client.name}</p>
-                          <p className="text-xs text-slate-500 truncate">{SERVICES[v.job.serviceCode].name} · {v.job.waitingOn === 'client' ? 'waiting on client' : v.job.waitingOn === 'nothing' ? 'ready' : `with ${v.assignee?.name.split(' ')[0] ?? 'team'}`}</p>
-                        </div>
-                        <DueBadge days={v.daysUntilDue} />
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
             </CardBody>
           </Card>
 
