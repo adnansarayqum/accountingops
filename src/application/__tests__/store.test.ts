@@ -49,6 +49,16 @@ describe('application store — primary workflow', () => {
     expect(s.auditEvents[0].action).toBe('communication.send');
   });
 
+  it('records how a reminder actually left, defaulting to simulated', () => {
+    useAppStore.getState().sendReminder({ jobId: 'job_abc_accounts', channel: 'email', recipient: 'dave@abc-construction.example', subject: 'S', body: 'real', documentsRequested: [], stage: 'Firm', delivery: { status: 'sent', providerName: 'postmark', providerMessageId: 'pm-1' } });
+    const real = useAppStore.getState().data.communications.find((c) => c.body === 'real')!;
+    expect(real).toMatchObject({ simulated: false, deliveryStatus: 'sent', providerName: 'postmark', providerMessageId: 'pm-1' });
+    expect(useAppStore.getState().data.auditEvents[0].after).toMatchObject({ delivery: 'sent', provider: 'postmark' });
+
+    useAppStore.getState().sendReminder({ jobId: 'job_abc_accounts', channel: 'whatsapp', recipient: '07700 900123', body: 'handed', documentsRequested: [], stage: 'Firm', delivery: { status: 'handed_off', providerName: 'whatsapp_click_to_chat' } });
+    expect(useAppStore.getState().data.communications.find((c) => c.body === 'handed')).toMatchObject({ simulated: false, deliveryStatus: 'handed_off' });
+  });
+
   it('confirming an inbox item attaches the document and updates the checklist', () => {
     useAppStore.getState().confirmInboxItem('inb_abc_loan');
     const s = useAppStore.getState().data;

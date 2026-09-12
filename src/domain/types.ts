@@ -294,7 +294,12 @@ export interface Communication {
   reminderStage?: string;
   documentsRequested?: string[];
   responseStatus: 'awaiting' | 'responded' | 'n/a';
+  /** True when nothing left the app. Kept alongside deliveryStatus for older records. */
   simulated: boolean;
+  /** How it was delivered: really sent by a provider, handed to the accountant's own app (WhatsApp), or simulated. Absent on older records (= simulated). */
+  deliveryStatus?: 'sent' | 'handed_off' | 'simulated';
+  providerName?: string;
+  providerMessageId?: string;
 }
 
 export interface ReminderStep {

@@ -6,6 +6,7 @@ import { Button } from '../ui/components/Button';
 import { Field, Input, Select } from '../ui/components/Form';
 import { Avatar } from '../ui/components/Avatar';
 import { SnapshotHistoryCard } from '../ui/components/SnapshotHistoryCard';
+import { MessagingStatusCard } from '../ui/components/MessagingStatusCard';
 import { useAppStore } from '../application/store';
 import { useData } from '../application/selectors';
 import { changePassword, logout } from '../application/auth';
@@ -108,12 +109,13 @@ export function SettingsPage() {
 
       {authMode === 'server' && <AccountCard />}
       {authMode === 'server' && <SnapshotHistoryCard />}
+      <MessagingStatusCard />
 
       <Card>
         <CardHeader title="Security posture" icon={<ShieldCheck />} />
         <CardBody className="pt-0 text-[13px] text-slate-700 space-y-1.5">
           <p>• Identifiers are masked on screen and every reveal is written to the audit log. This is a UX convenience — production enforces field-level authorisation server-side.</p>
-          <p>• Sending and filing are simulated — no message or filing integration is connected yet, so nothing leaves this application.</p>
+          <p>• Filing is simulated — nothing is submitted to HMRC or Companies House. Reminders leave the app only as the Messaging card above describes.</p>
           <p>• Every record carries a practice id so server-side persistence can enforce tenant isolation from day one.</p>
           {authMode === 'server' && <p>• Signed in with a shared account: practice data is stored in a database, not just this browser. Identifiers aren't encrypted at rest there yet — see docs/ARCHITECTURE.md for the security roadmap.</p>}
         </CardBody>

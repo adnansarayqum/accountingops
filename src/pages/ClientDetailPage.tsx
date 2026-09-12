@@ -462,7 +462,7 @@ export function ClientDetailPage() {
 
       {tab === 'comms' && (
         <Card>
-          <CardHeader title="Communications" description="Email, WhatsApp and SMS history. Sending is simulated and logged here." />
+          <CardHeader title="Communications" description="Email, WhatsApp and SMS history, with how each one left." />
           <CardBody className="pt-0">
             {comms.length === 0 ? (
               <p className="text-sm text-slate-500 py-3">No communications recorded yet.</p>
@@ -486,7 +486,7 @@ export function ClientDetailPage() {
                           {job && <span>· {job.name}</span>}
                           {c.reminderStage && <Badge tone="blue">{c.reminderStage}</Badge>}
                           {c.direction === 'outbound' && c.reminderStage && <Badge tone={c.responseStatus === 'responded' ? 'green' : 'amber'}>{c.responseStatus === 'responded' ? 'Responded' : 'Awaiting reply'}</Badge>}
-                          {c.simulated && c.direction === 'outbound' && <span className="text-slate-400">simulated</span>}
+                          {c.direction === 'outbound' && <span className="text-slate-400">{deliveryLabel(c)}</span>}
                         </div>
                         {c.subject && <p className="text-[13px] font-medium text-slate-900 mt-1">{c.subject}</p>}
                         <p className="text-[13px] text-slate-700 mt-0.5 whitespace-pre-line">{c.body}</p>
@@ -532,4 +532,12 @@ function HandoverRow({ label, value, tone }: { label: string; value: string; ton
       <dd className={cn('mt-0.5 text-slate-800', tone === 'amber' && 'text-amber-800', tone === 'green' && 'text-emerald-700', tone === 'blue' && 'text-primary-700 font-medium')}>{value}</dd>
     </div>
   );
+}
+
+/** How an outbound message left — older records without a delivery status were all simulated. */
+function deliveryLabel(c: { simulated: boolean; deliveryStatus?: 'sent' | 'handed_off' | 'simulated'; providerName?: string }): string {
+  const status = c.deliveryStatus ?? (c.simulated ? 'simulated' : 'sent');
+  if (status === 'handed_off') return 'opened in WhatsApp';
+  if (status === 'sent') return c.providerName ? `sent via ${c.providerName}` : 'sent';
+  return 'simulated';
 }

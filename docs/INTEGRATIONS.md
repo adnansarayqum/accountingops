@@ -6,6 +6,56 @@ out of scope. Three categories were considered — company registry lookup,
 HMRC, and third-party accounting software — and they are not equally
 feasible, so they're treated differently.
 
+## Messaging — email live (Postmark), WhatsApp by hand-off, SMS simulated
+
+**What it does.** A reminder drafted from a job's actual outstanding items
+leaves the app in one of three ways, chosen by channel and shown on the
+send button and in Settings → Messaging:
+
+- **Email** — sent through this app's own `/api/messages/send` by the
+  provider named in `MESSAGING_EMAIL_PROVIDER`. `postmark` sends it for real
+  (Postmark's message id is kept on the communication); the default,
+  `simulated`, logs it and sends nothing — exactly what the app always did.
+- **WhatsApp** — not sent by the app at all. Send opens WhatsApp on the
+  accountant's own device (a `wa.me/<number>?text=<draft>` link) with the
+  message filled in; they press send there. Logged as *handed off*.
+  Business-initiated WhatsApp messages need Meta-approved templates and a
+  verified business (days to weeks, per-template approval) and can't carry
+  the free-text drafts this app writes — for three people sending a few
+  dozen reminders, the hand-off is the honest fit.
+- **SMS** — simulated. An alphanumeric UK sender (free, no registry) is
+  one-way, so the draft's "reply here" wording would need to change first;
+  a rented number (~$2.50/month) is the alternative. Not built until a
+  sender is chosen.
+
+**How to turn on live email:**
+
+1. Create a Postmark server, verify the sender address (or the domain) the
+   reminders will come from.
+2. Set `MESSAGING_EMAIL_PROVIDER=postmark`, `POSTMARK_SERVER_TOKEN` and
+   `MESSAGING_FROM_EMAIL` (optionally `MESSAGING_FROM_NAME`) in the
+   environment. See `.env.example`.
+3. Restart. `GET /api/messages/status` reports the provider and whether it's
+   configured; Settings → Messaging shows the same.
+
+**Architecture.** Same pattern as Companies House: the browser never holds
+a provider credential. `server/lib/messaging/` has one adapter per provider
+behind a tiny interface (`send({to, subject, body}) → {providerMessageId,
+status}`), selected per channel by environment and defaulting to
+`simulated`, so development and tests never need a provider. The route
+validates the recipient, subject and body, requires a signed-in session
+when a database is configured, limits each caller to thirty sends a minute,
+and remembers each draft's idempotency key for ten minutes so a double
+click or a replayed request can't send the same reminder twice. Every
+communication records how it left (`deliveryStatus`, `providerName`,
+`providerMessageId`), and the client record shows it.
+
+**What this is not.** No inbound path yet — a client's reply doesn't
+change `responseStatus` unless it arrives through the Smart Inbox — and no
+delivery webhooks (bounces show up in Postmark's activity log, not here).
+Both need a server-side store of their own rather than the whole-practice
+snapshot; see the roadmap in `docs/ARCHITECTURE.md`.
+
 ## Companies House — live, working today
 
 **What it does.** Type a company name while onboarding a client (New client

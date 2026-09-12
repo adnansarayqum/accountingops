@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Mail, MessageCircle, MessageSquare, Send } from 'lucide-react';
+import { ExternalLink, Mail, MessageCircle, MessageSquare, Send } from 'lucide-react';
 import { Modal } from './Modal';
 import { Button } from './Button';
 import { Field, Input, Textarea } from './Form';
 import { Badge } from './Badge';
 import { useAppStore } from '../../application/store';
 import { useData, useToday } from '../../application/selectors';
+import { newId } from '../../application/ids';
 import { draftReminder, nextReminderStep, sequenceIdFor } from '../../domain/rules';
 import type { Channel, Job } from '../../domain/types';
 import { CHANNEL_LABELS } from '../../domain/catalog';
+import { getMessagingStatus, sendEmail, whatsAppClickToChatUrl, type MessagingStatus } from '../../integrations/messaging';
 import { cn } from '../cn';
 
 const CHANNELS: { value: Channel; icon: typeof Mail }[] = [
@@ -19,8 +21,10 @@ const CHANNELS: { value: Channel; icon: typeof Mail }[] = [
 
 /**
  * One-click reminder: pre-drafts a specific, human message referencing the
- * actual outstanding documents. Sending is simulated — no messaging
- * integration is connected yet.
+ * actual outstanding documents. How it leaves depends on the channel:
+ * email is sent through the server's provider when one is configured
+ * (simulated otherwise); WhatsApp opens the accountant's own WhatsApp with
+ * the message ready to send and is logged as handed off; SMS is simulated.
  */
 export function ReminderComposer({ job, open, onClose, initialChannel }: { job: Job; open: boolean; onClose: () => void; initialChannel?: Channel }) {
   const data = useData();
@@ -42,6 +46,10 @@ export function ReminderComposer({ job, open, onClose, initialChannel }: { job: 
   const [body, setBody] = useState(draft.body);
   const [subject, setSubject] = useState(draft.subject ?? '');
   const [recipient, setRecipient] = useState(draft.recipient);
+  const [messaging, setMessaging] = useState<MessagingStatus | null>(null);
+  const [sending, setSending] = useState(false);
+  // One key per opened draft: a double-click or a retried request can't send twice.
+  const [idempotencyKey, setIdempotencyKey] = useState(() => newId('send'));
 
   useEffect(() => {
     setBody(draft.body);
@@ -49,18 +57,72 @@ export function ReminderComposer({ job, open, onClose, initialChannel }: { job: 
     setRecipient(draft.recipient);
   }, [draft]);
   useEffect(() => {
-    if (open) setChannel(defaultChannel);
+    if (!open) return;
+    setChannel(defaultChannel);
+    setIdempotencyKey(newId('send'));
+    let cancelled = false;
+    void getMessagingStatus().then((s) => {
+      if (!cancelled) setMessaging(s);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
-  const send = () => {
+  const emailIsLive = messaging?.email.configured === true && messaging.email.provider !== 'simulated';
+
+  const send = async () => {
     if (!recipient.trim() || !body.trim()) {
       toast({ title: 'Add a recipient and message before sending.', tone: 'error' });
       return;
     }
-    sendReminder({ jobId: job.id, channel, recipient, subject: channel === 'email' ? subject : undefined, body, documentsRequested: draft.documentsRequested, stage: draft.stage });
+    const base = { jobId: job.id, channel, recipient: recipient.trim(), subject: channel === 'email' ? subject : undefined, body, documentsRequested: draft.documentsRequested, stage: draft.stage };
+
+    if (channel === 'whatsapp') {
+      const url = whatsAppClickToChatUrl(recipient, body);
+      if (!url) {
+        toast({ title: "That doesn't look like a UK mobile number", description: 'Check the number and try again.', tone: 'error' });
+        return;
+      }
+      // Open first: browsers only allow a new window from a direct click, and
+      // the store update below would otherwise steal that moment.
+      window.open(url, '_blank', 'noopener');
+      sendReminder({ ...base, delivery: { status: 'handed_off', providerName: 'whatsapp_click_to_chat' } });
+      toast({ title: 'WhatsApp opened', description: `The message to ${contact.name} is ready to send there — logged on ${client.name}.`, tone: 'success' });
+      onClose();
+      return;
+    }
+
+    if (channel === 'email' && emailIsLive) {
+      setSending(true);
+      try {
+        const result = await sendEmail({ to: recipient.trim(), subject, body, idempotencyKey });
+        sendReminder({ ...base, delivery: { status: result.status, providerName: result.providerName, providerMessageId: result.providerMessageId } });
+        toast({ title: 'Email sent', description: `To ${recipient.trim()} — logged on ${client.name}.`, tone: 'success' });
+        onClose();
+      } catch (err) {
+        toast({ title: "Couldn't send the email", description: `${(err as Error).message} Nothing has been logged.`, tone: 'error' });
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
+    sendReminder(base);
     toast({ title: 'Reminder sent', description: `${CHANNEL_LABELS[channel]} to ${contact.name} — logged on ${client.name}. (Simulated — nothing left the app.)`, tone: 'success' });
     onClose();
   };
+
+  const footerNote =
+    channel === 'whatsapp'
+      ? 'Opens WhatsApp on this device with the message filled in — you send it there. Logged here as handed off.'
+      : channel === 'email'
+        ? emailIsLive
+          ? `Sent as email from ${messaging?.email.from ?? 'the practice'} and logged here.`
+          : 'Email sending is simulated until a provider is configured — see Settings → Messaging.'
+        : 'SMS is simulated and logged. Nothing leaves this application.';
+
+  const actionLabel = channel === 'whatsapp' ? 'Open WhatsApp' : channel === 'email' && emailIsLive ? (sending ? 'Sending…' : 'Send email') : `Send ${CHANNEL_LABELS[channel]}`;
 
   return (
     <Modal
@@ -70,12 +132,14 @@ export function ReminderComposer({ job, open, onClose, initialChannel }: { job: 
       description={`${client.name} · ${job.name}`}
       footer={
         <>
-          <span className="mr-auto text-xs text-slate-500">Sending is simulated and logged. Nothing leaves this application.</span>
-          <Button variant="secondary" onClick={onClose}>
+          <span className="mr-auto text-xs text-slate-500" data-testid="reminder-delivery-note">
+            {footerNote}
+          </span>
+          <Button variant="secondary" onClick={onClose} disabled={sending}>
             Cancel
           </Button>
-          <Button onClick={send} icon={<Send />} data-testid="send-reminder-confirm">
-            Send {CHANNEL_LABELS[channel]}
+          <Button onClick={() => void send()} icon={channel === 'whatsapp' ? <ExternalLink /> : <Send />} disabled={sending} data-testid="send-reminder-confirm">
+            {actionLabel}
           </Button>
         </>
       }

@@ -3,6 +3,7 @@ import express from 'express';
 import authRouter, { resetLoginLimits } from '../auth.mjs';
 import practiceDataRouter from '../practiceData.mjs';
 import companiesHouseRouter from '../companiesHouse.mjs';
+import messagesRouter from '../messages.mjs';
 import { isDatabaseConfigured, query } from '../../lib/db.mjs';
 import { hashPassword } from '../../lib/passwords.mjs';
 
@@ -56,6 +57,7 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     app.use('/api/auth', authRouter);
     app.use('/api/practice-data', practiceDataRouter);
     app.use('/api/companies-house', companiesHouseRouter);
+    app.use('/api/messages', messagesRouter);
     server = app.listen(0);
     await new Promise((resolve) => server.once('listening', resolve));
     baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -308,6 +310,31 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
       const res = await put({ data });
       expect(res.status).toBe(413);
       expect(await res.json()).toEqual({ error: 'payload_too_large' });
+    });
+  });
+
+  describe('messaging with logins configured', () => {
+    it('refuses to send without a session, but still answers /status', async () => {
+      const status = await fetch(`${baseUrl}/api/messages/status`);
+      expect(status.status).toBe(200);
+      const send = await fetch(`${baseUrl}/api/messages/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: 'email', to: 'a@b.c', subject: 'S', body: 'B', idempotencyKey: 'send_unauth_0001' }),
+      });
+      expect(send.status).toBe(401);
+    });
+
+    it('lets a signed-in user send (simulated here)', async () => {
+      const login = await postLogin(baseUrl, 'practice_data_test', 'FixtureUserPass1');
+      const cookie = extractCookie(login);
+      const send = await fetch(`${baseUrl}/api/messages/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ channel: 'email', to: 'a@b.c', subject: 'S', body: 'B', idempotencyKey: 'send_signed_in_01' }),
+      });
+      expect(send.status).toBe(200);
+      expect((await send.json()).status).toBe('simulated');
     });
   });
 
