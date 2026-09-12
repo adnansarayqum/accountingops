@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { changePassword, fetchCurrentUser, login, logout } from '../auth';
+import { changePassword, fetchCurrentUser, login, logout, logoutEverywhere } from '../auth';
 
 describe('fetchCurrentUser', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -132,5 +132,16 @@ describe('logout', () => {
     vi.stubGlobal('fetch', fetchSpy);
     await logout();
     expect(fetchSpy).toHaveBeenCalledWith('/api/auth/logout', expect.objectContaining({ method: 'POST' }));
+  });
+});
+
+describe('logoutEverywhere', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('calls the logout-everywhere endpoint, distinct from a single-device logout', async () => {
+    const fetchSpy = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+    await logoutEverywhere();
+    expect(fetchSpy).toHaveBeenCalledWith('/api/auth/logout-everywhere', expect.objectContaining({ method: 'POST' }));
   });
 });

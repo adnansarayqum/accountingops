@@ -84,6 +84,11 @@ export async function logout(): Promise<void> {
   await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
 }
 
+/** Signs out every session for this account, not just this device — "I think someone else has access". */
+export async function logoutEverywhere(): Promise<void> {
+  await fetch('/api/auth/logout-everywhere', { method: 'POST', credentials: 'include' });
+}
+
 export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
   const res = await fetch('/api/auth/change-password', {
     method: 'POST',

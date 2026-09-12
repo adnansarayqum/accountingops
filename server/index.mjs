@@ -15,6 +15,8 @@ import practiceDataRouter from './routes/practiceData.mjs';
 import messagesRouter from './routes/messages.mjs';
 import { healthPayload } from './lib/health.mjs';
 import { securityHeaders } from './lib/securityHeaders.mjs';
+import { isDatabaseConfigured } from './lib/db.mjs';
+import { ensureSeedUsers } from './lib/bootstrapUsers.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.resolve(__dirname, '../dist');
@@ -78,6 +80,18 @@ app.use((err, _req, res, _next) => {
   console.error(JSON.stringify({ level: 'error', at: new Date().toISOString(), message: err?.message ?? String(err) }));
   res.status(500).json({ error: 'Something went wrong. Nothing has been lost — try again.' });
 });
+
+// Seeded once, here, at boot — not on every request (see
+// server/lib/bootstrapUsers.mjs) — so a seed account removed from the
+// database stays removed until the next deploy instead of quietly
+// reappearing on the next request that happens to touch auth.
+if (isDatabaseConfigured()) {
+  try {
+    await ensureSeedUsers();
+  } catch (err) {
+    console.error(JSON.stringify({ level: 'error', at: new Date().toISOString(), message: `Failed to seed practice accounts: ${err?.message ?? err}` }));
+  }
+}
 
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(JSON.stringify({ level: 'info', at: new Date().toISOString(), message: `accountingops web listening on ${port}` }));
