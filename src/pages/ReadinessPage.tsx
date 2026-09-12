@@ -66,6 +66,11 @@ export function ReadinessPage() {
                           <p className="text-xs text-slate-500">
                             {role.kind === 'psc' ? 'PSC' : role.kind.charAt(0).toUpperCase() + role.kind.slice(1)} · personal code {role.personalCodeCaptured ? 'captured' : 'not captured'} · evidence {role.evidenceStatus}
                           </p>
+                          {role.identityVerification === 'verified' && role.identityVerificationSource === 'companies_house' && (
+                            <p className="text-xs text-emerald-700" data-testid={`verified-by-companies-house-${role.id}`}>
+                              Confirmed by Companies House{role.identityVerifiedOn ? ` · ${formatDate(role.identityVerifiedOn)}` : ''}
+                            </p>
+                          )}
                         </div>
                         <Select
                           value={role.identityVerification}

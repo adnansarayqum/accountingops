@@ -32,9 +32,11 @@ test.describe('refresh from Companies House', () => {
         json: {
           // Dave Thompson already exists as a director+PSC on this client in the fixture —
           // refreshing must not create a duplicate for him.
-          directors: [{ name: 'Dave Thompson', role: 'director', appointedOn: '2012-04-01', dateOfBirth: { month: '4', year: '1978' }, nationality: 'British', occupation: 'Director', naturesOfControl: [] }],
+          directors: [{ name: 'Dave Thompson', role: 'director', appointedOn: '2012-04-01', dateOfBirth: { month: '4', year: '1978' }, nationality: 'British', occupation: 'Director', naturesOfControl: [], identityVerification: null }],
           pscs: [
-            { name: 'Newly Appointed Person', role: 'psc', appointedOn: '2026-01-01', dateOfBirth: { month: '1', year: '1990' }, nationality: 'British', occupation: null, naturesOfControl: ['Owns 25-50% of shares'] },
+            // Companies House already records this person as verified — the app must pick that up rather than
+            // flag them as needing verification.
+            { name: 'Newly Appointed Person', role: 'psc', appointedOn: '2026-01-01', dateOfBirth: { month: '1', year: '1990' }, nationality: 'British', occupation: null, naturesOfControl: ['Owns 25-50% of shares'], identityVerification: { verifiedOn: '2026-03-04', statementDueOn: null, verifiedBy: null } },
           ],
           source: 'companies_house',
         },
@@ -60,6 +62,12 @@ test.describe('refresh from Companies House', () => {
     await expect(rolesCard.getByText('Dave Thompson')).toHaveCount(2);
     await expect(rolesCard.getByText('Newly Appointed Person')).toBeVisible();
     await expect(page.getByText('Owns 25-50% of shares')).toBeVisible();
+    // The new PSC arrived already verified, as Companies House said, and Readiness says where that came from.
+    await expect(rolesCard.locator('li', { hasText: 'Newly Appointed Person' })).toContainText('verified');
+    await page.goto('/readiness');
+    const readinessRow = page.locator('li', { hasText: 'Newly Appointed Person' });
+    await expect(readinessRow).toContainText('Confirmed by Companies House');
+    await expect(readinessRow.getByRole('combobox')).toHaveValue('verified');
   });
 
   test('shows a clear message when no Companies House key is configured', async ({ page }) => {

@@ -132,6 +132,10 @@ export interface PersonRole {
   clientId: Id;
   kind: PersonRoleKind;
   identityVerification: IdentityVerificationStatus;
+  /** Who last set `identityVerification`: the practice by hand, or a Companies House refresh that found them verified. */
+  identityVerificationSource?: 'practice' | 'companies_house';
+  /** The date Companies House records the verification against, when it was confirmed from there. */
+  identityVerifiedOn?: IsoDate;
   personalCodeCaptured: boolean;
   evidenceStatus: 'none' | 'requested' | 'received' | 'checked';
   /** How control is held — only ever populated for a 'psc' role, from Companies House. */

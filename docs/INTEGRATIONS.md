@@ -104,7 +104,16 @@ company names, and refreshes automatically once a day per client, with a
 card. Companies House writes the same person two ways ("SMITH, Jane" in the
 officers list, "Mrs Jane Smith" in the PSC list); both are folded into
 "Jane Smith" and matched as one person, with month/year of birth as the
-tie-breaker (`src/domain/personNames.ts`). People recorded twice before
+tie-breaker (`src/domain/personNames.ts`). Each refresh also reads the
+person's `identity_verification_details`: a date Companies House records
+the verification against (an authorised agent's `identity_verified_on`, or
+an appointment verification statement still in force) marks that role
+**Verified** in Readiness, noted as "Confirmed by Companies House", and
+clears the confirmation-statement warning in Needs Attention. It only ever
+upgrades — a status the practice set by hand is kept, and Companies House
+saying nothing is never read as "not verified" (it omits the details for
+many people who have verified directly, so the manual path stays). People
+recorded twice before
 that folding existed (an import's "HASAN, Mohammad" next to a refresh's
 "Mr Mohammad Hasan", each with a role at the same client) are listed under
 Settings → Duplicate people and merged only on confirmation, as one

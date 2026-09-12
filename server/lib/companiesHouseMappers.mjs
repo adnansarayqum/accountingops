@@ -46,6 +46,27 @@ function mapDateOfBirth(dob) {
   return dob ? { month: dob.month, year: dob.year } : null;
 }
 
+/**
+ * Companies House publishes an officer's or PSC's identity-verification
+ * details in two shapes: `identity_verified_on` when an authorised agent
+ * (ACSP) verified them, or an appointment verification statement
+ * (`appointment_verification_start_on`, removed again by
+ * `appointment_verification_end_on`) when they verified directly. Either
+ * counts as verified. Nothing at all means Companies House isn't saying —
+ * the object is often absent even for people who have verified — so the
+ * app must never read its absence as "not verified".
+ */
+function mapIdentityVerification(details) {
+  if (!details || typeof details !== 'object') return null;
+  const statementActive = Boolean(details.appointment_verification_start_on) && !details.appointment_verification_end_on;
+  const verifiedOn = details.identity_verified_on ?? (statementActive ? details.appointment_verification_start_on : null);
+  return {
+    verifiedOn: verifiedOn ?? null,
+    statementDueOn: details.appointment_verification_statement_due_on ?? null,
+    verifiedBy: details.authorised_corporate_service_provider_name ?? null,
+  };
+}
+
 /** One active director from a company's officers list. */
 function mapOfficer(item) {
   return {
@@ -56,6 +77,7 @@ function mapOfficer(item) {
     nationality: item.nationality ?? null,
     occupation: item.occupation ?? null,
     naturesOfControl: [],
+    identityVerification: mapIdentityVerification(item.identity_verification_details),
   };
 }
 
@@ -91,6 +113,7 @@ function mapPsc(item) {
     nationality: item.nationality ?? null,
     occupation: null,
     naturesOfControl: (item.natures_of_control ?? []).map(humanizeNatureOfControl),
+    identityVerification: mapIdentityVerification(item.identity_verification_details),
   };
 }
 

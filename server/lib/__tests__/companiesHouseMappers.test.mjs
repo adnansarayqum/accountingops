@@ -86,7 +86,26 @@ describe('mapOfficers', () => {
       nationality: 'British',
       occupation: 'Director',
       naturesOfControl: [],
+      identityVerification: null,
     });
+  });
+
+  it('reads identity verification: an agent-verified date, or an appointment verification statement still in force', () => {
+    const raw = {
+      items: [
+        { name: 'AGENT, Verified', officer_role: 'director', identity_verification_details: { identity_verified_on: '2026-02-01', authorised_corporate_service_provider_name: 'Some ACSP Ltd', anti_money_laundering_supervisory_bodies: ['ICAEW'] } },
+        { name: 'DIRECT, Verified', officer_role: 'director', identity_verification_details: { appointment_verification_start_on: '2026-03-04', appointment_verification_statement_due_on: '2026-04-01' } },
+        { name: 'STATEMENT, Removed', officer_role: 'director', identity_verification_details: { appointment_verification_start_on: '2026-03-04', appointment_verification_end_on: '2026-05-01' } },
+        { name: 'DUE, Only', officer_role: 'director', identity_verification_details: { appointment_verification_statement_due_on: '2026-12-01' } },
+        { name: 'NOTHING, Said', officer_role: 'director' },
+      ],
+    };
+    const [agent, direct, removed, dueOnly, nothing] = mapOfficers(raw);
+    expect(agent.identityVerification).toEqual({ verifiedOn: '2026-02-01', statementDueOn: null, verifiedBy: 'Some ACSP Ltd' });
+    expect(direct.identityVerification).toEqual({ verifiedOn: '2026-03-04', statementDueOn: '2026-04-01', verifiedBy: null });
+    expect(removed.identityVerification).toEqual({ verifiedOn: null, statementDueOn: null, verifiedBy: null });
+    expect(dueOnly.identityVerification).toEqual({ verifiedOn: null, statementDueOn: '2026-12-01', verifiedBy: null });
+    expect(nothing.identityVerification).toBeNull();
   });
 
   it('handles an empty officers list', () => {
@@ -114,7 +133,17 @@ describe('mapPscs', () => {
       nationality: 'British',
       occupation: null,
       naturesOfControl: [],
+      identityVerification: null,
     });
+  });
+
+  it('reads a PSC\'s identity verification the same way as a director\'s', () => {
+    const raw = {
+      items: [
+        { name: 'Mrs Jane Smith', kind: 'individual-person-with-significant-control', identity_verification_details: { identity_verified_on: '2026-02-01' } },
+      ],
+    };
+    expect(mapPscs(raw)[0].identityVerification).toEqual({ verifiedOn: '2026-02-01', statementDueOn: null, verifiedBy: null });
   });
 
   it('handles an empty PSC list', () => {

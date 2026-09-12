@@ -408,7 +408,7 @@ describe('application store — primary workflow', () => {
         { clientId: 'cl_does_not_exist', profile: profileFor('99999999', 'Nowhere'), people: null },
       ]);
 
-      expect(result).toEqual({ clientsUpdated: 2, peopleAdded: 1 });
+      expect(result).toEqual({ clientsUpdated: 2, peopleAdded: 1, verificationsConfirmed: 0 });
       const after = useAppStore.getState().data;
       expect(after.clients.find((c) => c.id === one.id)!.registeredOffice?.formatted).toBe('One Road, London');
       expect(after.clients.find((c) => c.id === two.id)!.registeredOffice?.formatted).toBe('Two Road, Leeds');
@@ -517,5 +517,72 @@ describe('application store — merging duplicate people', () => {
     expect(useAppStore.getState().data).toBe(afterFirst);
     expect(useAppStore.getState().data.activities).toHaveLength(activities);
     expect(useAppStore.getState().unsaved).toBe(false);
+  });
+});
+
+describe('application store — identity verification confirmed by Companies House', () => {
+  beforeEach(() => {
+    configureRepository(new MemoryRepository());
+    useAppStore.setState({ data: structuredClone(buildFixtureData(today)), today, ready: true, currentUserId: 'u_adnan', toasts: [] });
+  });
+
+  const olivia = () => useAppStore.getState().data.personRoles.filter((r) => r.personId === 'p_olivia');
+  const verified = (name: string, role: 'director' | 'psc' = 'director') => ({ ...chPerson(name, role), identityVerification: { verifiedOn: '2026-03-04', statementDueOn: null, verifiedBy: null } });
+
+  it('marks an existing not-started role verified when Companies House says so, with an activity and an audit entry', () => {
+    expect(olivia().map((r) => r.identityVerification)).toEqual(['not_started', 'not_started']);
+    const result = useAppStore.getState().refreshClientFromCompaniesHouse('cl_greenfield', profileFor('09876543', 'Somewhere'), {
+      directors: [verified('GREENFIELD, Olivia')],
+      pscs: [verified('Mrs Olivia Greenfield', 'psc')],
+      source: 'companies_house',
+    });
+    expect(result).toEqual({ peopleAdded: 0, verificationsConfirmed: 2 });
+    for (const role of olivia()) {
+      expect(role).toMatchObject({ identityVerification: 'verified', identityVerificationSource: 'companies_house', identityVerifiedOn: '2026-03-04' });
+      // Companies House confirms identity, not that the practice captured a personal code or checked evidence.
+      expect(role.personalCodeCaptured).toBe(false);
+      expect(role.evidenceStatus).toBe('requested');
+    }
+    const s = useAppStore.getState().data;
+    expect(s.activities.map((a) => a.message)).toContain('Olivia Greenfield (director) identity verification confirmed by Companies House for Greenfield Design Ltd.');
+    expect(s.activities[0].message).toContain('2 identity verifications confirmed');
+    expect(s.auditEvents.filter((e) => e.action === 'person_role.verification')).toHaveLength(2);
+    expect(s.auditEvents.find((e) => e.action === 'person_role.verification')?.after).toMatchObject({ identityVerification: 'verified', source: 'companies_house', verifiedOn: '2026-03-04' });
+    // It clears the Needs Attention flag on the client's confirmation statement,
+    // which fired before the refresh (Olivia's two roles were not started).
+    const flagged = (data: typeof s) => computeDerived(data, today).attention.filter((a) => a.clientId === 'cl_greenfield' && a.ruleCode === 'identity_incomplete');
+    expect(flagged(buildFixtureData(today))).toHaveLength(1);
+    expect(flagged(s)).toEqual([]);
+  });
+
+  it('never downgrades: Companies House saying nothing leaves a status alone, and a hand-set status is kept', () => {
+    useAppStore.getState().updatePersonRoleVerification('pr_9', 'in_progress');
+    useAppStore.getState().refreshClientFromCompaniesHouse('cl_greenfield', null, {
+      directors: [chPerson('GREENFIELD, Olivia'), { ...chPerson('GREENFIELD, Tom'), identityVerification: { verifiedOn: null, statementDueOn: '2026-12-01', verifiedBy: null } }],
+      pscs: [],
+      source: 'companies_house',
+    });
+    expect(useAppStore.getState().data.personRoles.find((r) => r.id === 'pr_9')).toMatchObject({ identityVerification: 'in_progress', identityVerificationSource: 'practice' });
+    expect(useAppStore.getState().data.personRoles.find((r) => r.id === 'pr_8')!.identityVerification).toBe('verified'); // Tom, verified by hand in the fixture
+    expect(useAppStore.getState().data.auditEvents.filter((e) => e.action === 'person_role.verification' && (e.after as { source?: string }).source === 'companies_house')).toEqual([]);
+  });
+
+  it('records a newly added role as verified straight away when Companies House already says so', () => {
+    const result = useAppStore.getState().refreshClientFromCompaniesHouse('cl_greenfield', null, {
+      directors: [verified('NEWLY, Verified')],
+      pscs: [],
+      source: 'companies_house',
+    });
+    expect(result).toEqual({ peopleAdded: 1, verificationsConfirmed: 1 });
+    const person = useAppStore.getState().data.people.find((p) => p.fullName === 'Verified Newly')!;
+    expect(useAppStore.getState().data.personRoles.find((r) => r.personId === person.id)).toMatchObject({ identityVerification: 'verified', identityVerificationSource: 'companies_house' });
+  });
+
+  it('a later change by hand takes over from the Companies House confirmation', () => {
+    useAppStore.getState().refreshClientFromCompaniesHouse('cl_greenfield', null, { directors: [verified('GREENFIELD, Olivia')], pscs: [], source: 'companies_house' });
+    useAppStore.getState().updatePersonRoleVerification('pr_9', 'expired');
+    const role = useAppStore.getState().data.personRoles.find((r) => r.id === 'pr_9')!;
+    expect(role).toMatchObject({ identityVerification: 'expired', identityVerificationSource: 'practice' });
+    expect(role.identityVerifiedOn).toBeUndefined();
   });
 });
