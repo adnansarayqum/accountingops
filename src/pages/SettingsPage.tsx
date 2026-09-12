@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Check, KeyRound, LogOut, Pencil, ShieldCheck, Users, X } from 'lucide-react';
+import { Check, KeyRound, LogOut, Pencil, ShieldCheck, ShieldOff, Users, X } from 'lucide-react';
 import { PageHeader } from '../ui/components/PageHeader';
 import { Card, CardBody, CardHeader } from '../ui/components/Card';
 import { Button } from '../ui/components/Button';
@@ -9,7 +9,7 @@ import { SnapshotHistoryCard } from '../ui/components/SnapshotHistoryCard';
 import { MessagingStatusCard } from '../ui/components/MessagingStatusCard';
 import { useAppStore } from '../application/store';
 import { useData } from '../application/selectors';
-import { changePassword, logout } from '../application/auth';
+import { changePassword, logout, logoutEverywhere } from '../application/auth';
 
 export function SettingsPage() {
   const data = useData();
@@ -130,6 +130,7 @@ function AccountCard() {
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
+  const [signingOutEverywhere, setSigningOutEverywhere] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,7 +141,7 @@ function AccountCard() {
     setBusy(true);
     try {
       await changePassword(current, next);
-      toast({ title: 'Password updated', tone: 'success' });
+      toast({ title: 'Password updated', description: 'Any other signed-in session for this account was signed out.', tone: 'success' });
       setCurrent('');
       setNext('');
       setConfirm('');
@@ -154,6 +155,17 @@ function AccountCard() {
   const doLogout = async () => {
     await logout();
     window.location.reload();
+  };
+
+  const doLogoutEverywhere = async () => {
+    if (!window.confirm('Sign out every device currently signed in to this account?')) return;
+    setSigningOutEverywhere(true);
+    try {
+      await logoutEverywhere();
+      window.location.reload();
+    } finally {
+      setSigningOutEverywhere(false);
+    }
   };
 
   return (
@@ -176,9 +188,12 @@ function AccountCard() {
             </Button>
           </div>
         </form>
-        <div className="pt-2 border-t border-slate-100">
+        <div className="pt-2 border-t border-slate-100 flex flex-wrap gap-2">
           <Button variant="ghost" icon={<LogOut />} onClick={doLogout}>
             Sign out
+          </Button>
+          <Button variant="ghost" icon={<ShieldOff />} onClick={() => void doLogoutEverywhere()} disabled={signingOutEverywhere} data-testid="logout-everywhere">
+            {signingOutEverywhere ? 'Signing out everywhere…' : 'Sign out everywhere'}
           </Button>
         </div>
       </CardBody>

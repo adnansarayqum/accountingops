@@ -62,8 +62,69 @@ test.describe('server-backed login', () => {
     await page.goto('/settings');
     await expect(page.getByText('Adnan Sarayqum (adnan)')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Sign out' }).click();
+    await page.getByRole('button', { name: 'Sign out', exact: true }).click();
     await expect(page.getByTestId('login-username')).toBeVisible();
+  });
+
+  test('a temporary password cannot reach practice data before it is changed', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('login-username').fill('farhan');
+    await page.getByTestId('login-password').fill(process.env.FARHAN_TEMP_PASSWORD!);
+    await page.getByTestId('login-submit').click();
+    await expect(page.getByRole('heading', { name: 'Set a new password' })).toBeVisible();
+
+    // page.request shares this page's cookies, so the session cookie just
+    // issued is sent automatically. It's valid the moment it's issued —
+    // /me works — but the must-change-password gate refuses every data
+    // route until the temporary password is actually replaced, however the
+    // session was obtained.
+    const me = await page.request.get('/api/auth/me');
+    expect(me.ok()).toBe(true);
+    expect((await me.json()).user.mustChangePassword).toBe(true);
+    const practiceData = await page.request.get('/api/practice-data');
+    expect(practiceData.status()).toBe(403);
+    expect((await practiceData.json()).error).toBe('password_change_required');
+
+    await page.getByTestId('change-password-current').fill(process.env.FARHAN_TEMP_PASSWORD!);
+    await page.getByTestId('change-password-new').fill('FarhanNewPass1');
+    await page.getByTestId('change-password-confirm').fill('FarhanNewPass1');
+    await page.getByTestId('change-password-submit').click();
+    await expect(page.getByRole('heading', { name: 'Practice Today' })).toBeVisible({ timeout: 15_000 });
+
+    const afterChange = await page.request.get('/api/practice-data');
+    expect(afterChange.status()).not.toBe(403);
+  });
+
+  test('sign out everywhere ends every session for the account, not just this device', async ({ page, browser }) => {
+    await page.goto('/');
+    await page.getByTestId('login-username').fill('adnan');
+    await page.getByTestId('login-password').fill(process.env.ADNAN_TEMP_PASSWORD!);
+    await page.getByTestId('login-submit').click();
+    await page.getByTestId('change-password-current').fill(process.env.ADNAN_TEMP_PASSWORD!);
+    await page.getByTestId('change-password-new').fill('BrandNewPass1');
+    await page.getByTestId('change-password-confirm').fill('BrandNewPass1');
+    await page.getByTestId('change-password-submit').click();
+    await expect(page.getByRole('heading', { name: 'Practice Today' })).toBeVisible({ timeout: 15_000 });
+
+    // A second device, same account.
+    const otherContext = await browser.newContext();
+    const otherPage = await otherContext.newPage();
+    await otherPage.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+    await otherPage.goto('/');
+    await otherPage.getByTestId('login-username').fill('adnan');
+    await otherPage.getByTestId('login-password').fill('BrandNewPass1');
+    await otherPage.getByTestId('login-submit').click();
+    await expect(otherPage.getByRole('heading', { name: 'Practice Today' })).toBeVisible({ timeout: 15_000 });
+
+    await page.goto('/settings');
+    page.once('dialog', (d) => void d.accept());
+    await page.getByTestId('logout-everywhere').click();
+    await expect(page.getByTestId('login-username')).toBeVisible();
+
+    // The other device's session is gone too — its next request bounces to sign-in.
+    await otherPage.reload();
+    await expect(otherPage.getByTestId('login-username')).toBeVisible();
+    await otherContext.close();
   });
 
   test('rejects an incorrect password without signing in', async ({ page }) => {

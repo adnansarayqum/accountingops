@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import authRouter, { resetLoginLimits } from '../auth.mjs';
 import practiceDataRouter from '../practiceData.mjs';
@@ -6,6 +6,7 @@ import companiesHouseRouter from '../companiesHouse.mjs';
 import messagesRouter from '../messages.mjs';
 import { isDatabaseConfigured, query } from '../../lib/db.mjs';
 import { hashPassword } from '../../lib/passwords.mjs';
+import { ensureSeedUsers } from '../../lib/bootstrapUsers.mjs';
 
 /**
  * Requires a real local Postgres (DATABASE_URL set) — skipped otherwise.
@@ -53,6 +54,10 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     await query('delete from practice_snapshots');
     await query('delete from practice_snapshot_history').catch(() => {});
     resetLoginLimits();
+    // Accounts are seeded once at boot in production now, not per request
+    // (see lib/bootstrapUsers.mjs), so this suite seeds explicitly rather
+    // than relying on the router to do it on the next request.
+    await ensureSeedUsers();
     const app = express();
     app.use('/api/auth', authRouter);
     app.use('/api/practice-data', practiceDataRouter);
@@ -369,6 +374,178 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
         delete process.env.COMPANIES_HOUSE_API_KEY;
       }
     });
+  });
+
+  describe('must-change-password gate', () => {
+    let cookie;
+
+    beforeAll(async () => {
+      const { hash, salt } = await hashPassword('MustChangeTemp1');
+      await query(
+        'insert into practice_users (id, username, name, role, password_hash, password_salt, must_change_password) values ($1,$2,$3,$4,$5,$6,true)',
+        ['u_must_change_test', 'must_change_test', 'Must Change Test', 'owner', hash, salt],
+      );
+      const login = await postLogin(baseUrl, 'must_change_test', 'MustChangeTemp1');
+      cookie = extractCookie(login);
+    });
+
+    it('lets /me through, but blocks every data route until the password is changed', async () => {
+      const me = await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: cookie } });
+      expect(me.status).toBe(200);
+      expect((await me.json()).user.mustChangePassword).toBe(true);
+
+      const practiceData = await fetch(`${baseUrl}/api/practice-data`, { headers: { Cookie: cookie } });
+      expect(practiceData.status).toBe(403);
+      expect(await practiceData.json()).toEqual({ error: 'password_change_required' });
+
+      const send = await fetch(`${baseUrl}/api/messages/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ channel: 'email', to: 'a@b.c', subject: 'S', body: 'B', idempotencyKey: 'send_must_change_0001' }),
+      });
+      expect(send.status).toBe(403);
+      expect(await send.json()).toEqual({ error: 'password_change_required' });
+
+      const chSearch = await fetch(`${baseUrl}/api/companies-house/search?q=harbour`, { headers: { Cookie: cookie } });
+      expect(chSearch.status).toBe(403);
+    });
+
+    it('unblocks every data route the moment the password is changed', async () => {
+      const change = await fetch(`${baseUrl}/api/auth/change-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookie },
+        body: JSON.stringify({ currentPassword: 'MustChangeTemp1', newPassword: 'MustChangeNew1' }),
+      });
+      expect(change.status).toBe(200);
+
+      const practiceData = await fetch(`${baseUrl}/api/practice-data`, { headers: { Cookie: cookie } });
+      expect(practiceData.status).not.toBe(403);
+    });
+  });
+
+  describe('session revocation', () => {
+    it('changing the password signs out every other session for the account, but keeps the one making the change', async () => {
+      const { hash, salt } = await hashPassword('RevokeMePass1');
+      await query(
+        'insert into practice_users (id, username, name, role, password_hash, password_salt, must_change_password) values ($1,$2,$3,$4,$5,$6,false)',
+        ['u_revoke_test', 'revoke_test', 'Revoke Test', 'owner', hash, salt],
+      );
+      const loginA = await postLogin(baseUrl, 'revoke_test', 'RevokeMePass1');
+      const cookieA = extractCookie(loginA);
+      const loginB = await postLogin(baseUrl, 'revoke_test', 'RevokeMePass1');
+      const cookieB = extractCookie(loginB);
+      expect(cookieA).not.toBe(cookieB);
+
+      // Both sessions work before the change.
+      expect((await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: cookieA } })).status).toBe(200);
+      expect((await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: cookieB } })).status).toBe(200);
+
+      const change = await fetch(`${baseUrl}/api/auth/change-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: cookieA },
+        body: JSON.stringify({ currentPassword: 'RevokeMePass1', newPassword: 'RevokeMePass2' }),
+      });
+      expect(change.status).toBe(200);
+
+      // The session that made the change is still signed in; the other one is not.
+      expect((await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: cookieA } })).status).toBe(200);
+      expect((await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: cookieB } })).status).toBe(401);
+    });
+
+    it('sign out everywhere revokes every session for the account, including the one making the request', async () => {
+      const { hash, salt } = await hashPassword('EverywherePass1');
+      await query(
+        'insert into practice_users (id, username, name, role, password_hash, password_salt, must_change_password) values ($1,$2,$3,$4,$5,$6,false)',
+        ['u_everywhere_test', 'everywhere_test', 'Everywhere Test', 'owner', hash, salt],
+      );
+      const loginA = await postLogin(baseUrl, 'everywhere_test', 'EverywherePass1');
+      const cookieA = extractCookie(loginA);
+      const loginB = await postLogin(baseUrl, 'everywhere_test', 'EverywherePass1');
+      const cookieB = extractCookie(loginB);
+
+      const everywhere = await fetch(`${baseUrl}/api/auth/logout-everywhere`, { method: 'POST', headers: { Cookie: cookieA } });
+      expect(everywhere.status).toBe(200);
+
+      expect((await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: cookieA } })).status).toBe(401);
+      expect((await fetch(`${baseUrl}/api/auth/me`, { headers: { Cookie: cookieB } })).status).toBe(401);
+    });
+
+    it('refuses sign out everywhere without a session', async () => {
+      const res = await fetch(`${baseUrl}/api/auth/logout-everywhere`, { method: 'POST' });
+      expect(res.status).toBe(401);
+    });
+  });
+});
+
+/**
+ * ensureSeedUsers() wipes and re-seeds practice_users/practice_sessions
+ * wholesale, so this runs as its own top-level describe — in this same
+ * file, not a separate one — for the same reason the file header gives for
+ * combining auth and practice-data: a separate file races on the same
+ * tables against whichever other test file Vitest happens to run
+ * concurrently. Sequential within one file avoids that.
+ */
+describe.skipIf(!RUN)('ensureSeedUsers logging', () => {
+  const ENV_KEYS = ['ADNAN_TEMP_PASSWORD', 'FARHAN_TEMP_PASSWORD', 'RAYHAN_TEMP_PASSWORD', 'LOG_GENERATED_PASSWORDS'];
+  const original = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+
+  beforeEach(async () => {
+    await query('delete from practice_sessions');
+    await query('delete from practice_users');
+    for (const k of ENV_KEYS) delete process.env[k];
+  });
+
+  afterEach(() => {
+    for (const k of ENV_KEYS) {
+      if (original[k] === undefined) delete process.env[k];
+      else process.env[k] = original[k];
+    }
+  });
+
+  it('does not log the generated password by default, and says where to look instead', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await ensureSeedUsers();
+    const lines = logSpy.mock.calls.map((c) => JSON.parse(c[0]));
+    const adnanLine = lines.find((l) => l.message.includes('"adnan"'));
+    expect(adnanLine.source).toBe('generated');
+    expect(adnanLine.temporaryPassword).toBeUndefined();
+    expect(adnanLine.message).toContain('ADNAN_TEMP_PASSWORD');
+    expect(adnanLine.message).toContain('LOG_GENERATED_PASSWORDS');
+    logSpy.mockRestore();
+  });
+
+  it('logs the actual temporary password only when LOG_GENERATED_PASSWORDS=1', async () => {
+    process.env.LOG_GENERATED_PASSWORDS = '1';
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await ensureSeedUsers();
+    const lines = logSpy.mock.calls.map((c) => JSON.parse(c[0]));
+    const adnanLine = lines.find((l) => l.message.includes('"adnan"'));
+    expect(typeof adnanLine.temporaryPassword).toBe('string');
+    expect(adnanLine.temporaryPassword.length).toBeGreaterThanOrEqual(8);
+    logSpy.mockRestore();
+  });
+
+  it('uses the env var password when set, and never logs it', async () => {
+    process.env.ADNAN_TEMP_PASSWORD = 'FromEnvTemp123';
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await ensureSeedUsers();
+    const lines = logSpy.mock.calls.map((c) => JSON.parse(c[0]));
+    const adnanLine = lines.find((l) => l.message.includes('"adnan"'));
+    expect(adnanLine.source).toBe('env');
+    expect(adnanLine.temporaryPassword).toBeUndefined();
+    expect(JSON.stringify(lines)).not.toContain('FromEnvTemp123');
+    logSpy.mockRestore();
+  });
+
+  it('is idempotent: an already-seeded account is left untouched and not logged again', async () => {
+    await ensureSeedUsers();
+    const { rows: before } = await query('select password_hash from practice_users where username = $1', ['adnan']);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await ensureSeedUsers();
+    expect(logSpy).not.toHaveBeenCalled();
+    const { rows: after } = await query('select password_hash from practice_users where username = $1', ['adnan']);
+    expect(after[0].password_hash).toBe(before[0].password_hash);
+    logSpy.mockRestore();
   });
 });
 

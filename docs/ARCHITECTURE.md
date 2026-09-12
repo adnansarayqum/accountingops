@@ -197,12 +197,28 @@ Present today:
 
 - **Authentication** for the three practice accounts (`server/routes/auth.mjs`):
   username + password, scrypt-hashed, in an `httpOnly` `SameSite=Lax` session
-  cookie (14 days; `Secure` whenever the request arrived over TLS). Accounts
-  are seeded on first use from `*_TEMP_PASSWORD` variables with a forced
-  change on first sign-in; an account with no variable gets a random
-  temporary password logged once. Ten attempts per username and sixty per
-  address in fifteen minutes; unknown usernames cost a real verification so
-  timing doesn't reveal which names exist.
+  cookie (14 days; `Secure` whenever the request arrived over TLS). Session
+  tokens are stored **hashed** (`server/lib/sessionTokens.mjs`) — a database
+  row alone can never authenticate as anyone; only the raw cookie value
+  produces a matching hash. Accounts are seeded once at boot (production:
+  `server/index.mjs`; dev/preview: once per server start in `vite.config.ts`
+  — no longer self-healing on every request) from `*_TEMP_PASSWORD`
+  variables, with a forced change on first sign-in **enforced server-side**:
+  `requireAuth` — the shared guard in front of practice data, the Companies
+  House proxy and messaging — refuses any request from a session still
+  carrying `mustChangePassword` with `403 password_change_required`, so a
+  temporary password (however it reached someone) can't be used to read or
+  write practice data before it's replaced. An account with no `*_TEMP_PASSWORD`
+  variable gets a random temporary password; it's logged to stdout only
+  when `LOG_GENERATED_PASSWORDS=1` — a deploy platform's logs are often
+  visible to more people than have credential access, so the default is a
+  message saying an account needs setup, not the password itself. Ten
+  attempts per username and sixty per address in fifteen minutes; unknown
+  usernames cost a real verification so timing doesn't reveal which names
+  exist. Changing a password (Settings → Your account) revokes every other
+  session for that account, keeping only the one making the change signed
+  in; **Sign out everywhere** revokes all of them, including the current one,
+  for "I think someone else has access" without knowing which session that is.
 - **Server-side persistence** of the whole practice snapshot behind that
   session, shape-checked and size-capped before it can overwrite the stored
   one (see *Persistence boundary*).
@@ -216,12 +232,10 @@ Present today:
   and filings; tenant id on every record; no bodies or identifiers in
   server logs.
 
-Known gaps, in the order they should close: the forced password change is
-enforced by the UI only (a temporary password read from the deploy logs
-can reach the data routes); changing a password does not revoke other
-sessions and session tokens are stored raw; the audit log lives inside the
-client-authored snapshot.
-Then, before wider use: RBAC (owner/manager/accountant/admin) with
+Known gaps, in the order they should close: the audit log lives inside the
+client-authored snapshot, so "every reveal is audited" is forgeable by
+anyone who can PUT a snapshot — the real fix is a server-side, append-only
+table. Then, before wider use: RBAC (owner/manager/accountant/admin) with
 field-level authorisation for identifiers, encryption at rest for
 `client_identifiers.value_encrypted` (envelope keys in a KMS), object storage
 with signed URLs for documents, redaction middleware for logs, retention and

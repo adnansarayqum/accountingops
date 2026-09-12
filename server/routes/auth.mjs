@@ -4,12 +4,17 @@
  * every other router here. Returns 503 (not the app's normal error shape)
  * when DATABASE_URL isn't configured, so the client can fall back to the
  * pre-auth, browser-only mode instead of getting stuck.
+ *
+ * Session tokens are stored hashed (see lib/sessionTokens.mjs) — a database
+ * row alone can never authenticate as anyone. Accounts are seeded once at
+ * boot (server/index.mjs, or once per dev/preview server start in
+ * vite.config.ts), not on every request here.
  */
 import express from 'express';
 import { randomBytes } from 'node:crypto';
 import { isDatabaseConfigured, query } from '../lib/db.mjs';
 import { hashPassword, verifyPassword } from '../lib/passwords.mjs';
-import { ensureSeedUsers } from '../lib/bootstrapUsers.mjs';
+import { hashSessionToken } from '../lib/sessionTokens.mjs';
 import { createRateLimiter } from '../lib/rateLimit.mjs';
 import { clearSessionCookie, parseCookies, SESSION_COOKIE, setSessionCookie } from '../lib/cookies.mjs';
 
@@ -66,16 +71,26 @@ export async function currentUser(req) {
      from practice_sessions s
      join practice_users u on u.id = s.user_id
      where s.token = $1 and s.expires_at > now()`,
-    [token],
+    [hashSessionToken(token)],
   );
   return rows[0] ?? null;
 }
 
-/** Reusable guard for any other router that needs a signed-in user (e.g. practiceData). */
+/**
+ * Reusable guard for any other router that needs a signed-in user (e.g.
+ * practiceData, companiesHouse, messages). Also the enforcement point for
+ * "must change password first": a session is fully valid the moment it's
+ * created (so /me and /change-password work), but it may not touch any
+ * data route until the temporary password has been replaced — previously
+ * this was only enforced by the client showing the change-password screen,
+ * so a session cookie obtained any other way (a temp password read from
+ * deploy logs, say) could reach every client's identifiers regardless.
+ */
 export async function requireAuth(req, res, next) {
   if (!isDatabaseConfigured()) return res.status(503).json({ error: 'not_configured' });
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ error: 'not_authenticated' });
+  if (user.mustChangePassword) return res.status(403).json({ error: 'password_change_required' });
   req.user = user;
   next();
 }
@@ -83,14 +98,9 @@ export async function requireAuth(req, res, next) {
 const router = express.Router();
 router.use(express.json());
 
-router.use(async (req, res, next) => {
+router.use((req, res, next) => {
   if (!isDatabaseConfigured()) return res.status(503).json({ error: 'not_configured' });
-  try {
-    await ensureSeedUsers();
-    next();
-  } catch (err) {
-    next(err);
-  }
+  next();
 });
 
 router.post('/login', loginByAddress, loginByUsername, async (req, res) => {
@@ -102,14 +112,23 @@ router.post('/login', loginByAddress, loginByUsername, async (req, res) => {
   if (!ok) return res.status(401).json({ error: 'invalid_credentials' });
   const token = randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-  await query('insert into practice_sessions (token, user_id, expires_at) values ($1,$2,$3)', [token, user.id, expiresAt]);
+  await query('insert into practice_sessions (token, user_id, expires_at) values ($1,$2,$3)', [hashSessionToken(token), user.id, expiresAt]);
   setSessionCookie(res, token, expiresAt);
   res.json({ user: { id: user.id, username: user.username, name: user.name, role: user.role, mustChangePassword: user.must_change_password } });
 });
 
 router.post('/logout', async (req, res) => {
   const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
-  if (token) await query('delete from practice_sessions where token = $1', [token]);
+  if (token) await query('delete from practice_sessions where token = $1', [hashSessionToken(token)]);
+  clearSessionCookie(res);
+  res.json({ ok: true });
+});
+
+/** Signs out every session for this account, not just the one making the request — "I think someone else has access". */
+router.post('/logout-everywhere', async (req, res) => {
+  const user = await currentUser(req);
+  if (!user) return res.status(401).json({ error: 'not_authenticated' });
+  await query('delete from practice_sessions where user_id = $1', [user.id]);
   clearSessionCookie(res);
   res.json({ ok: true });
 });
@@ -121,6 +140,7 @@ router.get('/me', async (req, res) => {
 });
 
 router.post('/change-password', async (req, res) => {
+  const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ error: 'not_authenticated' });
   const { currentPassword, newPassword } = req.body ?? {};
@@ -132,6 +152,10 @@ router.post('/change-password', async (req, res) => {
   }
   const { hash, salt } = await hashPassword(newPassword);
   await query('update practice_users set password_hash = $1, password_salt = $2, must_change_password = false where id = $3', [hash, salt, user.id]);
+  // A password change is often exactly the moment someone worries who else
+  // has access — make it actually lock the others out, not just the
+  // account. Keeps the session making this request signed in.
+  await query('delete from practice_sessions where user_id = $1 and token != $2', [user.id, hashSessionToken(token)]);
   res.json({ ok: true });
 });
 

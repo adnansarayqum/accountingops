@@ -10,6 +10,8 @@ import practiceDataRouter from './server/routes/practiceData.mjs';
 import messagesRouter from './server/routes/messages.mjs';
 import { healthPayload } from './server/lib/health.mjs';
 import { securityHeaders } from './server/lib/securityHeaders.mjs';
+import { isDatabaseConfigured } from './server/lib/db.mjs';
+import { ensureSeedUsers } from './server/lib/bootstrapUsers.mjs';
 
 /**
  * Mounts the exact same Express routers the production server uses, so
@@ -44,12 +46,21 @@ function apiMiddleware(): Plugin {
     app.use('/api/practice-data', practiceDataRouter);
     return app;
   };
+  // Seeded once per dev/preview server start, not per request — mirrors
+  // production, where server/index.mjs seeds once at boot (see
+  // server/lib/bootstrapUsers.mjs for why this is no longer self-healing
+  // on every request).
+  const seedOnce = () => {
+    if (isDatabaseConfigured()) void ensureSeedUsers().catch((err: unknown) => console.error('Failed to seed practice accounts', err));
+  };
   return {
     name: 'api-middleware',
     configureServer(server) {
+      seedOnce();
       server.middlewares.use(build({ csp: false }));
     },
     configurePreviewServer(server) {
+      seedOnce();
       server.middlewares.use(build({ csp: true }));
     },
   };
