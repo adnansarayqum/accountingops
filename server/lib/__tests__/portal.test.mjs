@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALLOWED_CONTENT_TYPES, cleanName, cleanNote, DEFAULT_EXPIRY_DAYS, expiryFor, generateToken, hashToken, linkProblem, looksLikeToken, MAX_EXPIRY_DAYS, MAX_FILE_BYTES, MAX_FILES_PER_LINK, publicJobView, safeFileName, validateUpload } from '../portal.mjs';
+import { ALLOWED_CONTENT_TYPES, cleanName, cleanNote, DEFAULT_EXPIRY_DAYS, expiryFor, generateToken, hashToken, linkProblem, looksLikeToken, matchesDeclaredType, MAX_EXPIRY_DAYS, MAX_FILE_BYTES, MAX_FILES_PER_LINK, publicJobView, safeFileName, validateUpload } from '../portal.mjs';
 
 describe('tokens', () => {
   it('generates 43-character base64url tokens from 32 random bytes, and never the same one twice', () => {
@@ -93,6 +93,56 @@ describe('validateUpload', () => {
     for (const type of ['image/jpeg', 'image/png', 'text/csv', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']) {
       expect(ALLOWED_CONTENT_TYPES.has(type)).toBe(true);
     }
+  });
+});
+
+describe('matchesDeclaredType', () => {
+  // validateUpload only ever checks the label a client sent; this checks
+  // the bytes actually behind it — the two are independent, so this suite
+  // uses matchesDeclaredType directly rather than routing through validateUpload.
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0]);
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0]);
+  const pdf = Buffer.from('%PDF-1.4 hello');
+  const ole = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0, 0]);
+  const zip = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0]);
+  const heic = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypheic'), Buffer.from([0, 0, 0, 0])]);
+  const executable = Buffer.from([0x4d, 0x5a, 0x90, 0x00]); // an .exe's actual signature, whatever it's labelled as
+
+  it('accepts a file whose bytes actually match its declared type', () => {
+    expect(matchesDeclaredType(pdf, 'application/pdf')).toBe(true);
+    expect(matchesDeclaredType(png, 'image/png')).toBe(true);
+    expect(matchesDeclaredType(jpeg, 'image/jpeg')).toBe(true);
+    expect(matchesDeclaredType(heic, 'image/heic')).toBe(true);
+    expect(matchesDeclaredType(ole, 'application/vnd.ms-excel')).toBe(true);
+    expect(matchesDeclaredType(ole, 'application/msword')).toBe(true);
+    expect(matchesDeclaredType(zip, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')).toBe(true);
+    expect(matchesDeclaredType(zip, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')).toBe(true);
+    expect(matchesDeclaredType(Buffer.from('name,amount\nBank,100\n'), 'text/csv')).toBe(true);
+  });
+
+  it('is case-insensitive on the declared type, matching validateUpload\'s own normalising', () => {
+    expect(matchesDeclaredType(pdf, 'Application/PDF')).toBe(true);
+  });
+
+  it('rejects an executable labelled as any of the allowed document types', () => {
+    for (const type of ['application/pdf', 'image/jpeg', 'image/png', 'image/heic', 'application/vnd.ms-excel', 'application/msword', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv']) {
+      expect(matchesDeclaredType(executable, type)).toBe(false);
+    }
+  });
+
+  it('rejects one allowed type\'s bytes labelled as a different allowed type', () => {
+    expect(matchesDeclaredType(png, 'application/pdf')).toBe(false);
+    expect(matchesDeclaredType(pdf, 'image/png')).toBe(false);
+    expect(matchesDeclaredType(zip, 'application/pdf')).toBe(false);
+  });
+
+  it('rejects binary content mislabelled as CSV', () => {
+    expect(matchesDeclaredType(png, 'text/csv')).toBe(false);
+    expect(matchesDeclaredType(Buffer.from([0x00, 0x01, 0x02, 0x41, 0x42]), 'text/csv')).toBe(false);
+  });
+
+  it('rejects a type it has no bytes to check yet, rather than accepting on faith', () => {
+    expect(matchesDeclaredType(pdf, 'application/vnd.android.package-archive')).toBe(false);
   });
 });
 

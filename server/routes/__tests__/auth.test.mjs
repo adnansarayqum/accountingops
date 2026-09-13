@@ -9,6 +9,7 @@ import hmrcRouter from '../hmrc.mjs';
 import portalRouter from '../portal.mjs';
 import briefingRouter from '../briefing.mjs';
 import { hashToken } from '../../lib/portal.mjs';
+import { findLinkByToken, storeClientUpload } from '../../lib/portalStore.mjs';
 import { connectionStatus, isExpiring, readTokens, withFreshToken, writeTokens } from '../../lib/hmrc/tokenStore.mjs';
 import { acknowledgeChanges, countPendingChanges, pendingChanges, readStreamState, recordChange, watchedCompanyNumbers, writeStreamState } from '../../lib/companiesHouseStreamStore.mjs';
 import { isDatabaseConfigured, query } from '../../lib/db.mjs';
@@ -911,6 +912,35 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
       const activity = await (await fetch(`${baseUrl}/api/portal/activity`, { headers: { Cookie: cookie } })).json();
       expect(activity.activity).toHaveLength(1);
       expect(activity.activity[0]).toMatchObject({ kind: 'approval', decision: 'approved', actorName: 'Jane Smith', note: 'Looks right.' });
+    });
+
+    it('lets exactly one of two simultaneous approvals on the same link win, recording exactly one decision', async () => {
+      const { token } = await makeLink({ clientId: 'cl_p', jobId: 'job_ap', purpose: 'approve' });
+      const submit = (name) => fetch(`${baseUrl}/api/portal/p/${token}/approve`, { method: 'POST', headers: json(), body: JSON.stringify({ decision: 'approved', name }) });
+
+      const [a, b] = await Promise.all([submit('First Submitter'), submit('Second Submitter')]);
+      const statuses = [a.status, b.status].sort();
+      // Whichever won the race gets 200; the loser gets the ordinary dead-link 404 — never both succeeding, never both failing.
+      expect(statuses).toEqual([200, 404]);
+
+      const activity = await (await fetch(`${baseUrl}/api/portal/activity`, { headers: { Cookie: cookie } })).json();
+      expect(activity.activity).toHaveLength(1);
+      expect(['First Submitter', 'Second Submitter']).toContain(activity.activity[0].actorName);
+    });
+
+    it('never lets concurrent uploads push a link past its file cap', async () => {
+      const { token } = await makeLink({ clientId: 'cl_p', jobId: 'job_up', purpose: 'upload' });
+      const link = await findLinkByToken(token);
+      const cap = 3;
+
+      const attempts = await Promise.all(
+        Array.from({ length: cap + 5 }, (_, i) => storeClientUpload({ link, requestItemId: null, fileName: `file-${i}.pdf`, contentType: 'application/pdf', content: Buffer.from(`%PDF-1.4 file ${i}`) }, { maxFiles: cap })),
+      );
+      expect(attempts.filter((r) => r.ok)).toHaveLength(cap);
+      expect(attempts.filter((r) => !r.ok).every((r) => r.error === 'too_many_files')).toBe(true);
+
+      const { rows } = await query("select count(*)::int as n from portal_uploads where link_id = $1 and direction = 'from_client'", [link.id]);
+      expect(rows[0].n).toBe(cap);
     });
 
     it('revokes a link, after which the client sees the same 404 as for any bad token', async () => {

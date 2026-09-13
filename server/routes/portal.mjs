@@ -19,8 +19,8 @@ import express from 'express';
 import { isDatabaseConfigured } from '../lib/db.mjs';
 import { createRateLimiter } from '../lib/rateLimit.mjs';
 import { requireAuth } from './auth.mjs';
-import { cleanName, cleanNote, isPurpose, linkProblem, looksLikeToken, MAX_FILE_BYTES, publicJobView, validateUpload } from '../lib/portal.mjs';
-import { createLink, findLinkById, findLinkByToken, linksForJob, markActivityApplied, markOpened, markUsed, pendingActivity, readSnapshot, readUpload, recordApprovalDecision, revokeLink, storeClientUpload, uploadCountForLink } from '../lib/portalStore.mjs';
+import { cleanName, cleanNote, isPurpose, linkProblem, looksLikeToken, matchesDeclaredType, MAX_FILE_BYTES, publicJobView, validateUpload } from '../lib/portal.mjs';
+import { claimApproval, createLink, findLinkById, findLinkByToken, linksForJob, markActivityApplied, markOpened, pendingActivity, readSnapshot, readUpload, revokeLink, storeClientUpload, uploadCountForLink } from '../lib/portalStore.mjs';
 
 const router = express.Router();
 
@@ -94,9 +94,17 @@ publicRouter.post('/:token/upload', loadLink, async (req, res) => {
   const item = (snapshot?.requestItems ?? []).find((i) => i.id === requestItemId && i.jobId === link.jobId);
   const content = Buffer.from(contentBase64, 'base64');
   if (content.length === 0 || content.length > MAX_FILE_BYTES) return res.status(400).json({ error: 'too_large' });
+  // The content-type is a label the client chose; this checks the bytes
+  // actually sent against it, so a client can't claim arbitrary content is
+  // a PDF (or any other allowed type) just by setting the field.
+  if (!matchesDeclaredType(content, checked.contentType)) return res.status(400).json({ error: 'content_mismatch' });
 
-  const { uploadId } = await storeClientUpload({ link, requestItemId: item?.id ?? null, fileName: checked.fileName, contentType: checked.contentType, content });
-  res.status(201).json({ ok: true, uploadId, fileName: checked.fileName });
+  // The count check above is a fast-path only — storeClientUpload re-checks
+  // under a row lock, since two uploads arriving together could both have
+  // passed it and both landed here before either was committed.
+  const stored = await storeClientUpload({ link, requestItemId: item?.id ?? null, fileName: checked.fileName, contentType: checked.contentType, content });
+  if (!stored.ok) return res.status(400).json({ error: stored.error });
+  res.status(201).json({ ok: true, uploadId: stored.uploadId, fileName: checked.fileName });
 });
 
 publicRouter.post('/:token/approve', loadLink, async (req, res) => {
@@ -108,10 +116,11 @@ publicRouter.post('/:token/approve', loadLink, async (req, res) => {
   if (!actorName) return res.status(400).json({ error: 'name_required' });
 
   // Single use: the first decision wins, and a second submission of the same
-  // link is a 404 like any other dead link.
-  const claimed = await markUsed(link.id);
-  if (!claimed) return res.status(404).json({ error: 'not_found' });
-  await recordApprovalDecision({ link, decision, actorName, note: cleanNote(req.body?.note) });
+  // link is a 404 like any other dead link. Claiming the link and recording
+  // the decision happen as one transaction, so a failure between the two
+  // can never consume the link without a decision to show for it.
+  const claim = await claimApproval({ link, decision, actorName, note: cleanNote(req.body?.note) });
+  if (!claim.claimed) return res.status(404).json({ error: 'not_found' });
   res.json({ ok: true, decision });
 });
 
@@ -144,6 +153,7 @@ router.post('/links', async (req, res) => {
     if (!checked.ok) return res.status(400).json({ error: checked.error });
     const content = Buffer.from(attachment.contentBase64, 'base64');
     if (content.length === 0 || content.length > MAX_FILE_BYTES) return res.status(400).json({ error: 'too_large' });
+    if (!matchesDeclaredType(content, checked.contentType)) return res.status(400).json({ error: 'content_mismatch' });
     stored = { fileName: checked.fileName, contentType: checked.contentType, content };
   }
 
