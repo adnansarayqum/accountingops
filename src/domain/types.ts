@@ -331,6 +331,48 @@ export interface Document {
 
 export type CommunicationDirection = 'outbound' | 'inbound';
 
+/**
+ * Extra work done for a client outside the normal job pipeline that hasn't
+ * been invoiced yet — a quick fix, an ad hoc question answered, anything
+ * that would otherwise be quietly forgotten come billing time. Ray's own
+ * words: "extra work done that I haven't billed for."
+ */
+export interface WipEntry {
+  id: Id;
+  practiceId: Id;
+  clientId: Id;
+  jobId?: Id;
+  description: string;
+  /** The value of the work, in pounds — what would be billed for it. */
+  amount: number;
+  performedOn: IsoDate;
+  performedByUserId?: Id;
+  status: 'unbilled' | 'invoiced' | 'written_off';
+  createdAt: IsoDateTime;
+  /** When it left the unbilled state. */
+  resolvedAt?: IsoDateTime;
+  /** e.g. an invoice reference, or why it was written off. */
+  resolutionNote?: string;
+}
+
+/**
+ * Time spent working on a client, logged by hand. Ray's own words: "a
+ * record of how much time I've spent on the client." Minutes, not a
+ * decimal number of hours, so a quick "20" never becomes a silent 20
+ * hours from a dropped decimal point.
+ */
+export interface TimeEntry {
+  id: Id;
+  practiceId: Id;
+  clientId: Id;
+  jobId?: Id;
+  userId: Id;
+  loggedOn: IsoDate;
+  minutes: number;
+  note?: string;
+  createdAt: IsoDateTime;
+}
+
 export interface Communication {
   id: Id;
   practiceId: Id;
@@ -557,4 +599,6 @@ export interface PracticeData {
   notifications: Notification[];
   onboardingCases: OnboardingCase[];
   mtdReadiness: MtdReadiness[];
+  wipEntries: WipEntry[];
+  timeEntries: TimeEntry[];
 }

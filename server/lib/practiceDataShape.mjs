@@ -60,6 +60,8 @@ const KNOWN_ARRAYS = [
   'notifications',
   'onboardingCases',
   'mtdReadiness',
+  'wipEntries',
+  'timeEntries',
 ];
 
 function isPlainObject(value) {

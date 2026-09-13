@@ -46,5 +46,7 @@ export function buildEmptyPracticeData(): PracticeData {
     notifications: [],
     onboardingCases: [],
     mtdReadiness: [],
+    wipEntries: [],
+    timeEntries: [],
   };
 }
