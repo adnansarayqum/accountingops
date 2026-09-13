@@ -627,6 +627,81 @@ describe('application store — AML review and turnover', () => {
   });
 });
 
+describe('application store — work in progress and time tracking', () => {
+  beforeEach(() => {
+    configureRepository(new MemoryRepository());
+    useAppStore.setState({ data: structuredClone(buildFixtureData(today)), today, ready: true, currentUserId: 'u_adnan', toasts: [] });
+  });
+
+  it('records unbilled work dated today and credited to the signed-in user', () => {
+    const entry = useAppStore.getState().addWipEntry('cl_abc', { description: 'Sorted an ad hoc HMRC query.', amount: 75.6 });
+    expect(entry).toMatchObject({ clientId: 'cl_abc', description: 'Sorted an ad hoc HMRC query.', amount: 76, status: 'unbilled', performedOn: today, performedByUserId: 'u_adnan' });
+    const stored = useAppStore.getState().data.wipEntries.find((w) => w.id === entry.id);
+    expect(stored).toMatchObject(entry);
+    expect(useAppStore.getState().data.auditEvents[0]).toMatchObject({ action: 'wip.create', entityId: entry.id });
+  });
+
+  it('clamps a negative amount to zero rather than storing nonsense', () => {
+    const entry = useAppStore.getState().addWipEntry('cl_abc', { description: 'x', amount: -50 });
+    expect(entry.amount).toBe(0);
+  });
+
+  it('does nothing for a client that does not exist', () => {
+    const before = useAppStore.getState().data.wipEntries.length;
+    useAppStore.getState().addWipEntry('cl_nope', { description: 'x', amount: 10 });
+    expect(useAppStore.getState().data.wipEntries).toHaveLength(before);
+  });
+
+  it('marks an entry invoiced or written off, dating it and keeping the record', () => {
+    const entry = useAppStore.getState().addWipEntry('cl_abc', { description: 'Extra work.', amount: 200 });
+    useAppStore.getState().resolveWipEntry(entry.id, 'invoiced', 'INV-9001');
+    const stored = useAppStore.getState().data.wipEntries.find((w) => w.id === entry.id)!;
+    expect(stored).toMatchObject({ status: 'invoiced', resolutionNote: 'INV-9001' });
+    expect(stored.resolvedAt).toBeTruthy();
+    expect(useAppStore.getState().data.auditEvents[0]).toMatchObject({ action: 'wip.resolve', entityId: entry.id });
+  });
+
+  it('cannot resolve the same entry twice', () => {
+    const entry = useAppStore.getState().addWipEntry('cl_abc', { description: 'x', amount: 10 });
+    useAppStore.getState().resolveWipEntry(entry.id, 'invoiced');
+    useAppStore.getState().resolveWipEntry(entry.id, 'written_off', 'should not apply');
+    const stored = useAppStore.getState().data.wipEntries.find((w) => w.id === entry.id)!;
+    expect(stored.status).toBe('invoiced');
+    expect(stored.resolutionNote).toBeUndefined();
+  });
+
+  it('deletes an unbilled entry, but never one already invoiced or written off', () => {
+    const unbilled = useAppStore.getState().addWipEntry('cl_abc', { description: 'a', amount: 10 });
+    const invoiced = useAppStore.getState().addWipEntry('cl_abc', { description: 'b', amount: 20 });
+    useAppStore.getState().resolveWipEntry(invoiced.id, 'invoiced');
+
+    useAppStore.getState().deleteWipEntry(unbilled.id);
+    useAppStore.getState().deleteWipEntry(invoiced.id);
+
+    const ids = useAppStore.getState().data.wipEntries.map((w) => w.id);
+    expect(ids).not.toContain(unbilled.id);
+    expect(ids).toContain(invoiced.id);
+  });
+
+  it('logs time in whole minutes, credited to the signed-in user and dated today by default', () => {
+    const entry = useAppStore.getState().logTime('cl_abc', { minutes: 37.8, note: 'Call with the director' });
+    expect(entry).toMatchObject({ clientId: 'cl_abc', minutes: 38, note: 'Call with the director', loggedOn: today, userId: 'u_adnan' });
+    expect(useAppStore.getState().data.timeEntries.find((t) => t.id === entry.id)).toMatchObject(entry);
+    expect(useAppStore.getState().data.auditEvents[0]).toMatchObject({ action: 'time.create', entityId: entry.id });
+  });
+
+  it('floors a zero or negative duration to one minute rather than logging nothing', () => {
+    expect(useAppStore.getState().logTime('cl_abc', { minutes: 0 }).minutes).toBe(1);
+    expect(useAppStore.getState().logTime('cl_abc', { minutes: -5 }).minutes).toBe(1);
+  });
+
+  it('deletes a time entry', () => {
+    const entry = useAppStore.getState().logTime('cl_abc', { minutes: 15 });
+    useAppStore.getState().deleteTimeEntry(entry.id);
+    expect(useAppStore.getState().data.timeEntries.map((t) => t.id)).not.toContain(entry.id);
+  });
+});
+
 describe('application store — applying client portal activity', () => {
   beforeEach(() => {
     configureRepository(new MemoryRepository());

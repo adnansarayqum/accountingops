@@ -38,8 +38,10 @@ import type {
   PracticeData,
   ServiceCode,
   ServiceSubscription,
+  TimeEntry,
   User,
   WaitingOn,
+  WipEntry,
 } from '../domain/types';
 
 export const FIXTURE_PRACTICE_ID = 'prac_fixture';
@@ -944,6 +946,24 @@ export function buildFixtureData(today: IsoDate): PracticeData {
   ];
 
   // -------------------------------------------------------------------------
+  // Work in progress: extra work done, not yet billed
+  // -------------------------------------------------------------------------
+  const wipEntries: WipEntry[] = [
+    { id: 'wip_abc_1', practiceId: FIXTURE_PRACTICE_ID, clientId: 'cl_abc', jobId: 'job_abc_vat', description: 'Advised on a VAT partial exemption query outside the return itself.', amount: 150, performedOn: ago(6).slice(0, 10), performedByUserId: 'u_priya', status: 'unbilled', createdAt: ago(6) },
+    { id: 'wip_abc_2', practiceId: FIXTURE_PRACTICE_ID, clientId: 'cl_abc', description: 'Extra time reconstructing a missing month of bank records.', amount: 90, performedOn: ago(20).slice(0, 10), performedByUserId: 'u_adnan', status: 'unbilled', createdAt: ago(20) },
+    { id: 'wip_khan_1', practiceId: FIXTURE_PRACTICE_ID, clientId: 'cl_khan', jobId: 'job_khan_accounts', description: 'Redid the fixed asset schedule after client supplied corrected invoices.', amount: 120, performedOn: ago(9).slice(0, 10), performedByUserId: 'u_sarah', status: 'invoiced', createdAt: ago(9), resolvedAt: ago(2), resolutionNote: 'Invoice INV-1042' },
+  ];
+
+  // -------------------------------------------------------------------------
+  // Time logged against a client
+  // -------------------------------------------------------------------------
+  const timeEntries: TimeEntry[] = [
+    { id: 'time_abc_1', practiceId: FIXTURE_PRACTICE_ID, clientId: 'cl_abc', jobId: 'job_abc_vat', userId: 'u_priya', loggedOn: ago(4).slice(0, 10), minutes: 45, note: 'VAT return preparation', createdAt: ago(4) },
+    { id: 'time_abc_2', practiceId: FIXTURE_PRACTICE_ID, clientId: 'cl_abc', jobId: 'job_abc_accounts', userId: 'u_adnan', loggedOn: ago(15).slice(0, 10), minutes: 120, note: 'Reviewing draft accounts', createdAt: ago(15) },
+    { id: 'time_khan_1', practiceId: FIXTURE_PRACTICE_ID, clientId: 'cl_khan', jobId: 'job_khan_accounts', userId: 'u_sarah', loggedOn: ago(9).slice(0, 10), minutes: 90, note: 'Fixed asset schedule rework', createdAt: ago(9) },
+  ];
+
+  // -------------------------------------------------------------------------
   // Onboarding
   // -------------------------------------------------------------------------
   const checklist = (done: string[]): OnboardingCase['checklist'] => {
@@ -1093,6 +1113,8 @@ export function buildFixtureData(today: IsoDate): PracticeData {
     notifications,
     onboardingCases,
     mtdReadiness,
+    wipEntries,
+    timeEntries,
   };
 }
 

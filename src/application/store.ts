@@ -45,7 +45,9 @@ import type { AmlRiskRating,
   PracticeThresholds,
   RegisteredAddress,
   ServiceCode,
+  TimeEntry,
   WaitingOn,
+  WipEntry,
 } from '../domain/types';
 import { newId } from './ids';
 import { LocalStorageRepository } from './persistence/localStorageRepository';
@@ -139,6 +141,16 @@ export interface AppState {
   recordAmlReview(clientId: string, input: { rating: AmlRiskRating; note?: string }): void;
   /** Records the client's rolling twelve-month turnover, dated today, for the VAT threshold watch. */
   recordTurnover(clientId: string, amount: number | null): void;
+  /** Logs extra work done for a client that hasn't been billed yet — dated today unless a date is given, credited to the signed-in user. */
+  addWipEntry(clientId: string, input: { description: string; amount: number; jobId?: string; performedOn?: IsoDate }): WipEntry;
+  /** Marks a work-in-progress entry invoiced or written off. Once resolved it stays as a record, not deleted. */
+  resolveWipEntry(entryId: string, status: 'invoiced' | 'written_off', note?: string): void;
+  /** Removes a work-in-progress entry entered by mistake — only while it is still unbilled. */
+  deleteWipEntry(entryId: string): void;
+  /** Logs time spent on a client, credited to the signed-in user, dated today unless a date is given. */
+  logTime(clientId: string, input: { minutes: number; jobId?: string; note?: string; loggedOn?: IsoDate }): TimeEntry;
+  /** Removes a time entry logged by mistake. */
+  deleteTimeEntry(entryId: string): void;
   createClient(input: {
     name: string;
     type: ClientType;
@@ -929,6 +941,84 @@ export const useAppStore = create<AppState>((set, get) => {
           client.turnoverRecordedOn = get().today;
         }
         ctx.audit('client.turnover', 'client', clientId, before, { rolling12MonthTurnover: client.rolling12MonthTurnover, turnoverRecordedOn: client.turnoverRecordedOn });
+      });
+    },
+
+    addWipEntry(clientId, input) {
+      const created: WipEntry = {
+        id: newId('wip'),
+        practiceId: get().data.practice.id,
+        clientId,
+        jobId: input.jobId,
+        description: input.description.trim(),
+        amount: Math.max(0, Math.round(input.amount)),
+        performedOn: input.performedOn ?? get().today,
+        performedByUserId: get().currentUserId,
+        status: 'unbilled',
+        createdAt: nowIso(),
+      };
+      mutate((d, ctx) => {
+        const client = d.clients.find((c) => c.id === clientId);
+        if (!client) return;
+        d.wipEntries.push(created);
+        ctx.activity('client_updated', `Unbilled work recorded for ${client.name}: ${created.description} (£${created.amount}).`, undefined, clientId);
+        ctx.audit('wip.create', 'wip_entry', created.id, undefined, { clientId, description: created.description, amount: created.amount });
+      });
+      return created;
+    },
+
+    resolveWipEntry(entryId, status, note) {
+      mutate((d, ctx) => {
+        const entry = d.wipEntries.find((w) => w.id === entryId);
+        if (!entry || entry.status !== 'unbilled') return;
+        const before = { status: entry.status, resolvedAt: entry.resolvedAt, resolutionNote: entry.resolutionNote };
+        entry.status = status;
+        entry.resolvedAt = nowIso();
+        entry.resolutionNote = note?.trim() || undefined;
+        const client = d.clients.find((c) => c.id === entry.clientId);
+        ctx.activity('client_updated', `${status === 'invoiced' ? 'Invoiced' : 'Written off'}: ${entry.description}${client ? ` for ${client.name}` : ''}.`, undefined, entry.clientId);
+        ctx.audit('wip.resolve', 'wip_entry', entryId, before, { status: entry.status, resolvedAt: entry.resolvedAt, resolutionNote: entry.resolutionNote });
+      });
+    },
+
+    deleteWipEntry(entryId) {
+      mutate((d, ctx) => {
+        const entry = d.wipEntries.find((w) => w.id === entryId);
+        // Only ever a correction of an entry that hasn't gone anywhere yet —
+        // once invoiced or written off it stays as the record it is.
+        if (!entry || entry.status !== 'unbilled') return;
+        d.wipEntries = d.wipEntries.filter((w) => w.id !== entryId);
+        ctx.audit('wip.delete', 'wip_entry', entryId, { clientId: entry.clientId, description: entry.description, amount: entry.amount }, undefined);
+      });
+    },
+
+    logTime(clientId, input) {
+      const created: TimeEntry = {
+        id: newId('time'),
+        practiceId: get().data.practice.id,
+        clientId,
+        jobId: input.jobId,
+        userId: get().currentUserId,
+        loggedOn: input.loggedOn ?? get().today,
+        minutes: Math.max(1, Math.round(input.minutes)),
+        note: input.note?.trim() || undefined,
+        createdAt: nowIso(),
+      };
+      mutate((d, ctx) => {
+        const client = d.clients.find((c) => c.id === clientId);
+        if (!client) return;
+        d.timeEntries.push(created);
+        ctx.audit('time.create', 'time_entry', created.id, undefined, { clientId, minutes: created.minutes });
+      });
+      return created;
+    },
+
+    deleteTimeEntry(entryId) {
+      mutate((d, ctx) => {
+        const entry = d.timeEntries.find((t) => t.id === entryId);
+        if (!entry) return;
+        d.timeEntries = d.timeEntries.filter((t) => t.id !== entryId);
+        ctx.audit('time.delete', 'time_entry', entryId, { clientId: entry.clientId, minutes: entry.minutes }, undefined);
       });
     },
 
