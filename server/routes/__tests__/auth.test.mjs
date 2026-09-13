@@ -501,11 +501,23 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     // One sign-in for the whole block: the login rate limiter locks a
     // username after ten attempts in a window, and a test that signs in per
     // case would trip it partway through and fail for the wrong reason.
+    // A second, distinct user is seeded here too, for the one test that
+    // needs to prove a state value bound to one session cannot be
+    // redeemed from another — still one login per username, not per test.
     let cookie;
+    let secondUserCookie;
     beforeAll(async () => {
       resetLoginLimits();
       cookie = extractCookie(await postLogin(baseUrl, 'practice_data_test', 'FixtureUserPass1'));
       expect(cookie).toBeTruthy();
+
+      const { hash, salt } = await hashPassword('SecondUserPass1');
+      await query(
+        'insert into practice_users (id, username, name, role, password_hash, password_salt, must_change_password) values ($1,$2,$3,$4,$5,$6,false) on conflict (id) do nothing',
+        ['u_hmrc_test_second', 'hmrc_test_second_user', 'Second Test User', 'owner', hash, salt],
+      );
+      secondUserCookie = extractCookie(await postLogin(baseUrl, 'hmrc_test_second_user', 'SecondUserPass1'));
+      expect(secondUserCookie).toBeTruthy();
     });
 
     beforeEach(async () => {
@@ -569,6 +581,21 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
       });
     });
 
+    it('refuses to complete a state value from a different signed-in user\'s session', async () => {
+      await withCreds(async () => {
+        const { url } = await (await fetch(`${baseUrl}/api/hmrc/connect`, { headers: { Cookie: cookie } })).json();
+        const state = new URL(url).searchParams.get('state');
+
+        // The same state, presented in a different user's session, must be
+        // refused exactly like one nobody issued — this is the state-fixation
+        // path a crafted link could exploit if the two weren't checked
+        // together: a valid state alone is not enough.
+        const res = await fetch(`${baseUrl}/api/hmrc/callback?code=abc&state=${state}`, { headers: { Cookie: secondUserCookie } });
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual({ error: 'invalid_state' });
+      });
+    });
+
     it('reports a refused consent as such rather than as a generic failure', async () => {
       await withCreds(async () => {
         const res = await fetch(`${baseUrl}/api/hmrc/callback?error=access_denied&state=x`, { headers: { Cookie: cookie } });
@@ -613,11 +640,55 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
         // The whole point: a token must never reach the browser.
         expect(JSON.stringify(status)).not.toContain('access-1');
         expect(JSON.stringify(status)).not.toContain('refresh-1');
+        // Nor an internal user id, on this deliberately unauthenticated route.
+        expect(status).not.toHaveProperty('connectedBy');
 
         const res = await fetch(`${baseUrl}/api/hmrc/disconnect`, { method: 'POST', headers: { Cookie: cookie } });
         expect(await res.json()).toEqual({ disconnected: true });
         expect(await readTokens()).toBeNull();
       });
+    });
+
+    it('stores tokens encrypted at rest once a key is configured, and still reads them back correctly', async () => {
+      process.env.HMRC_TOKEN_ENCRYPTION_KEY = 'test-only-encryption-key-do-not-use-in-production';
+      try {
+        await writeTokens({ accessToken: 'access-secret', refreshToken: 'refresh-secret', scope: 'read:vat', expiresInSeconds: 14400 });
+        const { rows } = await query('select access_token, refresh_token from hmrc_agent_tokens where id = $1', ['agent-services-account']);
+        // The raw column value must never be the plaintext token.
+        expect(rows[0].access_token).not.toBe('access-secret');
+        expect(rows[0].access_token.startsWith('enc:v1:')).toBe(true);
+        expect(rows[0].refresh_token.startsWith('enc:v1:')).toBe(true);
+
+        const tokens = await readTokens();
+        expect(tokens.accessToken).toBe('access-secret');
+        expect(tokens.refreshToken).toBe('refresh-secret');
+        expect(await connectionStatus()).toMatchObject({ tokenEncryption: true });
+      } finally {
+        delete process.env.HMRC_TOKEN_ENCRYPTION_KEY;
+      }
+    });
+
+    it('reads a row written before encryption existed as plain text, then re-encrypts it on the next write', async () => {
+      // Written directly, bypassing writeTokens, to stand in for a row that
+      // predates HMRC_TOKEN_ENCRYPTION_KEY existing at all.
+      await query(
+        `insert into hmrc_agent_tokens (id, access_token, refresh_token, scope, expires_at, updated_at)
+         values ($1, $2, $3, $4, now() + interval '1 hour', now())`,
+        ['agent-services-account', 'legacy-plaintext-access', 'legacy-plaintext-refresh', 'read:vat'],
+      );
+      process.env.HMRC_TOKEN_ENCRYPTION_KEY = 'test-only-encryption-key-do-not-use-in-production';
+      try {
+        const tokens = await readTokens();
+        expect(tokens.accessToken).toBe('legacy-plaintext-access');
+        expect(tokens.refreshToken).toBe('legacy-plaintext-refresh');
+
+        await writeTokens({ accessToken: 'new-access', refreshToken: 'new-refresh', expiresInSeconds: 14400 });
+        const { rows } = await query('select access_token, refresh_token from hmrc_agent_tokens where id = $1', ['agent-services-account']);
+        expect(rows[0].access_token.startsWith('enc:v1:')).toBe(true);
+        expect(rows[0].refresh_token.startsWith('enc:v1:')).toBe(true);
+      } finally {
+        delete process.env.HMRC_TOKEN_ENCRYPTION_KEY;
+      }
     });
 
     it('keeps the existing refresh token when HMRC reissue only an access token', async () => {
@@ -642,6 +713,30 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
       expect(fetchImpl.mock.calls[0][0]).toBe('https://test-api.service.hmrc.gov.uk/oauth/token');
     });
 
+    it('shares one refresh across two calls that both see the token as expiring, instead of one spuriously failing', async () => {
+      await writeTokens({ accessToken: 'old', refreshToken: 'r1', expiresInSeconds: 60 });
+
+      // A small delay stands in for real network latency: both calls must
+      // reach the "needs a refresh" branch before either exchange resolves,
+      // which is exactly the window where two concurrent requests near
+      // expiry would otherwise both spend the one refresh token.
+      const fetchImpl = vi.fn(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return new Response(JSON.stringify({ access_token: 'fresh', refresh_token: 'r2', expires_in: 14400, scope: 'read:vat' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      });
+      const opts = { env: { HMRC_CLIENT_ID: 'a', HMRC_CLIENT_SECRET: 'b' }, fetchImpl };
+
+      const [first, second] = await Promise.all([withFreshToken(async (t) => t, opts), withFreshToken(async (t) => t, opts)]);
+
+      expect(first).toBe('fresh');
+      expect(second).toBe('fresh');
+      // HMRC rotates the refresh token on use — a second exchange with the
+      // same one would have failed with invalid_grant, surfacing here as a
+      // spurious refresh_failed for whichever call lost the race.
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect((await readTokens()).refreshToken).toBe('r2');
+    });
+
     it('uses a still-valid token without spending a refresh', async () => {
       await writeTokens({ accessToken: 'still-good', refreshToken: 'r1', expiresInSeconds: 14400 });
       const fetchImpl = vi.fn();
@@ -656,7 +751,7 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     });
 
     it('says not_connected when nobody has linked an agent account', async () => {
-      expect(await connectionStatus()).toEqual({ connected: false });
+      expect(await connectionStatus()).toEqual({ connected: false, tokenEncryption: false });
       await expect(withFreshToken(async (t) => t, { env: {}, fetchImpl: vi.fn() })).rejects.toMatchObject({ code: 'not_connected' });
     });
   });

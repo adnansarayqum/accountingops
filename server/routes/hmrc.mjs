@@ -93,7 +93,10 @@ router.get('/status', async (_req, res) => {
   const configured = isHmrcConfigured() && isDatabaseConfigured();
   if (!configured) return res.json({ configured: false, sandbox: isSandbox() });
   try {
-    res.json({ configured: true, sandbox: isSandbox(), ...(await connectionStatus()) });
+    // connectedBy is an internal user id — of no use to an unauthenticated
+    // caller, and no reason for this open route to hand it out.
+    const { connectedBy: _connectedBy, ...status } = await connectionStatus();
+    res.json({ configured: true, sandbox: isSandbox(), ...status });
   } catch {
     res.json({ configured: true, sandbox: isSandbox(), connected: false });
   }
@@ -124,7 +127,12 @@ router.get('/callback', async (req, res) => {
   const { code, state, error } = req.query;
   if (error) return res.status(400).json({ error: 'consent_refused', detail: String(error).slice(0, 200) });
   const remembered = consumeState(String(state ?? ''));
-  if (!remembered) return res.status(400).json({ error: 'invalid_state' });
+  // Bound to the session that started the round trip, not just to a state
+  // value that exists: without this, a link crafted with an attacker's own
+  // valid state and code, opened by a different signed-in practice user
+  // (SameSite=Lax still sends the cookie on this top-level navigation),
+  // would complete the exchange inside that other user's session.
+  if (!remembered || remembered.userId !== req.user.id) return res.status(400).json({ error: 'invalid_state' });
   if (!code) return res.status(400).json({ error: 'missing_code' });
 
   try {
