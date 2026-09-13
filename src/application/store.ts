@@ -4,7 +4,7 @@ import { buildImportedClientRecords, PLACEHOLDER_CONTACT_NAME, type ClientRoster
 import type { AuthUser } from './auth';
 import type { CompanyPeopleResponse, CompanyProfile } from '../integrations/companiesHouseTypes';
 import type { PortalActivity } from '../integrations/portal';
-import { AML_RATING_LABELS } from '../domain/rules/aml';
+import { AML_RATING_LABELS, AML_REVIEW_MONTHS } from '../domain/rules/aml';
 import { nowIso, todayIso } from '../domain/dates';
 import { normaliseCompanyNumber } from '../domain/companyNumber';
 import { birthMonthYearOf, isSamePerson, normalisePersonName, personNameKey } from '../domain/personNames';
@@ -219,6 +219,13 @@ let unsavedMutations: Mutation[] = [];
 
 /** How many times one save may lose the race before we stop replaying and take the server's copy. */
 const MAX_CONFLICT_REPLAYS = 3;
+
+/**
+ * Client fields that must only ever change through their own recording
+ * action (recordAmlReview, recordTurnover) so the audit trail names the
+ * change correctly. updateClient's generic patch strips these out.
+ */
+const COMPLIANCE_ONLY_FIELDS: (keyof Client)[] = ['amlRiskRating', 'amlLastReviewedOn', 'amlReviewNote', 'rolling12MonthTurnover', 'turnoverRecordedOn'];
 
 export function configureRepository(repo: PracticeRepository): void {
   repository = repo;
@@ -894,6 +901,12 @@ export const useAppStore = create<AppState>((set, get) => {
       mutate((d, ctx) => {
         const client = d.clients.find((c) => c.id === clientId);
         if (!client) return;
+        // input.rating is typed as AmlRiskRating, but that's compile-time
+        // only — guard against a caller outside the UI (a devtools call, a
+        // future bulk-import path) passing something outside the known
+        // set, which would otherwise write a rating the AML rule can't
+        // recognise into the client record.
+        if (!(input.rating in AML_REVIEW_MONTHS)) return;
         const before = { amlRiskRating: client.amlRiskRating, amlLastReviewedOn: client.amlLastReviewedOn, amlReviewNote: client.amlReviewNote };
         client.amlRiskRating = input.rating;
         client.amlLastReviewedOn = get().today;
@@ -924,7 +937,16 @@ export const useAppStore = create<AppState>((set, get) => {
         const client = d.clients.find((c) => c.id === clientId);
         if (!client) return;
         const before = { ...client };
-        Object.assign(client, patch);
+        // AML and turnover fields are excluded from this generic patch:
+        // they have their own recording actions (recordAmlReview,
+        // recordTurnover) that date the change and audit it under its own
+        // action name. Letting them through here too would mean the same
+        // data could change two ways, one of them unaudited by name — a
+        // supervisor pulling "every AML rating change" from the audit log
+        // by action type would miss it.
+        const safePatch = { ...patch };
+        for (const field of COMPLIANCE_ONLY_FIELDS) delete safePatch[field];
+        Object.assign(client, safePatch);
         ctx.activity('client_updated', `${client.name} details updated.`, undefined, clientId);
         ctx.audit('client.update', 'client', clientId, before, { ...client });
       });

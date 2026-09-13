@@ -28,6 +28,15 @@ describe('amlReviewStatus', () => {
   it('takes a custom due-soon window', () => {
     expect(amlReviewStatus(client('b', { amlRiskRating: 'high', amlLastReviewedOn: '2025-10-20' }), today, 30).state).toBe('current');
   });
+
+  it('fails safe on a rating outside the known set, rather than reading it as current', () => {
+    // amlRiskRating is typed, but data can reach this rule from outside the
+    // app's own store actions (a hand-built API request) — see
+    // server/lib/practiceDataShape.mjs, which now refuses this at the
+    // door, but this rule must not trust that being the only guard.
+    const tampered = client('a', { amlRiskRating: 'extreme' as never, amlLastReviewedOn: '2026-01-15' });
+    expect(amlReviewStatus(tampered, today)).toMatchObject({ state: 'never_reviewed', rating: null, nextDueOn: null, daysUntilDue: null });
+  });
 });
 
 describe('amlSummary', () => {

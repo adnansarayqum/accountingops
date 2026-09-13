@@ -42,7 +42,14 @@ export function amlNextDue(rating: AmlRiskRating, lastReviewedOn: IsoDate): IsoD
 }
 
 export function amlReviewStatus(client: Client, today: IsoDate, dueSoonDays = AML_DUE_SOON_DAYS): AmlReviewStatus {
-  const rating = client.amlRiskRating ?? null;
+  // amlRiskRating is typed as AmlRiskRating, but that's a compile-time
+  // guarantee only — data can reach here from outside the app's own store
+  // actions (see server/lib/practiceDataShape.mjs). A value outside the
+  // known set must fail safe as "never reviewed", the state a supervisory
+  // check treats as most urgent, never fall through to "current": that
+  // would hide a client whose compliance data is actually unreadable.
+  const rawRating = client.amlRiskRating ?? null;
+  const rating = rawRating && rawRating in AML_REVIEW_MONTHS ? rawRating : null;
   const lastReviewedOn = client.amlLastReviewedOn ?? null;
   if (!rating || !lastReviewedOn) {
     return { clientId: client.id, rating, lastReviewedOn, nextDueOn: null, daysUntilDue: null, state: 'never_reviewed' };
