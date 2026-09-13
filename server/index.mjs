@@ -24,7 +24,8 @@ import { spaFallback } from './lib/spaFallback.mjs';
 import { isDatabaseConfigured } from './lib/db.mjs';
 import { ensureSeedUsers } from './lib/bootstrapUsers.mjs';
 import { CompaniesHouseStreamListener, isStreamConfigured } from './lib/companiesHouseStreamListener.mjs';
-import { pruneAcknowledgedChanges, readStreamState } from './lib/companiesHouseStreamStore.mjs';
+import { readStreamState } from './lib/companiesHouseStreamStore.mjs';
+import { CompaniesHouseChangePruner } from './lib/companiesHouseChangePruner.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.resolve(__dirname, '../dist');
@@ -116,7 +117,10 @@ if (isStreamConfigured() && isDatabaseConfigured()) {
     void streamListener.start(state.timepoint).catch((err) => {
       console.error(JSON.stringify({ level: 'error', at: new Date().toISOString(), source: 'companies_house_stream', message: `Listener stopped: ${err?.message ?? err}` }));
     });
-    await pruneAcknowledgedChanges().catch(() => {});
+    // Recurring, not a one-off at boot: a deployment that stays up for
+    // weeks would otherwise let acknowledged rows accumulate indefinitely
+    // between restarts.
+    new CompaniesHouseChangePruner().start();
   } catch (err) {
     console.error(JSON.stringify({ level: 'error', at: new Date().toISOString(), source: 'companies_house_stream', message: `Could not start listener: ${err?.message ?? err}` }));
   }
