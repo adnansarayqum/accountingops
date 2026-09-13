@@ -97,6 +97,67 @@ export function validateUpload({ fileName, contentType, contentBase64 }, { exist
   return { ok: true, fileName: safeFileName(fileName, ALLOWED_CONTENT_TYPES.get(contentType.toLowerCase())), contentType: contentType.toLowerCase() };
 }
 
+const OLE_COMPOUND_SIGNATURE = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+/** ISO base media (MP4/HEIF family) brand codes that mean "this is a HEIC/HEIF image". */
+const HEIC_BRANDS = new Set(['heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'hevm', 'hevs', 'mif1', 'msf1']);
+
+function isOleCompoundFile(buffer) {
+  return buffer.length >= OLE_COMPOUND_SIGNATURE.length && buffer.subarray(0, OLE_COMPOUND_SIGNATURE.length).equals(OLE_COMPOUND_SIGNATURE);
+}
+
+/** .xlsx and .docx are both Office Open XML: a ZIP container. This can't tell the two apart without unzipping — it can only rule out something that isn't a ZIP at all. */
+function isZipContainer(buffer) {
+  return buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b && (buffer[2] === 0x03 || buffer[2] === 0x05 || buffer[2] === 0x07);
+}
+
+function isHeic(buffer) {
+  return buffer.length >= 12 && buffer.subarray(4, 8).toString('latin1') === 'ftyp' && HEIC_BRANDS.has(buffer.subarray(8, 12).toString('latin1').toLowerCase());
+}
+
+/**
+ * CSV has no signature — it's plain text, and a real one could start with
+ * almost any printable character. The bar here is only "this plausibly
+ * isn't binary content mislabelled as CSV": no embedded NUL, and nothing
+ * from the C0 control range below tab, which a genuine delimited text
+ * file never contains.
+ */
+function looksLikePlainText(buffer) {
+  const sample = buffer.subarray(0, Math.min(buffer.length, 4096));
+  for (const byte of sample) {
+    if (byte === 0x00 || byte < 0x09) return false;
+  }
+  return true;
+}
+
+/** One check per allowed type; text/csv has none of its own and is handled directly in matchesDeclaredType. */
+const MAGIC_BYTE_CHECKS = new Map([
+  ['application/pdf', (buf) => buf.length >= 5 && buf.subarray(0, 5).toString('latin1') === '%PDF-'],
+  ['image/jpeg', (buf) => buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff],
+  ['image/png', (buf) => buf.length >= PNG_SIGNATURE.length && buf.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)],
+  ['image/heic', isHeic],
+  ['application/vnd.ms-excel', isOleCompoundFile],
+  ['application/msword', isOleCompoundFile],
+  ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', isZipContainer],
+  ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', isZipContainer],
+]);
+
+/**
+ * Whether the file's actual bytes look like what it claims to be, checked
+ * *after* the type has already passed the ALLOWED_CONTENT_TYPES allowlist —
+ * this is a second, independent check, not a replacement for it. A client
+ * declares its own content-type; nothing before this point looks past that
+ * label, so labelling arbitrary bytes as a PDF would otherwise sail
+ * through untouched. Every currently-allowed type but CSV has a real
+ * signature to check; CSV gets the plain-text heuristic instead.
+ */
+export function matchesDeclaredType(buffer, contentType) {
+  const type = String(contentType ?? '').toLowerCase();
+  if (type === 'text/csv') return looksLikePlainText(buffer);
+  const check = MAGIC_BYTE_CHECKS.get(type);
+  return check ? check(buffer) : false;
+}
+
 /** Characters that must never appear in a file name: path separators, and C0/DEL control codes. */
 const UNSAFE_NAME_CHARS = /[\\/]|\p{Cc}/gu;
 
