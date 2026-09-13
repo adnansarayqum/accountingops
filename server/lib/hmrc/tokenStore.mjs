@@ -14,6 +14,7 @@
  */
 import { ensureSchema, query } from '../db.mjs';
 import { baseUrl } from './client.mjs';
+import { decryptToken, encryptToken, isEncryptionConfigured } from './tokenCrypto.mjs';
 
 const TOKEN_ID = 'agent-services-account';
 
@@ -26,8 +27,8 @@ export async function readTokens() {
   const row = rows[0];
   if (!row) return null;
   return {
-    accessToken: row.access_token,
-    refreshToken: row.refresh_token,
+    accessToken: decryptToken(row.access_token),
+    refreshToken: decryptToken(row.refresh_token),
     scope: row.scope,
     expiresAt: row.expires_at,
     connectedBy: row.connected_by,
@@ -50,7 +51,7 @@ export async function writeTokens({ accessToken, refreshToken, scope, expiresInS
        expires_at    = excluded.expires_at,
        connected_by  = coalesce(excluded.connected_by, hmrc_agent_tokens.connected_by),
        updated_at    = now()`,
-    [TOKEN_ID, accessToken, refreshToken ?? null, scope ?? null, expiresAt, connectedBy ?? null],
+    [TOKEN_ID, encryptToken(accessToken), encryptToken(refreshToken ?? null), scope ?? null, expiresAt, connectedBy ?? null],
   );
   return expiresAt;
 }
@@ -64,13 +65,14 @@ export async function clearTokens() {
 /** Safe to show: says whether we're connected and when it lapses, never the token. */
 export async function connectionStatus() {
   const tokens = await readTokens();
-  if (!tokens) return { connected: false };
+  if (!tokens) return { connected: false, tokenEncryption: isEncryptionConfigured() };
   return {
     connected: true,
     expiresAt: tokens.expiresAt,
     connectedAt: tokens.connectedAt,
     connectedBy: tokens.connectedBy,
     scope: tokens.scope,
+    tokenEncryption: isEncryptionConfigured(),
     canRefresh: Boolean(tokens.refreshToken),
   };
 }
@@ -135,15 +137,40 @@ export async function withFreshToken(use, { env = process.env, fetchImpl = globa
     err.code = 'refresh_failed';
     throw err;
   }
-  let refreshed;
-  try {
-    refreshed = await exchangeToken({ grant_type: 'refresh_token', refresh_token: tokens.refreshToken }, { env, fetchImpl });
-  } catch (cause) {
-    const err = new Error('refresh_failed');
-    err.code = 'refresh_failed';
-    err.cause = cause;
-    throw err;
-  }
-  await writeTokens(refreshed);
+  const refreshed = await sharedRefresh(tokens.refreshToken, { env, fetchImpl });
   return use(refreshed.accessToken);
+}
+
+/**
+ * There is one agent-level token, so two requests arriving near expiry
+ * (two obligations calls a moment apart, say) can both see it as expiring
+ * and both try to refresh at once. HMRC rotates the refresh token on use,
+ * so the second exchange would otherwise fail with `invalid_grant` even
+ * though the connection is fine — a spurious "please reconnect" for
+ * whichever caller lost the race. Sharing one in-flight refresh promise
+ * means only the first caller actually talks to HMRC; every concurrent
+ * caller awaits the same result. The check and the assignment below are
+ * both synchronous — no `await` between them — so this is safe under
+ * concurrent async calls without any external lock.
+ */
+let refreshInFlight = null;
+
+function sharedRefresh(refreshToken, { env, fetchImpl }) {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const refreshed = await exchangeToken({ grant_type: 'refresh_token', refresh_token: refreshToken }, { env, fetchImpl });
+        await writeTokens(refreshed);
+        return refreshed;
+      } catch (cause) {
+        const err = new Error('refresh_failed');
+        err.code = 'refresh_failed';
+        err.cause = cause;
+        throw err;
+      } finally {
+        refreshInFlight = null;
+      }
+    })();
+  }
+  return refreshInFlight;
 }

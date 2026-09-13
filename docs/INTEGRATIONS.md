@@ -259,6 +259,15 @@ headers). `GET /api/hmrc/status` reports whether credentials are present,
 which environment, and whether an agent account is connected — never the
 tokens. Settings → HMRC connects and disconnects it.
 
+**Token storage.** The agent's OAuth tokens are one row (`hmrc_agent_tokens`)
+covering every client the practice has appointed, so it is worth protecting
+as its own thing: set `HMRC_TOKEN_ENCRYPTION_KEY` and they are encrypted at
+rest (AES-256-GCM), rather than sitting as plain text in a database that a
+backup, replica, or unrelated bug could otherwise expose. `/api/hmrc/status`
+reports `tokenEncryption: true/false` so this is visible rather than a
+silent gap. Leaving it unset keeps working exactly as before — nothing is
+required to connect HMRC in the first place.
+
 Filing itself stays explicitly simulated (`FilingRecord.simulated: true`,
 labelled in the UI). Reading obligations is a much smaller commitment than
 submitting returns, and is where the value is.
