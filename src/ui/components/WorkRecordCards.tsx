@@ -100,24 +100,27 @@ export function WipCard({ clientId }: { clientId: string }) {
         {unbilled.length > 0 && (
           <ul className="divide-y divide-slate-100">
             {unbilled.map((w) => (
-              <li key={w.id} className="py-2.5 flex items-start justify-between gap-3" data-testid={`wip-row-${w.id}`}>
-                <div className="min-w-0">
-                  <p className="text-[13px] text-slate-900">{w.description}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">
+              <li key={w.id} className="py-2.5" data-testid={`wip-row-${w.id}`}>
+                {/* Stacked, not side-by-side: this card sits in a narrow column, and a
+                    longer description wraps to several lines — actions beside it would
+                    float at the top, disconnected from the text underneath. */}
+                <p className="text-[13px] text-slate-900">{w.description}</p>
+                <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                  <p className="text-xs text-slate-500">
                     {formatDate(w.performedOn)}
                     {userName(data.users, w.performedByUserId) ? ` · ${userName(data.users, w.performedByUserId)}` : ''} · <span className="font-medium text-slate-700">{formatPounds(w.amount)}</span>
                   </p>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <Button size="sm" variant="ghost" onClick={() => resolveWipEntry(w.id, 'invoiced')} data-testid={`wip-invoice-${w.id}`}>
-                    Invoiced
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => resolveWipEntry(w.id, 'written_off')}>
-                    Write off
-                  </Button>
-                  <button type="button" onClick={() => deleteWipEntry(w.id)} className="text-slate-300 hover:text-red-600 p-1" aria-label="Remove this entry">
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button size="sm" variant="ghost" onClick={() => resolveWipEntry(w.id, 'invoiced')} data-testid={`wip-invoice-${w.id}`}>
+                      Invoiced
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => resolveWipEntry(w.id, 'written_off')}>
+                      Write off
+                    </Button>
+                    <button type="button" onClick={() => deleteWipEntry(w.id)} className="text-slate-300 hover:text-red-600 p-1" aria-label="Remove this entry">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
               </li>
             ))}
