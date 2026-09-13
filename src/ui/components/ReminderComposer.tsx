@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Mail, MessageCircle, MessageSquare, Send } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ExternalLink, Mail, MessageCircle, MessageSquare, Send, UserPlus } from 'lucide-react';
 import { Modal } from './Modal';
 import { Button } from './Button';
 import { Field, Input, Textarea } from './Form';
@@ -34,7 +35,12 @@ export function ReminderComposer({ job, open, onClose, initialChannel }: { job: 
   const currentUserId = useAppStore((s) => s.currentUserId);
 
   const client = data.clients.find((c) => c.id === job.clientId)!;
-  const contact = data.contacts.find((c) => c.clientId === client.id && c.isPrimary) ?? data.contacts.find((c) => c.clientId === client.id)!;
+  // A client can genuinely have no contact on file yet — onboarded from a
+  // Companies House lookup, say, before anyone's added a person to write
+  // to. ClientDetailPage already renders that state with blanks rather
+  // than assuming one exists; this composer needs the same discipline,
+  // since drafting a reminder has nobody to draft it *to*.
+  const contact = data.contacts.find((c) => c.clientId === client.id && c.isPrimary) ?? data.contacts.find((c) => c.clientId === client.id);
   const sender = data.users.find((u) => u.id === currentUserId) ?? data.users[0];
   const sequence = data.reminderSequences.find((s) => s.id === sequenceIdFor(job.serviceCode));
   const remindersSent = data.communications.filter((c) => c.jobId === job.id && c.direction === 'outbound' && c.reminderStage).length;
@@ -42,7 +48,10 @@ export function ReminderComposer({ job, open, onClose, initialChannel }: { job: 
 
   const defaultChannel: Channel = initialChannel ?? (client.preferredChannel === 'phone' || client.preferredChannel === 'portal' ? 'email' : client.preferredChannel);
   const [channel, setChannel] = useState<Channel>(defaultChannel);
-  const draft = useMemo(() => draftReminder({ client, contact, job, items: data.requestItems, channel, step, sender, practiceName: data.practice.name, today }), [client, contact, job, data.requestItems, channel, step, sender, data.practice.name, today]);
+  const draft = useMemo(
+    () => (contact ? draftReminder({ client, contact, job, items: data.requestItems, channel, step, sender, practiceName: data.practice.name, today }) : { channel, recipient: '', subject: '', body: '', documentsRequested: [] as string[], stage: 'Ad hoc reminder' }),
+    [client, contact, job, data.requestItems, channel, step, sender, data.practice.name, today],
+  );
   const [body, setBody] = useState(draft.body);
   const [subject, setSubject] = useState(draft.subject ?? '');
   const [recipient, setRecipient] = useState(draft.recipient);
@@ -72,6 +81,9 @@ export function ReminderComposer({ job, open, onClose, initialChannel }: { job: 
   const emailIsLive = messaging?.email.configured === true && messaging.email.provider !== 'simulated';
 
   const send = async () => {
+    // Belt and braces: the footer button is hidden whenever there's no
+    // contact, so this only guards against some future caller.
+    if (!contact) return;
     if (!recipient.trim() || !body.trim()) {
       toast({ title: 'Add a recipient and message before sending.', tone: 'error' });
       return;
@@ -113,8 +125,9 @@ export function ReminderComposer({ job, open, onClose, initialChannel }: { job: 
     onClose();
   };
 
-  const footerNote =
-    channel === 'whatsapp'
+  const footerNote = !contact
+    ? `Add a contact for ${client.name} before sending a reminder.`
+    : channel === 'whatsapp'
       ? 'Opens WhatsApp on this device with the message filled in — you send it there. Logged here as handed off.'
       : channel === 'email'
         ? emailIsLive
@@ -136,57 +149,69 @@ export function ReminderComposer({ job, open, onClose, initialChannel }: { job: 
             {footerNote}
           </span>
           <Button variant="secondary" onClick={onClose} disabled={sending}>
-            Cancel
+            {contact ? 'Cancel' : 'Close'}
           </Button>
-          <Button onClick={() => void send()} icon={channel === 'whatsapp' ? <ExternalLink /> : <Send />} disabled={sending} data-testid="send-reminder-confirm">
-            {actionLabel}
-          </Button>
+          {contact && (
+            <Button onClick={() => void send()} icon={channel === 'whatsapp' ? <ExternalLink /> : <Send />} disabled={sending} data-testid="send-reminder-confirm">
+              {actionLabel}
+            </Button>
+          )}
         </>
       }
     >
-      <div className="flex flex-col gap-4">
-        <div>
-          <p className="text-[13px] font-medium text-slate-700 mb-1.5">Channel</p>
-          {/* Stacked on a phone: three across at 390px clipped the "preferred" tag. */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" role="radiogroup" aria-label="Channel">
-            {CHANNELS.map((c) => {
-              const Icon = c.icon;
-              const available = c.value === 'email' ? !!contact.email : c.value === 'whatsapp' ? !!(contact.whatsapp ?? contact.phone) : !!contact.phone;
-              return (
-                <button
-                  key={c.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={channel === c.value}
-                  disabled={!available}
-                  onClick={() => setChannel(c.value)}
-                  className={cn('flex items-center justify-center gap-2 rounded-lg border px-3 h-10 text-sm font-medium transition-colors', channel === c.value ? 'border-primary-500 bg-primary-50 text-primary-700 ring-2 ring-primary-100' : 'border-slate-200 bg-surface text-slate-700 hover:border-slate-300', !available && 'opacity-40')}
-                >
-                  <Icon className="h-4 w-4" />
-                  {CHANNEL_LABELS[c.value]}
-                  {client.preferredChannel === c.value && <span className="text-[10px] uppercase tracking-wide text-slate-400 whitespace-nowrap">preferred</span>}
-                </button>
-              );
-            })}
+      {!contact ? (
+        <div className="flex flex-col items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900" data-testid="reminder-no-contact">
+          <p className="font-medium">No contact on file for {client.name} yet.</p>
+          <p>Add a name, email or phone number for this client before a reminder can be drafted and sent.</p>
+          <Link to={`/clients/${client.id}`} onClick={onClose} className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-surface px-3 h-9 text-sm font-medium text-amber-900 hover:bg-amber-100">
+            <UserPlus className="h-4 w-4" /> Go to {client.name}
+          </Link>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <div>
+            <p className="text-[13px] font-medium text-slate-700 mb-1.5">Channel</p>
+            {/* Stacked on a phone: three across at 390px clipped the "preferred" tag. */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" role="radiogroup" aria-label="Channel">
+              {CHANNELS.map((c) => {
+                const Icon = c.icon;
+                const available = c.value === 'email' ? !!contact.email : c.value === 'whatsapp' ? !!(contact.whatsapp ?? contact.phone) : !!contact.phone;
+                return (
+                  <button
+                    key={c.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={channel === c.value}
+                    disabled={!available}
+                    onClick={() => setChannel(c.value)}
+                    className={cn('flex items-center justify-center gap-2 rounded-lg border px-3 h-10 text-sm font-medium transition-colors', channel === c.value ? 'border-primary-500 bg-primary-50 text-primary-700 ring-2 ring-primary-100' : 'border-slate-200 bg-surface text-slate-700 hover:border-slate-300', !available && 'opacity-40')}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {CHANNEL_LABELS[c.value]}
+                    {client.preferredChannel === c.value && <span className="text-[10px] uppercase tracking-wide text-slate-400 whitespace-nowrap">preferred</span>}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-          <Badge tone="blue">{draft.stage}</Badge>
-          {draft.documentsRequested.length > 0 ? <span>Requesting: {draft.documentsRequested.join(', ')}</span> : <span>Requesting approval</span>}
-          <span>· Reminder {remindersSent + 1}</span>
-        </div>
-        <Field label="To" htmlFor="reminder-recipient">
-          <Input id="reminder-recipient" value={recipient} onChange={(e) => setRecipient(e.target.value)} />
-        </Field>
-        {channel === 'email' && (
-          <Field label="Subject" htmlFor="reminder-subject">
-            <Input id="reminder-subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <Badge tone="blue">{draft.stage}</Badge>
+            {draft.documentsRequested.length > 0 ? <span>Requesting: {draft.documentsRequested.join(', ')}</span> : <span>Requesting approval</span>}
+            <span>· Reminder {remindersSent + 1}</span>
+          </div>
+          <Field label="To" htmlFor="reminder-recipient">
+            <Input id="reminder-recipient" value={recipient} onChange={(e) => setRecipient(e.target.value)} />
           </Field>
-        )}
-        <Field label="Message" htmlFor="reminder-body" hint="Drafted from the job's actual outstanding items. Edit freely before sending.">
-          <Textarea id="reminder-body" rows={channel === 'email' ? 9 : 5} value={body} onChange={(e) => setBody(e.target.value)} />
-        </Field>
-      </div>
+          {channel === 'email' && (
+            <Field label="Subject" htmlFor="reminder-subject">
+              <Input id="reminder-subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
+            </Field>
+          )}
+          <Field label="Message" htmlFor="reminder-body" hint="Drafted from the job's actual outstanding items. Edit freely before sending.">
+            <Textarea id="reminder-body" rows={channel === 'email' ? 9 : 5} value={body} onChange={(e) => setBody(e.target.value)} />
+          </Field>
+        </div>
+      )}
     </Modal>
   );
 }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import { ReminderComposer } from '../ReminderComposer';
 import { configureRepository, useAppStore } from '../../../application/store';
 import { MemoryRepository } from '../../../application/persistence/memoryRepository';
@@ -93,5 +94,39 @@ describe('ReminderComposer delivery', () => {
     await waitFor(() => expect(useAppStore.getState().toasts.map((t) => t.title)).toContain("Couldn't send the email"));
     expect(useAppStore.getState().data.communications).toHaveLength(before);
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('ReminderComposer with no contact on file', () => {
+  // A client onboarded from a Companies House lookup, say, can genuinely
+  // have no contact recorded yet. Regression for a real crash: opening the
+  // composer for such a client threw "Cannot read properties of undefined
+  // (reading 'name')" from inside a useMemo, taking the whole screen down
+  // via the app's ErrorBoundary rather than showing anything useful.
+  beforeEach(() => {
+    configureRepository(new MemoryRepository());
+    const data = buildFixtureData(today);
+    data.contacts = data.contacts.filter((c) => c.clientId !== 'cl_abc');
+    useAppStore.setState({ data, today, ready: true, currentUserId: 'u_adnan', toasts: [] });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('shows a clear message and a way to add one, instead of crashing', async () => {
+    const job = useAppStore.getState().data.jobs.find((j) => j.id === 'job_abc_accounts')!;
+    const onClose = vi.fn();
+    render(
+      <MemoryRouter>
+        <ReminderComposer job={job} open onClose={onClose} />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByTestId('reminder-no-contact')).toHaveTextContent('No contact on file for ABC Construction Ltd yet.');
+    expect(screen.queryByTestId('send-reminder-confirm')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Channel')).not.toBeInTheDocument();
+
+    const link = screen.getByRole('link', { name: /Go to ABC Construction Ltd/ });
+    expect(link).toHaveAttribute('href', '/clients/cl_abc');
+    await userEvent.setup().click(link);
+    expect(onClose).toHaveBeenCalled();
   });
 });
