@@ -596,6 +596,35 @@ describe('application store — AML review and turnover', () => {
     useAppStore.getState().recordTurnover('cl_abc', -1);
     expect(useAppStore.getState().data.clients.find((c) => c.id === 'cl_abc')!.rolling12MonthTurnover).toBeUndefined();
   });
+
+  it('rejects an AML rating outside the known set rather than writing it', () => {
+    // The type is compile-time only; a caller that bypasses it (a stray
+    // devtools call, a future bulk-import path) must not be able to write
+    // a rating the AML rule can't recognise into the client record.
+    const before = useAppStore.getState().data.auditEvents.length;
+    useAppStore.getState().recordAmlReview('cl_abc', { rating: 'extreme' as never });
+    const client = useAppStore.getState().data.clients.find((c) => c.id === 'cl_abc')!;
+    expect(client.amlRiskRating).toBeUndefined();
+    expect(useAppStore.getState().data.auditEvents).toHaveLength(before);
+  });
+
+  it('keeps AML and turnover fields out of the generic client-details patch, even if asked', () => {
+    useAppStore.getState().recordAmlReview('cl_abc', { rating: 'high', note: 'Set via the proper action.' });
+    // These two fields are still valid on Partial<Client> at the type
+    // level — updateClient's real callers never send them, but nothing
+    // stops one that did, so the store itself has to be the guard.
+    useAppStore.getState().updateClient('cl_abc', {
+      preferredChannel: 'whatsapp',
+      amlRiskRating: 'low',
+      rolling12MonthTurnover: 999_999,
+    });
+    const client = useAppStore.getState().data.clients.find((c) => c.id === 'cl_abc')!;
+    expect(client.preferredChannel).toBe('whatsapp');
+    expect(client.amlRiskRating).toBe('high');
+    expect(client.rolling12MonthTurnover).toBeUndefined();
+    // Audit entries are recorded newest first — see the "AML review recorded" test above.
+    expect(useAppStore.getState().data.auditEvents[0]).toMatchObject({ action: 'client.update' });
+  });
 });
 
 describe('application store — applying client portal activity', () => {

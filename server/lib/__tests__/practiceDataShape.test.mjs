@@ -61,4 +61,35 @@ describe('validatePracticeData', () => {
       expect(validatePracticeData(data)).toMatch(new RegExp(`^${key}_`));
     }
   });
+
+  it('accepts clients with a valid AML rating and turnover, present or absent', () => {
+    const data = fullSnapshot();
+    data.clients = [
+      { id: 'cl_1', name: 'No compliance fields at all' },
+      { id: 'cl_2', name: 'Rated, no turnover', amlRiskRating: 'high' },
+      { id: 'cl_3', name: 'Zero turnover is valid', amlRiskRating: 'low', rolling12MonthTurnover: 0 },
+      { id: 'cl_4', name: 'Explicit nulls', amlRiskRating: null, rolling12MonthTurnover: null },
+    ];
+    expect(validatePracticeData(data)).toBeNull();
+  });
+
+  it('rejects a client whose AML rating is outside the known set', () => {
+    const data = fullSnapshot();
+    data.clients = [{ id: 'cl_1', name: 'Example Ltd', amlRiskRating: 'extreme' }];
+    expect(validatePracticeData(data)).toBe('client_aml_rating_invalid');
+  });
+
+  it('rejects a client whose turnover is negative, non-finite, or not a number', () => {
+    for (const bad of [-1, Number.NaN, Number.POSITIVE_INFINITY, '90000']) {
+      const data = fullSnapshot();
+      data.clients = [{ id: 'cl_1', name: 'Example Ltd', rolling12MonthTurnover: bad }];
+      expect(validatePracticeData(data)).toBe('client_turnover_invalid');
+    }
+  });
+
+  it('rejects a client row that is not an object', () => {
+    const data = fullSnapshot();
+    data.clients = [null];
+    expect(validatePracticeData(data)).toBe('client_not_an_object');
+  });
 });
