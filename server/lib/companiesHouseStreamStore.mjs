@@ -15,6 +15,9 @@ import { ensureSchema, query } from './db.mjs';
 
 const STATE_ID = 'company-profile-stream';
 
+/** There is exactly one practice per deployment today; see server/routes/practiceData.mjs. */
+const PRACTICE_ID = 'prac_main';
+
 export async function readStreamState() {
   await ensureSchema();
   const { rows } = await query('select timepoint, connected_at, last_event_at, last_error from companies_house_stream_state where id = $1', [STATE_ID]);
@@ -111,7 +114,7 @@ export async function acknowledgeChanges(companyNumbers) {
  */
 export async function watchedCompanyNumbers() {
   await ensureSchema();
-  const { rows } = await query('select data from practice_snapshots');
+  const { rows } = await query('select data from practice_snapshots where practice_id = $1', [PRACTICE_ID]);
   const watched = new Set();
   for (const row of rows) {
     for (const identifier of row.data?.identifiers ?? []) {

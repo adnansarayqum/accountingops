@@ -75,14 +75,21 @@ export function parseStreamLine(line) {
   };
 }
 
+/** A Companies House company number: up to ten letters and digits, nothing else. */
+const COMPANY_NUMBER_PATTERN = /^[A-Za-z0-9]{1,10}$/;
+
 /**
  * The company number for a record. `resource_id` is it for the company
  * profile stream; the resource_uri ("/company/01234567") is the fallback
- * for a record that omits it.
+ * for a record that omits it. Both are checked against the same
+ * character set: `resource_id` is trusted content from Companies House,
+ * but this value flows on to the watch-list match, gets stored, and is
+ * returned to the browser (CompaniesHouseChangesCard) — a boundary worth
+ * the same discipline the fallback already applied to itself.
  */
 export function companyNumberOf(record) {
   const id = record?.resource_id;
-  if (typeof id === 'string' && id.trim()) return id.trim().toUpperCase();
+  if (typeof id === 'string' && COMPANY_NUMBER_PATTERN.test(id.trim())) return id.trim().toUpperCase();
   const uri = record?.resource_uri;
   if (typeof uri === 'string') {
     const match = /\/company\/([A-Za-z0-9]{1,10})/.exec(uri);

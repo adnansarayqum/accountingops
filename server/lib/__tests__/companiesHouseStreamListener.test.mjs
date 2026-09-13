@@ -229,6 +229,69 @@ describe('CompaniesHouseStreamListener', () => {
     expect(listener.stats.lastReason).toBe('ended');
   });
 
+  it('drains a rejected response\'s body before giving up on the connection', async () => {
+    let cancelled = false;
+    const listener = new CompaniesHouseStreamListener({
+      apiKey: 'k',
+      fetch: async () => ({ ok: false, status: 503, body: { cancel: async () => void (cancelled = true) } }),
+      sleep: async () => {},
+      now: () => 0,
+      writeState: async () => {},
+      recordChange: async () => true,
+      watchedCompanyNumbers: async () => new Set(),
+      maxAttempts: 1,
+    });
+    await listener.start();
+    expect(cancelled).toBe(true);
+  });
+
+  it('does not choke on a rejected response with no body to cancel', async () => {
+    const listener = new CompaniesHouseStreamListener({
+      apiKey: 'k',
+      fetch: async () => ({ ok: false, status: 500 }),
+      sleep: async () => {},
+      now: () => 0,
+      writeState: async () => {},
+      recordChange: async () => true,
+      watchedCompanyNumbers: async () => new Set(),
+      maxAttempts: 1,
+    });
+    await expect(listener.start()).resolves.toBeDefined();
+  });
+
+  it('throttles persisting the timepoint for lines outside the watch list, rather than one database write per line', async () => {
+    const clock = { t: 0 };
+    const { listener, state } = harness([streamResponse([event('07777777', 1), event('07777777', 2), event('07777777', 3)])], {
+      now: () => clock.t,
+      writeStateThrottleMs: 1000,
+    });
+    await listener.start();
+    // All three unmatched lines land inside one throttle window (the clock
+    // never advances), so only the forced flush when the read ends persists —
+    // not one write per line.
+    expect(state.filter((p) => p.timepoint !== undefined)).toHaveLength(1);
+    expect(state.at(-1).timepoint).toBe(3);
+  });
+
+  it('still persists promptly once the throttle window has actually passed', async () => {
+    // A clock that jumps forward a long way on every read, so whenever it is
+    // checked the throttle window has always already elapsed — regardless
+    // of exactly how many times #flushPendingState happens to call now().
+    let t = 0;
+    const { listener, state } = harness([streamResponse([event('07777777', 1), event('07777777', 2)])], {
+      now: () => (t += 100_000),
+      writeStateThrottleMs: 500,
+    });
+    await listener.start();
+    expect(state.filter((p) => p.timepoint !== undefined).map((p) => p.timepoint)).toEqual([1, 2]);
+  });
+
+  it('always persists a matched change immediately, never throttled', async () => {
+    const { listener, state } = harness([streamResponse([event('01234567', 5), event('01234567', 6)])], { now: () => 0, writeStateThrottleMs: 60_000 });
+    await listener.start();
+    expect(state.filter((p) => p.timepoint !== undefined).map((p) => p.timepoint)).toEqual([5, 6]);
+  });
+
   it('stops cleanly when asked, without waiting out the backoff', async () => {
     let stopped = false;
     const { listener } = harness([streamResponse([event('01234567', 80)])], {

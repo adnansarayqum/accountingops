@@ -84,6 +84,21 @@ describe('companyNumberOf', () => {
     expect(companyNumberOf({})).toBeNull();
     expect(companyNumberOf(null)).toBeNull();
   });
+
+  it('rejects a resource_id outside the character set a company number can actually have', () => {
+    // resource_id is trusted content from Companies House, but it still
+    // flows on to the watch-list match, gets stored, and is returned to the
+    // browser — the same character discipline the resource_uri fallback
+    // already applied to itself.
+    expect(companyNumberOf({ resource_id: '01234567<script>' })).toBeNull();
+    expect(companyNumberOf({ resource_id: 'one two three' })).toBeNull();
+    expect(companyNumberOf({ resource_id: '12345678901' })).toBeNull(); // eleven characters, one too many
+    expect(companyNumberOf({ resource_id: '' })).toBeNull();
+  });
+
+  it('falls back to the resource URI when resource_id is present but not a real company number', () => {
+    expect(companyNumberOf({ resource_id: 'not a company number', resource_uri: '/company/09876543' })).toBe('09876543');
+  });
 });
 
 describe('matchesWatched', () => {

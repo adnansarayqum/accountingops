@@ -35,6 +35,9 @@ function log(level, message, extra = {}) {
   console.log(JSON.stringify({ level, at: new Date().toISOString(), source: 'companies_house_stream', message, ...extra }));
 }
 
+/** How often a non-matching line's timepoint is actually persisted, at most. */
+export const WRITE_STATE_THROTTLE_MS = 1_000;
+
 export class CompaniesHouseStreamListener {
   #options;
   #running = false;
@@ -42,6 +45,8 @@ export class CompaniesHouseStreamListener {
   #watched = new Set();
   #watchedAt = 0;
   #stopped;
+  #pendingTimepoint = null;
+  #lastPersistAt = 0;
 
   constructor(options = {}) {
     this.#options = {
@@ -57,6 +62,7 @@ export class CompaniesHouseStreamListener {
       setTimeout: options.setTimeout ?? ((fn, ms) => setTimeout(fn, ms)),
       clearTimeout: options.clearTimeout ?? ((t) => clearTimeout(t)),
       watchedRefreshMs: options.watchedRefreshMs ?? WATCHED_REFRESH_MS,
+      writeStateThrottleMs: options.writeStateThrottleMs ?? WRITE_STATE_THROTTLE_MS,
       /** Stop after this many connection attempts. Tests set it; production leaves it infinite. */
       maxAttempts: options.maxAttempts ?? Infinity,
     };
@@ -145,6 +151,11 @@ export class CompaniesHouseStreamListener {
 
     if (!res.ok) {
       const reason = reasonForStatus(res.status);
+      // Undici only returns the connection to its pool once the response
+      // body is consumed or cancelled. An error response is otherwise never
+      // read here, so during a prolonged outage (a bad key, Companies House
+      // down) every one of the endless retries would leak a socket handle.
+      await res.body?.cancel?.().catch(() => {});
       await this.#recordFailure(`stream responded ${res.status}`);
       log('warn', `Stream connection refused with ${res.status}`, { reason });
       return { reason, timepoint };
@@ -190,6 +201,10 @@ export class CompaniesHouseStreamListener {
       await this.#recordFailure(err?.message ?? String(err));
       return { reason: 'network', timepoint };
     } finally {
+      // Whatever ended the read (idle, error, or a clean close), don't
+      // abandon the connection carrying a timepoint newer than what's
+      // durably stored — see #flushPendingState.
+      await this.#flushPendingState(true).catch(() => {});
       await reader.cancel().catch(() => {});
     }
   }
@@ -226,11 +241,18 @@ export class CompaniesHouseStreamListener {
     this.stats.eventsSeen += 1;
 
     if (!matchesWatched(event, this.#watched)) {
-      // Not one of ours. Still advance the timepoint: it marks how far
-      // through the register's stream we are, not how far through our own
-      // clients, and not advancing it would replay the firehose on every
-      // reconnect.
-      await this.#options.writeState({ timepoint: event.timepoint, lastEventAt: new Date().toISOString() });
+      // Not one of ours — the overwhelming majority of the firehose. Still
+      // advance the timepoint (it marks how far through the register's
+      // stream we are, not how far through our own clients, and not
+      // advancing it would replay the whole thing on every reconnect), but
+      // don't pay for a database round trip on every single line: that
+      // couples read throughput directly to database latency and, behind
+      // a pool shared with the rest of the app, risks falling far enough
+      // behind to trigger the very "timepoint too old" disconnect this
+      // listener is built to handle. #flushPendingState persists it at
+      // most once per writeStateThrottleMs instead.
+      this.#pendingTimepoint = event.timepoint;
+      await this.#flushPendingState();
       return event.timepoint;
     }
 
@@ -242,8 +264,29 @@ export class CompaniesHouseStreamListener {
         log('info', 'Client changed at Companies House', { companyNumber: event.companyNumber, type: event.type, fieldsChanged: event.fieldsChanged.length });
       }
     }
-    await this.#options.writeState({ timepoint: event.timepoint, lastEventAt: new Date().toISOString() });
+    // A match is rare enough (the review's own estimate: well under 1% of
+    // traffic) that persisting it immediately costs nothing, and it's the
+    // one case worth not delaying — lastEventAt is what a person sees.
+    this.#pendingTimepoint = event.timepoint;
+    await this.#flushPendingState(true);
     return event.timepoint;
+  }
+
+  /**
+   * Persists #pendingTimepoint, throttled to at most once per
+   * writeStateThrottleMs unless `force` is set (a matched event, or the
+   * read loop ending for any reason). The in-memory `timepoint` returned
+   * to #read is always current regardless of whether this call actually
+   * writes — only the durable copy used to resume after a restart lags.
+   */
+  async #flushPendingState(force = false) {
+    if (this.#pendingTimepoint === null) return;
+    const elapsed = this.#options.now() - this.#lastPersistAt;
+    if (!force && elapsed < this.#options.writeStateThrottleMs) return;
+    const timepoint = this.#pendingTimepoint;
+    this.#pendingTimepoint = null;
+    this.#lastPersistAt = this.#options.now();
+    await this.#options.writeState({ timepoint, lastEventAt: new Date().toISOString() });
   }
 
   async #recordFailure(message) {

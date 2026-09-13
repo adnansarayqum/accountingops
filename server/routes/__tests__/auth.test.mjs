@@ -470,7 +470,7 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
     it('watches the company numbers held in the stored practice snapshot', async () => {
       await query('delete from practice_snapshots');
       await query("insert into practice_snapshots (practice_id, data, version) values ($1, $2, 1)", [
-        'prac_stream_test',
+        'prac_main',
         JSON.stringify({ identifiers: [
           { kind: 'company_number', value: ' sc123456 ' },
           { kind: 'company_number', value: '01234567' },
@@ -482,6 +482,25 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
       expect(watched.has('SC123456')).toBe(true);
       expect(watched.has('01234567')).toBe(true);
       expect(watched.has('1234567890')).toBe(false);
+      await query('delete from practice_snapshots');
+    });
+
+    it('never watches company numbers from a snapshot under a different practice id', async () => {
+      // There is exactly one practice per deployment today, so this is
+      // defensive rather than a real scenario yet — but the query filters
+      // by practice_id like every other read of this table, on purpose.
+      await query('delete from practice_snapshots');
+      await query('insert into practice_snapshots (practice_id, data, version) values ($1, $2, 1)', [
+        'prac_main',
+        JSON.stringify({ identifiers: [{ kind: 'company_number', value: '01234567' }] }),
+      ]);
+      await query('insert into practice_snapshots (practice_id, data, version) values ($1, $2, 1)', [
+        'prac_someone_else',
+        JSON.stringify({ identifiers: [{ kind: 'company_number', value: 'SC999999' }] }),
+      ]);
+      const watched = await watchedCompanyNumbers();
+      expect(watched.has('01234567')).toBe(true);
+      expect(watched.has('SC999999')).toBe(false);
       await query('delete from practice_snapshots');
     });
   });
