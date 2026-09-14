@@ -12,4 +12,4 @@ export interface PracticeRepository {
 }
 
 /** Bump when the persisted shape changes so stale snapshots are discarded. */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;

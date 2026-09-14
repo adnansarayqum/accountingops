@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HttpRepository, SnapshotConflictError } from '../httpRepository';
 import { LocalStorageRepository } from '../localStorageRepository';
+import { SCHEMA_VERSION } from '../repository';
 import { buildFixtureData } from '../../../testing/fixtures';
+import type { PracticeData } from '../../../domain/types';
 
 describe('HttpRepository.load', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -27,6 +29,16 @@ describe('HttpRepository.load', () => {
 
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 500 })));
     await expect(new HttpRepository().load()).rejects.toThrow();
+  });
+
+  it('fills in a collection missing from a snapshot saved before it existed, rather than handing back a gap every screen assumes is an array', async () => {
+    const { wipEntries: _wipEntries, timeEntries: _timeEntries, ...withoutNewCollections } = buildFixtureData('2026-09-11');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: withoutNewCollections }), { status: 200 })));
+    const loaded = await new HttpRepository().load();
+    expect(loaded?.wipEntries).toEqual([]);
+    expect(loaded?.timeEntries).toEqual([]);
+    // A collection that *is* present, even non-empty, is untouched.
+    expect(loaded?.clients.length).toBe(withoutNewCollections.clients.length);
   });
 });
 
@@ -72,6 +84,13 @@ describe('HttpRepository versions', () => {
     expect((err as SnapshotConflictError).current.clients.length).toBe(theirs.clients.length);
     expect(repo.currentVersion()).toBe(12);
   });
+
+  it('also fills in a missing collection on the snapshot a 409 carries back — the rebase path reads it the same way a fresh load does', async () => {
+    const { wipEntries: _wipEntries, ...theirsWithoutWip } = buildFixtureData('2026-09-11');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'version_conflict', version: 12, data: theirsWithoutWip }), { status: 409 })));
+    const err = await new HttpRepository().save(theirsWithoutWip as PracticeData).catch((e: unknown) => e);
+    expect((err as SnapshotConflictError).current.wipEntries).toEqual([]);
+  });
 });
 
 describe('LocalStorageRepository.save', () => {
@@ -93,5 +112,26 @@ describe('LocalStorageRepository.save', () => {
     });
     const repo = new LocalStorageRepository('test.data');
     await expect(repo.save(buildFixtureData('2026-09-11'))).rejects.toThrow(/Could not persist practice data/);
+  });
+});
+
+describe('LocalStorageRepository.load', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  it('discards a snapshot saved under an older schema version rather than loading it half-shaped', async () => {
+    const data = buildFixtureData('2026-09-11');
+    localStorage.setItem('test.data', JSON.stringify({ version: SCHEMA_VERSION - 1, savedAt: new Date().toISOString(), data }));
+    expect(await new LocalStorageRepository('test.data').load()).toBeNull();
+  });
+
+  it('still fills in a collection missing under the current schema version — the version bump is the real guard, this is the backstop for forgetting it', async () => {
+    const { wipEntries: _wipEntries, timeEntries: _timeEntries, ...withoutNewCollections } = buildFixtureData('2026-09-11');
+    localStorage.setItem('test.data', JSON.stringify({ version: SCHEMA_VERSION, savedAt: new Date().toISOString(), data: withoutNewCollections }));
+    const loaded = await new LocalStorageRepository('test.data').load();
+    expect(loaded?.wipEntries).toEqual([]);
+    expect(loaded?.timeEntries).toEqual([]);
   });
 });

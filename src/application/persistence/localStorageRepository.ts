@@ -1,4 +1,5 @@
 import type { PracticeData } from '../../domain/types';
+import { normalizePracticeData } from '../emptyState';
 import { SCHEMA_VERSION, type PracticeRepository } from './repository';
 
 interface Envelope {
@@ -16,7 +17,13 @@ export class LocalStorageRepository implements PracticeRepository {
       if (!raw) return null;
       const env = JSON.parse(raw) as Envelope;
       if (env.version !== SCHEMA_VERSION) return null;
-      return env.data;
+      // Belt and braces alongside the version check above, which is the
+      // real guard here: this only matters the day a collection is added
+      // without remembering to bump SCHEMA_VERSION with it. See
+      // normalizePracticeData — the same gap is a hard crash, not a
+      // discarded snapshot, on the HTTP-backed repository, which has no
+      // version check of its own.
+      return normalizePracticeData(env.data);
     } catch {
       return null;
     }

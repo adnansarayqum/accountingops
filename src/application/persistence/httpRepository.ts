@@ -1,4 +1,5 @@
 import type { PracticeData } from '../../domain/types';
+import { normalizePracticeData } from '../emptyState';
 import type { PracticeRepository } from './repository';
 
 /**
@@ -54,7 +55,9 @@ export class HttpRepository implements PracticeRepository {
     if (!res.ok) throw new Error("Couldn't load practice data.");
     const body = (await res.json()) as { data: PracticeData; version?: number };
     this.version = body.version ?? 0;
-    return body.data;
+    // A snapshot saved before this build's newest collection existed
+    // otherwise comes back missing it — see normalizePracticeData.
+    return normalizePracticeData(body.data);
   }
 
   async save(data: PracticeData): Promise<void> {
@@ -67,7 +70,7 @@ export class HttpRepository implements PracticeRepository {
     if (res.status === 409) {
       const body = (await res.json()) as { version: number; data: PracticeData };
       this.version = body.version;
-      throw new SnapshotConflictError(body.data, body.version);
+      throw new SnapshotConflictError(normalizePracticeData(body.data), body.version);
     }
     if (!res.ok) throw new Error("Couldn't save practice data.");
     const body = (await res.json()) as { version?: number };
