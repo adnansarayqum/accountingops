@@ -50,3 +50,29 @@ export function buildEmptyPracticeData(): PracticeData {
     timeEntries: [],
   };
 }
+
+/**
+ * Fills in any top-level collection missing from a snapshot loaded from
+ * storage. A snapshot saved before a field existed genuinely won't have
+ * it — the server only ever refuses a write missing `users` or `clients`
+ * (see server/lib/practiceDataShape.mjs); every newer collection is
+ * accepted as absent so an old snapshot keeps loading. But every screen
+ * that reads one (`data.wipEntries.filter(...)`, say) assumes it's
+ * always an array, so the gap has to close at the read boundary — the
+ * repositories that turn stored JSON into `PracticeData` — rather than
+ * at every call site across the app. This is what stood between a real,
+ * already-saved practice and a hard crash the first time a new
+ * collection was added after real client data existed.
+ */
+export function normalizePracticeData(data: PracticeData): PracticeData {
+  const defaults = buildEmptyPracticeData();
+  let changed = false;
+  const result = { ...data };
+  for (const key of Object.keys(defaults) as (keyof PracticeData)[]) {
+    if (result[key] === undefined) {
+      (result as Record<string, unknown>)[key] = defaults[key];
+      changed = true;
+    }
+  }
+  return changed ? result : data;
+}
