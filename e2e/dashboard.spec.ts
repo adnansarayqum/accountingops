@@ -61,16 +61,12 @@ test.describe('dashboard — key deadlines and attention triage', () => {
     await expect(page).toHaveURL(/\/clients\/cl_/);
   });
 
-  test('splits the right rail by axis: workload, the next deadlines, and identity verification separately', async ({ page }) => {
+  test('splits the right rail by axis: workload and identity verification separately', async ({ page }) => {
     // The donut's centre is the total its own legend adds up to.
     const workload = page.getByTestId('client-workload');
     const open = Number((await workload.locator('p.tabular').first().textContent()) ?? '0');
     const legend = await workload.locator('li span:last-child').allTextContents();
     expect(legend.reduce((sum, n) => sum + Number(n), 0)).toBe(open);
-
-    // Upcoming deadlines are soonest-first and carry the real date.
-    const upcoming = page.getByTestId('upcoming-deadlines');
-    await expect(upcoming.getByRole('listitem').first()).toContainText('Due in 3d');
 
     // Identity verification is its own box, not one more reason a job is flagged.
     const identity = page.getByTestId('identity-verification');

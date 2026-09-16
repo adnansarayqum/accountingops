@@ -68,7 +68,6 @@ export function DashboardPage() {
   // out here rather than left to compete with (and sometimes lose to) a job's other attention rules.
   const identityDue = derived.attention.filter((a) => a.ruleCode === 'identity_incomplete');
   const waitingClients = new Set(derived.jobViews.filter((v) => v.job.status !== 'filed' && v.job.waitingOn === 'client').map((v) => v.client.id)).size;
-  const upcoming = derived.jobViews.filter((v) => v.job.status !== 'filed' && v.daysUntilDue >= 0).slice(0, 5);
   const openJobs = derived.jobViews.filter((v) => v.job.status !== 'filed').length;
   const penalties = derived.penalties;
 
@@ -258,38 +257,6 @@ export function DashboardPage() {
             )}
           </Card>
 
-          <Card data-testid="upcoming-deadlines">
-            <CardHeader
-              title="Upcoming deadlines"
-              description={upcoming.length === 0 ? 'Nothing scheduled ahead.' : 'The next statutory dates, soonest first.'}
-              action={
-                <Link to="/jobs" className="text-[13px] font-medium text-primary-700 hover:underline">
-                  View all
-                </Link>
-              }
-            />
-            {upcoming.length > 0 && (
-              <CardBody className="pt-0">
-                <ul className="divide-y divide-slate-100">
-                  {upcoming.map((v) => (
-                    <li key={v.job.id}>
-                      <Link to={`/jobs/${v.job.id}`} className="py-2 flex items-center justify-between gap-2 group">
-                        <span className="min-w-0">
-                          <span className="block text-[13px] font-medium text-slate-800 truncate group-hover:text-primary-700">{v.client.name}</span>
-                          <span className="block text-[11px] text-slate-500 truncate">{v.job.name}</span>
-                        </span>
-                        <span className="shrink-0 text-right">
-                          <DueBadge days={v.daysUntilDue} />
-                          <span className="block text-[10.5px] text-slate-400 tabular mt-0.5">{formatDate(v.job.dueDate, { year: true })}</span>
-                        </span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </CardBody>
-            )}
-          </Card>
-
           {identityDue.length > 0 && (
             <Card data-testid="identity-verification">
               <CardHeader
@@ -327,9 +294,9 @@ export function DashboardPage() {
                 <ul className="divide-y divide-slate-100">
                   {readyToFile.slice(0, 4).map((v) => (
                     <li key={v.job.id}>
-                      {/* Client and job on their own lines, as in Upcoming deadlines —
-                          one line joined by a dot truncates to "Peter & Anne Ashby · …",
-                          which drops the half that says what is ready. */}
+                      {/* Client and job on their own lines — one line joined by a dot
+                          truncates to "Peter & Anne Ashby · …", which drops the half
+                          that says what is ready. */}
                       <Link to={`/jobs/${v.job.id}`} className="py-2 flex items-center justify-between gap-2 group">
                         <span className="min-w-0">
                           <span className="block text-[13px] font-medium text-slate-800 truncate group-hover:text-primary-700">{v.client.name}</span>
