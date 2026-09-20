@@ -51,7 +51,7 @@ import type { AmlRiskRating,
 } from '../domain/types';
 import { newId } from './ids';
 import { LocalStorageRepository } from './persistence/localStorageRepository';
-import type { PracticeRepository } from './persistence/repository';
+import { peekSnapshot, type PeekedSnapshot, type PracticeRepository } from './persistence/repository';
 import { SnapshotConflictError } from './persistence/httpRepository';
 
 export interface Toast {
@@ -228,6 +228,13 @@ let queued: PracticeData | null = null;
 // server refuses a save because someone else saved first, these are
 // replayed on top of what they saved, so neither person's work is lost.
 let unsavedMutations: Mutation[] = [];
+
+/**
+ * Counts every local mutation. A background refresh notes it before it reads
+ * and drops what it read if it has moved — including a mutation that was
+ * saved (so `unsaved` is false again) before the read came back.
+ */
+let mutationEpoch = 0;
 
 /** How many times one save may lose the race before we stop replaying and take the server's copy. */
 const MAX_CONFLICT_REPLAYS = 3;
@@ -467,6 +474,7 @@ export const useAppStore = create<AppState>((set, get) => {
       return;
     }
     const result = applyMutation(state.data, fn, state.currentUserId);
+    mutationEpoch += 1;
     unsavedMutations.push(fn);
     set({ data: result, unsaved: true });
     persist(get, set);
@@ -509,16 +517,26 @@ export const useAppStore = create<AppState>((set, get) => {
     async refresh() {
       const state = get();
       if (!state.ready || state.loadFailed || state.unsaved || saveInFlight) return false;
-      let loaded: PracticeData | null;
+      // Bound to the repository the read started on: a repository swap
+      // mid-flight (sign-in completing) makes this read someone else's.
+      const readFrom = repository;
+      const epoch = mutationEpoch;
+      let peeked: PeekedSnapshot;
       try {
-        loaded = await repository.load();
+        peeked = await peekSnapshot(readFrom);
       } catch {
         return false;
       }
       // A mutation that started while the read was in flight is newer than
-      // what was read — keep it.
-      if (!loaded || get().unsaved || saveInFlight) return false;
-      loaded = applyRetention(loaded);
+      // what was read — keep it, and do NOT adopt the read's version: the
+      // repository would otherwise base the next save on a version whose
+      // data this client threw away, letting that save overwrite the very
+      // changes it never saw without the server's conflict check firing.
+      if (!peeked.data || readFrom !== repository || epoch !== mutationEpoch || get().unsaved || saveInFlight) return false;
+      const loaded = applyRetention(peeked.data);
+      // Adopting the version is what makes the read "ours"; refused when the
+      // repository moved on (a save landed) while the read was in flight.
+      if (!peeked.adopt()) return false;
       if (JSON.stringify(loaded) === JSON.stringify(get().data)) return false;
       set({ data: loaded });
       return true;
