@@ -3,6 +3,7 @@ import { History, RotateCcw } from 'lucide-react';
 import { Card, CardBody, CardHeader } from './Card';
 import { Button } from './Button';
 import { useAppStore } from '../../application/store';
+import { hasPermission } from '../../application/auth';
 import { useData } from '../../application/selectors';
 import { fetchSnapshotHistory, restoreSnapshotVersion, type SnapshotHistory } from '../../application/practiceHistory';
 import { formatDateTime } from '../../domain/dates';
@@ -17,6 +18,7 @@ export function SnapshotHistoryCard() {
   const data = useData();
   const init = useAppStore((s) => s.init);
   const toast = useAppStore((s) => s.toast);
+  const canRestore = hasPermission(useAppStore((s) => s.authUser), 'snapshot.restore');
   const [history, setHistory] = useState<SnapshotHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [restoring, setRestoring] = useState<number | null>(null);
@@ -62,6 +64,7 @@ export function SnapshotHistoryCard() {
           </p>
         )}
         {history && history.versions.length === 0 && <p className="text-[13px] text-slate-500">Nothing saved yet.</p>}
+        {history && !canRestore && <p className="text-[13px] text-slate-500 mb-2">Only an owner can restore an earlier version.</p>}
         {history && history.versions.length > 0 && (
           <ul className="divide-y divide-slate-100">
             {history.versions.map((v) => {
@@ -77,7 +80,7 @@ export function SnapshotHistoryCard() {
                       {formatDateTime(v.savedAt)} · {nameOf(v.savedBy)}
                     </p>
                   </div>
-                  {!isCurrent && (
+                  {!isCurrent && canRestore && (
                     <Button size="sm" variant="secondary" icon={<RotateCcw />} onClick={() => void restore(v.version)} disabled={restoring !== null} data-testid={`restore-version-${v.version}`}>
                       {restoring === v.version ? 'Restoring…' : 'Restore'}
                     </Button>

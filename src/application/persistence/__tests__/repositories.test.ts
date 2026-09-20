@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { HttpRepository, SnapshotConflictError } from '../httpRepository';
+import { HttpRepository, SnapshotConflictError, SnapshotForbiddenError } from '../httpRepository';
 import { LocalStorageRepository } from '../localStorageRepository';
 import { SCHEMA_VERSION } from '../repository';
 import { buildFixtureData } from '../../../testing/fixtures';
@@ -90,6 +90,26 @@ describe('HttpRepository versions', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'version_conflict', version: 12, data: theirsWithoutWip }), { status: 409 })));
     const err = await new HttpRepository().save(theirsWithoutWip as PracticeData).catch((e: unknown) => e);
     expect((err as SnapshotConflictError).current.wipEntries).toEqual([]);
+  });
+});
+
+describe('HttpRepository.save refusals', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("turns the server's role refusal into SnapshotForbiddenError, naming the permission — and does not touch the version", async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'forbidden', permission: 'practice.configure' }), { status: 403 })));
+    const repo = new HttpRepository();
+    const err = await repo.save(buildFixtureData('2026-09-11')).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SnapshotForbiddenError);
+    expect((err as SnapshotForbiddenError).permission).toBe('practice.configure');
+    expect(repo.currentVersion()).toBe(0);
+  });
+
+  it('leaves any other 403 (e.g. a temporary password still to be changed) as a plain failure', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'password_change_required' }), { status: 403 })));
+    const err = await new HttpRepository().save(buildFixtureData('2026-09-11')).catch((e: unknown) => e);
+    expect(err).not.toBeInstanceOf(SnapshotForbiddenError);
+    expect((err as Error).message).toBe("Couldn't save practice data.");
   });
 });
 

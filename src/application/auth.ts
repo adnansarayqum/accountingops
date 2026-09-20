@@ -4,6 +4,22 @@ export interface AuthUser {
   name: string;
   role: string;
   mustChangePassword: boolean;
+  /**
+   * What the server will let this role do (see docs/PERMISSIONS.md). Absent
+   * from an older server, and in browser-only mode where nobody is signed in.
+   */
+  permissions?: string[];
+}
+
+/**
+ * Whether the UI should offer `permission`. Advisory only — the server
+ * enforces every one of these on every request — so an unknown answer (no
+ * user, or a server that doesn't report permissions) says yes rather than
+ * hiding a control the server would have allowed.
+ */
+export function hasPermission(user: AuthUser | null | undefined, permission: string): boolean {
+  if (!user?.permissions) return true;
+  return user.permissions.includes(permission);
 }
 
 export type AuthCheckResult =

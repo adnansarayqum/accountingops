@@ -19,6 +19,19 @@ export class SnapshotConflictError extends Error {
 }
 
 /**
+ * Thrown by save() when the server understood the write and refused it for
+ * this user's role — e.g. it changes the practice's settings or the team, and
+ * only an owner (or manager) may. Retrying cannot help, and neither can
+ * replaying onto a newer snapshot: the store drops the change and reloads.
+ */
+export class SnapshotForbiddenError extends Error {
+  constructor(public readonly permission: string) {
+    super("Your role isn't allowed to make that change.");
+    this.name = 'SnapshotForbiddenError';
+  }
+}
+
+/**
  * Server-backed persistence used once a signed-in session exists (see
  * src/App.tsx) — every mutation is saved to the shared database instead of
  * the browser's own localStorage, so Adnan, Farhan and Raihan see the same
@@ -108,6 +121,10 @@ export class HttpRepository implements PracticeRepository {
       const body = (await res.json()) as { version: number; data: PracticeData };
       this.setVersion(body.version);
       throw new SnapshotConflictError(normalizePracticeData(body.data), body.version);
+    }
+    if (res.status === 403) {
+      const denied = (await res.json().catch(() => null)) as { error?: string; permission?: string } | null;
+      if (denied?.error === 'forbidden') throw new SnapshotForbiddenError(denied.permission ?? 'unknown');
     }
     if (!res.ok) throw new Error("Couldn't save practice data.");
     const body = (await res.json()) as { version?: number };

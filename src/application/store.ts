@@ -52,7 +52,7 @@ import type { AmlRiskRating,
 import { newId } from './ids';
 import { LocalStorageRepository } from './persistence/localStorageRepository';
 import { peekSnapshot, type PeekedSnapshot, type PracticeRepository } from './persistence/repository';
-import { SnapshotConflictError } from './persistence/httpRepository';
+import { SnapshotConflictError, SnapshotForbiddenError } from './persistence/httpRepository';
 
 export interface Toast {
   id: string;
@@ -314,6 +314,22 @@ async function drainSaves(get: () => AppState, set: (patch: Partial<AppState>) =
           queued = null;
           set({ data: applyRetention(err.current), unsaved: false });
           get().toast({ title: "Someone else changed this first", description: 'Their version has been loaded. Your last change was not saved — please make it again.', tone: 'error' });
+          continue;
+        }
+        if (err instanceof SnapshotForbiddenError) {
+          // The server will refuse this change every time, and every later
+          // save would carry it too — so nothing this tab does could save
+          // again. Drop what is unsaved and go back to the stored practice.
+          unsavedMutations = [];
+          queued = null;
+          try {
+            const stored = await repository.load();
+            if (stored) set({ data: applyRetention(stored) });
+          } catch {
+            // Keep what is on screen; the next refresh will catch up.
+          }
+          set({ unsaved: false });
+          get().toast({ title: "That change isn't allowed for your role", description: 'It has not been saved and the practice has been reloaded. Ask an owner to make it.', tone: 'error' });
           continue;
         }
         console.error('Persist failed', err);

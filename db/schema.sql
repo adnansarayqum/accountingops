@@ -374,3 +374,51 @@ create table if not exists practice_sessions (
   created_at  timestamptz not null default now()
 );
 create index if not exists practice_sessions_expires_idx on practice_sessions (expires_at);
+
+-- Outbound email idempotency (server/lib/emailClaims.mjs). The INSERT that
+-- creates a row is the claim, so of any number of concurrent requests with
+-- one key exactly one may call the provider. Keys are scoped per signed-in
+-- user ('user:<id>') and bound to the message they were first used for.
+create table if not exists email_send_claims (
+  scope            text not null,
+  idempotency_key  text not null,
+  request_hash     text not null,
+  status           text not null check (status in ('pending','sent','unknown')),
+  result           jsonb,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now(),
+  lease_expires_at timestamptz not null,
+  expires_at       timestamptz not null,
+  primary key (scope, idempotency_key)
+);
+create index if not exists email_send_claims_expires_idx on email_send_claims (expires_at);
+
+-- Server-generated security audit trail (server/lib/securityAudit.mjs) — the
+-- authoritative record; PracticeData.auditEvents inside the snapshot is
+-- written by the browser and is not. Append-only for EVERY role via triggers.
+-- In production also grant the application role INSERT and SELECT only.
+create table if not exists security_audit_log (
+  id             bigserial primary key,
+  occurred_at    timestamptz not null default now(),
+  actor_user_id  text,
+  actor_username text,
+  actor_role     text,
+  action         text not null,
+  outcome        text not null check (outcome in ('success','denied','failure')),
+  target_type    text,
+  target_id      text,
+  details        jsonb not null default '{}'::jsonb,
+  ip             text,
+  user_agent     text
+);
+create index if not exists security_audit_log_time_idx on security_audit_log (occurred_at desc);
+create index if not exists security_audit_log_action_idx on security_audit_log (action, occurred_at desc);
+create or replace function security_audit_log_append_only() returns trigger as $$
+begin
+  raise exception 'security_audit_log is append-only (% not permitted)', tg_op using errcode = '42501';
+end;
+$$ language plpgsql;
+create trigger security_audit_log_no_update_delete before update or delete on security_audit_log
+  for each row execute function security_audit_log_append_only();
+create trigger security_audit_log_no_truncate before truncate on security_audit_log
+  for each statement execute function security_audit_log_append_only();

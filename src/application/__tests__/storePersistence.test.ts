@@ -3,7 +3,7 @@ import { configureRepository, useAppStore } from '../store';
 import type { PracticeRepository } from '../persistence/repository';
 import { buildFixtureData } from '../../testing/fixtures';
 import type { PracticeData } from '../../domain/types';
-import { SnapshotConflictError } from '../persistence/httpRepository';
+import { SnapshotConflictError, SnapshotForbiddenError } from '../persistence/httpRepository';
 
 const today = '2026-09-11';
 
@@ -27,8 +27,12 @@ class ControlledRepository implements PracticeRepository {
   /** Or keep refusing: every save conflicts with the snapshot this returns. */
   alwaysConflictWith: (() => PracticeData) | null = null;
 
+  /** When set, saves are refused as not permitted for this role. */
+  forbid: string | null = null;
+
   save(data: PracticeData): Promise<void> {
     this.saves.push(data);
+    if (this.forbid) return Promise.reject(new SnapshotForbiddenError(this.forbid));
     if (this.alwaysConflictWith) return Promise.reject(new SnapshotConflictError(this.alwaysConflictWith(), 99));
     if (this.conflictWith) {
       const current = this.conflictWith;
@@ -247,6 +251,31 @@ describe('store persistence', () => {
       expect(userName()).not.toBe('Never Lands');
       expect(useAppStore.getState().toasts.map((t) => t.title)).toContain('Someone else changed this first');
       errorSpy.mockRestore();
+    });
+  });
+
+  describe('a change the server refuses for this role', () => {
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    it('is dropped, not retried: the stored practice is reloaded, later saves are not poisoned, and the user is told why', async () => {
+      const stored = structuredClone(buildFixtureData(today));
+      repo.stored = stored;
+      repo.forbid = 'practice.configure';
+      useAppStore.getState().updatePracticeThresholds({ dueSoonDays: 45 });
+      for (let i = 0; i < 4; i += 1) await flush();
+
+      expect(repo.saves).toHaveLength(1); // no retry loop
+      expect(useAppStore.getState().unsaved).toBe(false);
+      expect(useAppStore.getState().data.practice.thresholds).toEqual(stored.practice.thresholds);
+      expect(useAppStore.getState().toasts.map((t) => t.title)).toContain("That change isn't allowed for your role");
+
+      // The next, permitted, edit goes out on its own — it does not drag the refused change along.
+      repo.forbid = null;
+      useAppStore.getState().renameUser('u_adnan', 'Allowed');
+      expect(repo.saves).toHaveLength(2);
+      expect(repo.saves[1].practice.thresholds).toEqual(stored.practice.thresholds);
+      await repo.settleNext();
+      expect(useAppStore.getState().unsaved).toBe(false);
     });
   });
 

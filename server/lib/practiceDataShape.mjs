@@ -4,11 +4,14 @@
  * PUT away from wiping every client for all three users, so a request that
  * is not recognisably a snapshot must be refused rather than stored.
  *
- * Deliberately shallow: the collections are checked to be arrays, not
- * validated row by row. Row-level validation belongs to the domain code in
- * src/, which is the source of truth for the shape; duplicating it here
- * would mean every new field needs two edits, and getting one wrong would
- * reject a perfectly good save (which, to the user, looks like data loss).
+ * Two layers. This file is the structural gate — an object, the required
+ * collections present, arrays where arrays belong, and the AML/turnover
+ * rules below — and keeps its original reason codes. After it passes,
+ * lib/snapshotSchema.mjs checks the critical row structures (team roles,
+ * job status, communications, audit events…) field by field: strict where a
+ * wrong value changes a decision, lenient elsewhere so a newer client's data
+ * and older stored snapshots keep round-tripping. Fields the schema has no
+ * rule for are not looked at — see its header for why.
  *
  * Only `users` and `clients` are required. Every other collection is
  * checked when present so that an older snapshot which predates a newer
@@ -27,6 +30,8 @@
  * silently misread. `AML_RATINGS` must be kept in sync with the
  * `AmlRiskRating` union in src/domain/types.ts.
  */
+import { validateSnapshotSchema } from './snapshotSchema.mjs';
+
 const AML_RATINGS = ['low', 'standard', 'high'];
 
 function isValidAmlRating(value) {
@@ -86,5 +91,5 @@ export function validatePracticeData(data) {
       if (!isValidTurnover(client.rolling12MonthTurnover)) return 'client_turnover_invalid';
     }
   }
-  return null;
+  return validateSnapshotSchema(data);
 }

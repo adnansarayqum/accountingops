@@ -33,10 +33,44 @@ export function query(text, params) {
   return getPool().query(text, params);
 }
 
-/** Idempotent — safe to call on every cold start and every request path that needs it. */
+/**
+ * Idempotent — safe to call on every cold start and every request path that
+ * needs it. A failed bootstrap is not cached: the next caller tries again
+ * instead of every later request inheriting the same rejection until restart.
+ */
 export function ensureSchema() {
-  if (!schemaReady) schemaReady = runMigrations();
+  if (!schemaReady) {
+    schemaReady = migrateUnderLock().catch((err) => {
+      schemaReady = undefined;
+      throw err;
+    });
+  }
   return schemaReady;
+}
+
+/** Arbitrary constant naming this app's schema bootstrap to pg_advisory_lock. */
+const MIGRATION_LOCK_ID = 720_114_301;
+
+/**
+ * Two processes starting together (a rolling deploy, a dev server beside a
+ * test run) both run `create table if not exists`, and Postgres can let both
+ * past the existence check and fail one on the catalog's unique index. A
+ * session-level advisory lock serialises the bootstrap across processes; the
+ * statements themselves stay idempotent, so the second one simply finds
+ * everything already there.
+ */
+async function migrateUnderLock() {
+  const lockClient = await getPool().connect();
+  try {
+    await lockClient.query('select pg_advisory_lock($1)', [MIGRATION_LOCK_ID]);
+    try {
+      await runMigrations();
+    } finally {
+      await lockClient.query('select pg_advisory_unlock($1)', [MIGRATION_LOCK_ID]).catch(() => {});
+    }
+  } finally {
+    lockClient.release();
+  }
 }
 
 async function runMigrations() {
@@ -200,5 +234,73 @@ async function runMigrations() {
       saved_at    timestamptz not null default now(),
       unique (practice_id, version)
     )
+  `);
+
+  // Outbound email idempotency (see lib/emailClaims.mjs). One row per
+  // (scope, key): the INSERT that creates it IS the claim, so two concurrent
+  // requests with the same key cannot both reach the provider. `scope` is the
+  // signed-in user, so one person's key can never replay or block another's.
+  // `request_hash` binds the key to the message it was first used for.
+  await query(`
+    create table if not exists email_send_claims (
+      scope            text not null,
+      idempotency_key  text not null,
+      request_hash     text not null,
+      status           text not null check (status in ('pending','sent','unknown')),
+      result           jsonb,
+      created_at       timestamptz not null default now(),
+      updated_at       timestamptz not null default now(),
+      lease_expires_at timestamptz not null,
+      expires_at       timestamptz not null,
+      primary key (scope, idempotency_key)
+    )
+  `);
+  await query('create index if not exists email_send_claims_expires_idx on email_send_claims (expires_at)');
+
+  // Server-generated security audit trail (see lib/securityAudit.mjs).
+  // Distinct from PracticeData.auditEvents, which is written by the browser
+  // and so proves nothing. Rows here are only ever produced by server code
+  // acting on an authenticated session, and the triggers below make the table
+  // append-only for every role, including the application's own.
+  await query(`
+    create table if not exists security_audit_log (
+      id             bigserial primary key,
+      occurred_at    timestamptz not null default now(),
+      actor_user_id  text,
+      actor_username text,
+      actor_role     text,
+      action         text not null,
+      outcome        text not null check (outcome in ('success','denied','failure')),
+      target_type    text,
+      target_id      text,
+      details        jsonb not null default '{}'::jsonb,
+      ip             text,
+      user_agent     text
+    )
+  `);
+  await query('create index if not exists security_audit_log_time_idx on security_audit_log (occurred_at desc)');
+  await query('create index if not exists security_audit_log_action_idx on security_audit_log (action, occurred_at desc)');
+  await query(`
+    create or replace function security_audit_log_append_only() returns trigger as $$
+    begin
+      raise exception 'security_audit_log is append-only (% not permitted)', tg_op using errcode = '42501';
+    end;
+    $$ language plpgsql
+  `);
+  // Created only when missing — never dropped and recreated, which would
+  // leave a window on every cold start with the table unprotected.
+  await query(`
+    do $$
+    begin
+      if not exists (select 1 from pg_trigger where tgrelid = 'security_audit_log'::regclass and tgname = 'security_audit_log_no_update_delete') then
+        create trigger security_audit_log_no_update_delete before update or delete on security_audit_log
+          for each row execute function security_audit_log_append_only();
+      end if;
+      if not exists (select 1 from pg_trigger where tgrelid = 'security_audit_log'::regclass and tgname = 'security_audit_log_no_truncate') then
+        create trigger security_audit_log_no_truncate before truncate on security_audit_log
+          for each statement execute function security_audit_log_append_only();
+      end if;
+    end
+    $$
   `);
 }
