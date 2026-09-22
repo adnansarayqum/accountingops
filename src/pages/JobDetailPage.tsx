@@ -26,6 +26,7 @@ export function JobDetailPage() {
   const data = useData();
   const derived = useDerived();
   const today = useToday();
+  const timeZone = data.practice.timezone;
   const store = useAppStore();
   const [composer, setComposer] = useState(false);
   const [approvalModal, setApprovalModal] = useState<'internal' | 'client' | null>(null);
@@ -43,7 +44,7 @@ export function JobDetailPage() {
   const contact = derived.primaryContactByClient.get(client.id);
   const target = primaryActionTarget(job.status);
   const primaryLabel = primaryActionLabel(job.status);
-  const stale = daysSince(job.statusChangedAt, today);
+  const stale = daysSince(job.statusChangedAt, today, timeZone);
   const ChannelIcon = { email: Mail, whatsapp: MessageCircle, sms: MessageSquare, phone: Phone, portal: Globe };
 
   const doPrimary = () => {
@@ -146,7 +147,7 @@ export function JobDetailPage() {
             <CheckCircle2 className="h-4 w-4" /> Filed with {filing.destination}
           </span>
           <span className="text-slate-600">
-            {formatDateTime(filing.filedAt)} by {derived.userById.get(filing.filedByUserId)?.name}
+            {formatDateTime(filing.filedAt, timeZone)} by {derived.userById.get(filing.filedByUserId)?.name}
           </span>
           <span className="text-slate-600 font-mono">Ref {filing.submissionReference}</span>
           <Badge tone="amber">Simulated submission — nothing was sent to {filing.destination}</Badge>
@@ -184,10 +185,10 @@ export function JobDetailPage() {
             <CardHeader title="Approvals & filing" description="Explicit checkpoints. Filing is simulated — no submission is sent to HMRC or Companies House." />
             <CardBody className="pt-0">
               <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Checkpoint label="Internal approval" done={approvals.some((a) => a.kind === 'internal' && a.status === 'approved')} pending={job.status === 'internal_review'} detail={approvalDetail(approvals.find((a) => a.kind === 'internal'))} icon={<ClipboardCheck />} />
-                <Checkpoint label="Client approval" done={approvals.some((a) => a.kind === 'client' && a.status === 'approved')} pending={job.status === 'waiting_client_approval'} detail={approvalDetail(approvals.find((a) => a.kind === 'client'))} icon={<CheckCircle2 />} />
+                <Checkpoint label="Internal approval" done={approvals.some((a) => a.kind === 'internal' && a.status === 'approved')} pending={job.status === 'internal_review'} detail={approvalDetail(approvals.find((a) => a.kind === 'internal'), timeZone)} icon={<ClipboardCheck />} />
+                <Checkpoint label="Client approval" done={approvals.some((a) => a.kind === 'client' && a.status === 'approved')} pending={job.status === 'waiting_client_approval'} detail={approvalDetail(approvals.find((a) => a.kind === 'client'), timeZone)} icon={<CheckCircle2 />} />
                 <Checkpoint label="Ready to file" done={job.status === 'ready_to_file' || job.status === 'filed'} pending={false} detail={job.status === 'ready_to_file' ? 'Awaiting submission' : undefined} icon={<FileCheck />} />
-                <Checkpoint label={`Filed (${FILING_DESTINATION[job.serviceCode] ?? 'HMRC'})`} done={job.status === 'filed'} pending={false} detail={filing ? `${formatDate(filing.filedAt)} · ${filing.submissionReference}` : undefined} icon={<Landmark />} />
+                <Checkpoint label={`Filed (${FILING_DESTINATION[job.serviceCode] ?? 'HMRC'})`} done={job.status === 'filed'} pending={false} detail={filing ? `${formatDate(filing.filedAt, { timeZone })} · ${filing.submissionReference}` : undefined} icon={<Landmark />} />
               </ol>
               {job.status === 'internal_review' && (
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -227,7 +228,7 @@ export function JobDetailPage() {
                               {c.direction === 'outbound' ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownLeft className="h-3 w-3" />}
                               {c.direction === 'outbound' ? `Sent to ${c.recipient}` : `Received`} · {CHANNEL_LABELS[c.channel]}
                             </span>
-                            <span>{formatDateTime(c.sentAt)}</span>
+                            <span>{formatDateTime(c.sentAt, timeZone)}</span>
                             {c.reminderStage && <Badge tone="blue">{c.reminderStage}</Badge>}
                             {c.direction === 'outbound' && c.reminderStage && <Badge tone={c.responseStatus === 'responded' ? 'green' : 'amber'}>{c.responseStatus === 'responded' ? 'Responded' : 'Awaiting reply'}</Badge>}
                           </div>
@@ -389,7 +390,7 @@ export function JobDetailPage() {
                 {activities.slice(0, 8).map((a) => (
                   <li key={a.id} className="text-[13px] text-slate-700 leading-snug">
                     {a.message}
-                    <span className="block text-[11px] text-slate-400">{formatDateTime(a.occurredAt)}</span>
+                    <span className="block text-[11px] text-slate-400">{formatDateTime(a.occurredAt, timeZone)}</span>
                   </li>
                 ))}
                 {activities.length === 0 && <li className="text-sm text-slate-500">No activity yet.</li>}
@@ -431,11 +432,11 @@ export function JobDetailPage() {
   );
 }
 
-function approvalDetail(a?: { status: string; decidedAt?: string; reviewerName?: string; requestedAt: string }): string | undefined {
+function approvalDetail(a: { status: string; decidedAt?: string; reviewerName?: string; requestedAt: string } | undefined, timeZone?: string): string | undefined {
   if (!a) return undefined;
-  if (a.status === 'approved') return `${a.reviewerName ?? ''} · ${formatDate(a.decidedAt)}`;
-  if (a.status === 'rejected') return `Changes requested · ${formatDate(a.decidedAt)}`;
-  return `Requested ${formatDate(a.requestedAt)}`;
+  if (a.status === 'approved') return `${a.reviewerName ?? ''} · ${formatDate(a.decidedAt, { timeZone })}`;
+  if (a.status === 'rejected') return `Changes requested · ${formatDate(a.decidedAt, { timeZone })}`;
+  return `Requested ${formatDate(a.requestedAt, { timeZone })}`;
 }
 
 function Checkpoint({ label, done, pending, detail, icon }: { label: string; done: boolean; pending: boolean; detail?: string; icon: React.ReactNode }) {

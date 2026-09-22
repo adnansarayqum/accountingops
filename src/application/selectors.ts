@@ -72,6 +72,7 @@ export function computeDerived(data: PracticeData, today: string): Derived {
     sequences: data.reminderSequences,
     users: data.users,
     today,
+    timeZone: data.practice.timezone,
     thresholds,
   });
   const attentionByJob = new Map(attention.map((a) => [a.jobId, a]));
@@ -101,7 +102,7 @@ export function computeDerived(data: PracticeData, today: string): Derived {
     .sort((a, b) => a.job.dueDate.localeCompare(b.job.dueDate));
 
   const noNextAction = jobViews.filter((v) => v.job.status !== 'filed' && v.nextAction.kind === 'none').length;
-  const metrics = computeDashboardMetrics(data.jobs, data.communications, attention, today, noNextAction);
+  const metrics = computeDashboardMetrics(data.jobs, data.communications, attention, today, noNextAction, data.practice.timezone);
 
   const responsivenessByClient = new Map(data.clients.map((c) => [c.id, responsivenessProfile(c, data.communications)]));
 
@@ -123,7 +124,7 @@ export function computeDerived(data: PracticeData, today: string): Derived {
     pendingInbox: data.inboxItems.filter((i) => i.status === 'pending').length,
     unreadNotifications: data.notifications.filter((n) => !n.read).length,
     thresholds,
-    penalties: summarisePenalties(data.jobs, today, thresholds.dueSoonDays),
+    penalties: summarisePenalties(data.jobs, today, thresholds.dueSoonDays, data.practice.timezone),
   };
 }
 
@@ -140,4 +141,8 @@ export function useData(): PracticeData {
 
 export function useToday(): string {
   return useAppStore((s) => s.today);
+}
+
+export function usePracticeTimezone(): string {
+  return useAppStore((s) => s.data.practice.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone);
 }

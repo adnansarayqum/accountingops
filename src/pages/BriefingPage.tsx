@@ -11,6 +11,7 @@ export function BriefingPage() {
   const derived = useDerived();
   const data = useData();
   const today = useToday();
+  const timeZone = data.practice.timezone;
   const open = derived.jobViews.filter((v) => v.job.status !== 'filed');
   const urgent = derived.attention.filter((a) => a.severity === 'red');
   const dueThisWeek = open.filter((v) => v.daysUntilDue >= 0 && v.daysUntilDue <= 7);
@@ -20,7 +21,7 @@ export function BriefingPage() {
     const p = derived.responsivenessByClient.get(c.id)!;
     if (!p.lastOutbound || p.lastOutbound.responseStatus !== 'awaiting') return false;
     const inboundAfter = p.lastInbound && p.lastInbound.sentAt > p.lastOutbound.sentAt;
-    return !inboundAfter && daysSince(p.lastOutbound.sentAt, today) >= 5;
+    return !inboundAfter && daysSince(p.lastOutbound.sentAt, today, timeZone) >= 5;
   });
 
   // Priorities: top attention items, then unassigned/stale
@@ -93,7 +94,7 @@ export function BriefingPage() {
                     <Link to={`/clients/${c.id}`} className="text-[13px] text-slate-800 hover:text-primary-700">
                       {c.name}
                     </Link>
-                    <span className="text-xs text-slate-500 tabular">{daysSince(p.lastOutbound!.sentAt, today)} days silent</span>
+                <span className="text-xs text-slate-500 tabular">{daysSince(p.lastOutbound!.sentAt, today, timeZone)} days silent</span>
                   </li>
                 );
               })}

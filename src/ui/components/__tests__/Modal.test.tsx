@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -43,5 +44,26 @@ describe('Modal', () => {
     expect(screen.getByLabelText('To')).toHaveFocus();
     rerender(<Harness open={false} onClose={() => {}} />);
     expect(trigger).toHaveFocus();
+  });
+
+  it('does not reset focus when controlled fields re-render with an inline close callback', async () => {
+    const user = userEvent.setup();
+    function ControlledModal() {
+      const [first, setFirst] = useState('');
+      const [later, setLater] = useState('');
+      return (
+        <Modal open onClose={() => setFirst('closed')} title="Edit client">
+          <input aria-label="First field" value={first} onChange={(event) => setFirst(event.target.value)} />
+          <input aria-label="Later field" value={later} onChange={(event) => setLater(event.target.value)} />
+        </Modal>
+      );
+    }
+    render(<ControlledModal />);
+
+    await user.click(screen.getByLabelText('Later field'));
+    await user.type(screen.getByLabelText('Later field'), 'keeps focus');
+
+    expect(screen.getByLabelText('Later field')).toHaveValue('keeps focus');
+    expect(screen.getByLabelText('Later field')).toHaveFocus();
   });
 });

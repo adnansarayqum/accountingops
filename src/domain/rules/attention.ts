@@ -44,6 +44,7 @@ export interface AttentionContext {
   sequences: ReminderSequence[];
   users: User[];
   today: string;
+  timeZone?: string;
   /** Configurable per practice (Settings → Timing thresholds); a missing or partial object falls back to the same defaults every rule used before this was configurable. */
   thresholds?: Partial<PracticeThresholds>;
 }
@@ -68,7 +69,7 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
     const chasing = assessChasing(job, jobItems, ctx.comms, sequence, ctx.today);
     const days = daysUntil(job.dueDate, ctx.today);
     const missingPct = completeness.total === 0 ? 0 : Math.round((completeness.missing.length / completeness.total) * 100);
-    const stale = daysSince(job.statusChangedAt, ctx.today);
+    const stale = daysSince(job.statusChangedAt, ctx.today, ctx.timeZone);
     const preferred = client.preferredChannel === 'email' || client.preferredChannel === 'whatsapp' || client.preferredChannel === 'sms' ? client.preferredChannel : 'email';
     const reminderAction = (): RecommendedAction => ({
       kind: 'send_reminder',
@@ -77,7 +78,7 @@ export function evaluateAttention(ctx: AttentionContext): AttentionItem[] {
     });
     // The penalty in pounds is the reason an accountant actually acts on —
     // stated where it applies, and only when there is a fixed figure to state.
-    const penalty = penaltyExposureFor(job, ctx.jobs, ctx.today);
+    const penalty = penaltyExposureFor(job, ctx.jobs, ctx.today, ctx.timeZone);
     const penaltyReason = (): string | null => {
       if (!penalty) return null;
       if (penalty.incurred > 0) {

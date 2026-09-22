@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { SettingsPage } from '../SettingsPage';
@@ -56,6 +56,7 @@ describe('SettingsPage account actions (server mode)', () => {
     const routes: Record<string, () => Response | Promise<Response>> = {
       'GET /api/practice-data/history': () => new Response(JSON.stringify({ current: 0, versions: [] }), { status: 200 }),
       'GET /api/messages/status': () => new Response(JSON.stringify({ email: { provider: 'simulated', configured: true, from: null }, whatsapp: { mode: 'click_to_chat' }, sms: { provider: 'simulated', configured: false } }), { status: 200 }),
+      'GET /api/hmrc/status': () => new Response(JSON.stringify({ configured: false }), { status: 200 }),
       ...overrides,
     };
     return vi.fn(async (url: string, init?: RequestInit) => {
@@ -79,6 +80,7 @@ describe('SettingsPage account actions (server mode)', () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     useAppStore.setState({ authMode: 'local', authUser: null });
@@ -171,9 +173,14 @@ describe('SettingsPage least privilege (server mode)', () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.unstubAllGlobals();
     useAppStore.setState({ authMode: 'local', authUser: null });
   });
+
+  const settleAncillaryCards = async () => {
+    await screen.findByTestId('snapshot-version-2');
+  };
 
   it('an accountant is not offered restore, threshold edits, or renaming a colleague — but can still fix their own name', async () => {
     signInWith(ACCOUNTANT_PERMISSIONS);
@@ -182,7 +189,7 @@ describe('SettingsPage least privilege (server mode)', () => {
         <SettingsPage />
       </MemoryRouter>,
     );
-    await screen.findByTestId('snapshot-version-2');
+    await settleAncillaryCards();
     expect(screen.queryByTestId('restore-version-1')).not.toBeInTheDocument();
     expect(screen.getByText('Only an owner can restore an earlier version.')).toBeVisible();
 
@@ -201,7 +208,7 @@ describe('SettingsPage least privilege (server mode)', () => {
           <SettingsPage />
         </MemoryRouter>,
       );
-      await screen.findByTestId('snapshot-version-2');
+      await settleAncillaryCards();
       expect(screen.getByTestId('restore-version-1')).toBeVisible();
       expect(screen.getByRole('button', { name: 'Save thresholds' })).toBeVisible();
       expect(screen.getByRole('button', { name: 'Edit name for Sarah Mitchell' })).toBeVisible();
@@ -214,9 +221,24 @@ describe('SettingsPage timing thresholds', () => {
   beforeEach(() => {
     configureRepository(new MemoryRepository());
     useAppStore.setState({ data: buildFixtureData(today), today, ready: true, currentUserId: 'u_adnan', toasts: [] });
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url === '/api/messages/status') return new Response(JSON.stringify({ email: { provider: 'simulated', configured: true, from: null }, whatsapp: { mode: 'click_to_chat' }, sms: { provider: 'simulated', configured: false } }), { status: 200 });
+      if (url === '/api/hmrc/status') return new Response(JSON.stringify({ configured: false }), { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
   });
 
-  it('shows the built-in defaults when the practice has never customised anything', () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const settleAncillaryCards = async () => {
+    await screen.findByTestId('messaging-status');
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/hmrc/status'));
+  };
+
+  it('shows the built-in defaults when the practice has never customised anything', async () => {
     render(
       <MemoryRouter>
         <SettingsPage />
@@ -227,9 +249,10 @@ describe('SettingsPage timing thresholds', () => {
     expect(screen.getByLabelText('Stale job threshold')).toHaveValue(14);
     expect(screen.getByLabelText('Review wait threshold')).toHaveValue(7);
     expect(screen.getByLabelText('Approval wait threshold')).toHaveValue(10);
+    await settleAncillaryCards();
   });
 
-  it('shows a stored partial override merged with defaults for the rest', () => {
+  it('shows a stored partial override merged with defaults for the rest', async () => {
     useAppStore.setState({ data: { ...useAppStore.getState().data, practice: { ...useAppStore.getState().data.practice, thresholds: { dueSoonDays: 21 } } } });
     render(
       <MemoryRouter>
@@ -238,6 +261,7 @@ describe('SettingsPage timing thresholds', () => {
     );
     expect(screen.getByLabelText('Due soon window')).toHaveValue(21);
     expect(screen.getByLabelText('Stale job threshold')).toHaveValue(14);
+    await settleAncillaryCards();
   });
 
   it('saves an edited value, confirms with a toast, and it takes effect immediately', async () => {
@@ -247,6 +271,7 @@ describe('SettingsPage timing thresholds', () => {
         <SettingsPage />
       </MemoryRouter>,
     );
+    await settleAncillaryCards();
     const dueSoon = screen.getByLabelText('Due soon window');
     await user.clear(dueSoon);
     await user.type(dueSoon, '21');
@@ -263,6 +288,7 @@ describe('SettingsPage timing thresholds', () => {
         <SettingsPage />
       </MemoryRouter>,
     );
+    await settleAncillaryCards();
     const stale = screen.getByLabelText('Stale job threshold');
     await user.clear(stale);
     await user.type(stale, '0');
@@ -281,6 +307,7 @@ describe('SettingsPage timing thresholds', () => {
         <SettingsPage />
       </MemoryRouter>,
     );
+    await settleAncillaryCards();
     expect(screen.getByLabelText('Due soon window')).toHaveValue(30);
     await user.click(screen.getByRole('button', { name: 'Reset to defaults' }));
     expect(screen.getByLabelText('Due soon window')).toHaveValue(14);

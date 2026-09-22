@@ -77,7 +77,7 @@ export function SnapshotHistoryCard() {
                       {isCurrent && <span className="ml-2 text-xs font-normal text-emerald-700">current</span>}
                     </p>
                     <p className="text-xs text-slate-500">
-                      {formatDateTime(v.savedAt)} · {nameOf(v.savedBy)}
+                      {formatDateTime(v.savedAt, data.practice.timezone)} · {nameOf(v.savedBy)}
                     </p>
                   </div>
                   {!isCurrent && canRestore && (

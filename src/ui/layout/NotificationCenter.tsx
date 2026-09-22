@@ -71,7 +71,7 @@ export function NotificationCenter() {
                     <span className="min-w-0">
                       <span className={cn('block text-[13px] text-slate-900', !n.read && 'font-semibold')}>{n.title}</span>
                       <span className="block text-xs text-slate-600 mt-0.5">{n.body}</span>
-                      <span className="block text-[11px] text-slate-400 mt-1">{formatAgo(n.createdAt, today)}</span>
+                      <span className="block text-[11px] text-slate-400 mt-1">{formatAgo(n.createdAt, today, data.practice.timezone)}</span>
                     </span>
                   </Link>
                 </li>

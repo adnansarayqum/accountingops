@@ -34,6 +34,7 @@ export function ClientDetailPage() {
   const data = useData();
   const derived = useDerived();
   const today = useToday();
+  const timeZone = data.practice.timezone;
   const updateClient = useAppStore((s) => s.updateClient);
   const updateIdentifier = useAppStore((s) => s.updateIdentifier);
   const refreshClientFromCompaniesHouse = useAppStore((s) => s.refreshClientFromCompaniesHouse);
@@ -296,7 +297,7 @@ export function ClientDetailPage() {
                 <dl className="space-y-2.5 text-[13px]">
                   <HandoverRow label="Next deadline" value={nextDeadline ? `${nextDeadline.job.name} — ${formatDate(nextDeadline.job.dueDate)}` : 'None'} />
                   <HandoverRow label="Current blocker" value={blocked.length ? `Waiting on client for ${blocked.map((b) => b.job.name).join(', ')}` : openViews.some((v) => v.job.waitingOn === 'senior_review') ? 'Waiting on senior review' : 'None — work is with us'} tone={blocked.length ? 'amber' : undefined} />
-                  <HandoverRow label="Last client contact" value={responsiveness.lastInbound ? `${formatAgo(responsiveness.lastInbound.sentAt, today)} (${CHANNEL_LABELS[responsiveness.lastInbound.channel]})` : responsiveness.lastOutbound ? `We last wrote ${formatAgo(responsiveness.lastOutbound.sentAt, today)} — no reply yet` : 'No recorded contact'} />
+                  <HandoverRow label="Last client contact" value={responsiveness.lastInbound ? `${formatAgo(responsiveness.lastInbound.sentAt, today, timeZone)} (${CHANNEL_LABELS[responsiveness.lastInbound.channel]})` : responsiveness.lastOutbound ? `We last wrote ${formatAgo(responsiveness.lastOutbound.sentAt, today, timeZone)} — no reply yet` : 'No recorded contact'} />
                   <HandoverRow label="Missing information" value={missingAll.length ? missingAll.join('; ') : 'Nothing outstanding'} tone={missingAll.length ? 'amber' : 'green'} />
                   <HandoverRow label="Next recommended action" value={nextAction} tone="blue" />
                 </dl>
@@ -317,7 +318,7 @@ export function ClientDetailPage() {
                     <>
                       {client.incorporatedOn ? `Incorporated ${formatDate(client.incorporatedOn)} · ` : ''}
                       {client.companiesHouseSyncedAt ? (
-                        <span title={formatDateTime(client.companiesHouseSyncedAt)}>Synced {formatSince(client.companiesHouseSyncedAt)}</span>
+                        <span title={formatDateTime(client.companiesHouseSyncedAt, timeZone)}>Synced {formatSince(client.companiesHouseSyncedAt)}</span>
                       ) : (
                         <span className="text-amber-700">Never synced</span>
                       )}
@@ -437,10 +438,10 @@ export function ClientDetailPage() {
                             );
                           })}
                           {personRoles
-                            .filter((r) => r.identityVerification !== 'verified' && describeCompaniesHouseVerification(r))
+                        .filter((r) => r.identityVerification !== 'verified' && describeCompaniesHouseVerification(r, timeZone))
                             .map((r) => (
                               <p key={r.id} className={cn('text-xs', r.companiesHouseVerification?.dueOn ? 'text-amber-700' : 'text-slate-400')} data-testid={`companies-house-verification-${r.id}`}>
-                                {r.kind === 'psc' ? 'PSC' : r.kind.charAt(0).toUpperCase() + r.kind.slice(1)}: {describeCompaniesHouseVerification(r)}
+                              {r.kind === 'psc' ? 'PSC' : r.kind.charAt(0).toUpperCase() + r.kind.slice(1)}: {describeCompaniesHouseVerification(r, timeZone)}
                               </p>
                             ))}
                         </div>
@@ -511,7 +512,7 @@ export function ClientDetailPage() {
                             {c.direction === 'outbound' ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownLeft className="h-3 w-3" />}
                             {c.direction === 'outbound' ? 'Sent' : 'Received'} · {CHANNEL_LABELS[c.channel]}
                           </span>
-                          <span>{formatDateTime(c.sentAt)}</span>
+                          <span>{formatDateTime(c.sentAt, timeZone)}</span>
                           {job && <span>· {job.name}</span>}
                           {c.reminderStage && <Badge tone="blue">{c.reminderStage}</Badge>}
                           {c.direction === 'outbound' && c.reminderStage && <Badge tone={c.responseStatus === 'responded' ? 'green' : 'amber'}>{c.responseStatus === 'responded' ? 'Responded' : 'Awaiting reply'}</Badge>}
@@ -538,7 +539,7 @@ export function ClientDetailPage() {
                 <li key={a.id} className="py-2.5">
                   <p className="text-[13px] text-slate-800">{a.message}</p>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    {formatDateTime(a.occurredAt)}
+                    {formatDateTime(a.occurredAt, timeZone)}
                     {a.actorUserId && ` · ${derived.userById.get(a.actorUserId)?.name}`}
                   </p>
                 </li>

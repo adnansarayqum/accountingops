@@ -498,7 +498,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
   return {
     data: buildEmptyPracticeData(),
-    today: todayIso(),
+    today: todayIso(buildEmptyPracticeData().practice.timezone),
     ready: false,
     currentUserId: OWNER_USER_ID,
     toasts: [],
@@ -508,7 +508,6 @@ export const useAppStore = create<AppState>((set, get) => {
     unsaved: false,
 
     async init() {
-      const today = todayIso();
       try {
         const loaded = await loadWithRetry();
         // A load never writes. An empty practice is only ever saved once
@@ -518,14 +517,16 @@ export const useAppStore = create<AppState>((set, get) => {
         unsavedMutations = [];
         // Feeds are capped on the way in as well as on every change, so a
         // snapshot saved before the caps existed shrinks on its next save.
-        set({ data: loaded ? applyRetention(loaded) : buildEmptyPracticeData(), today, ready: true, loadFailed: false, unsaved: false });
+        const data = loaded ? applyRetention(loaded) : buildEmptyPracticeData();
+        set({ data, today: todayIso(data.practice.timezone), ready: true, loadFailed: false, unsaved: false });
       } catch (err) {
         // A transient failure here must never leave the app stuck on the
         // splash screen forever — show the shell with an empty, read-only
         // stand-in and a way to retry. Read-only matters: the first save
         // from a writable empty practice would replace the real one.
         console.error('Failed to load practice data', err);
-        set({ data: buildEmptyPracticeData(), today, ready: true, loadFailed: true, unsaved: false });
+        const data = buildEmptyPracticeData();
+        set({ data, today: todayIso(data.practice.timezone), ready: true, loadFailed: true, unsaved: false });
         get().toast({ title: "Couldn't load practice data", description: 'Changes are paused until it loads. Use Try again at the top of the page.', tone: 'error' });
       }
     },
@@ -1215,7 +1216,7 @@ export const useAppStore = create<AppState>((set, get) => {
     },
     generateCorporationTaxObligations() {
       let summary: CorporationTaxBackfillSummary = { clientsUpdated: 0, jobsCreated: 0, overdueCreated: 0 };
-      const today = nowIso().slice(0, 10);
+      const today = get().today;
       if (findMissingCorporationTax(get().data, today).length === 0) return summary;
       mutate((d, ctx) => {
         const rows = findMissingCorporationTax(d, today);

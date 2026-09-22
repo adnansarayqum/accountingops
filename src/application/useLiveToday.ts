@@ -12,9 +12,10 @@ const CHECK_EVERY_MS = 60 * 1000;
  * date really has, so this never causes a re-render on its own.
  */
 export function useLiveToday(): void {
+  const timeZone = useAppStore((state) => state.data.practice.timezone);
   useEffect(() => {
     const tick = () => {
-      const today = todayIso();
+      const today = todayIso(timeZone);
       if (useAppStore.getState().today !== today) useAppStore.setState({ today });
     };
     const timer = setInterval(tick, CHECK_EVERY_MS);
@@ -25,5 +26,5 @@ export function useLiveToday(): void {
       window.removeEventListener('focus', tick);
       document.removeEventListener('visibilitychange', tick);
     };
-  }, []);
+  }, [timeZone]);
 }
