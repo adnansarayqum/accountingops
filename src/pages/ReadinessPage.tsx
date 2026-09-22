@@ -25,6 +25,7 @@ export function ReadinessPage() {
   const toast = useAppStore((s) => s.toast);
   const [tab, setTab] = useState<'mtd' | 'identity' | 'compliance'>('identity');
   const today = useToday();
+  const timeZone = data.practice.timezone;
   const aml = amlSummary(data.clients, today);
   const vat = vatThresholdSummary(data.clients, data.identifiers, today);
   const complianceCount = aml.neverReviewed.length + aml.overdue.length + aml.dueSoon.length + vat.over.length + vat.approaching.length;
@@ -141,9 +142,9 @@ export function ReadinessPage() {
                                     Confirmed by Companies House{role.identityVerifiedOn ? ` · ${formatDate(role.identityVerifiedOn)}` : ''}
                                   </p>
                                 ) : (
-                                  describeCompaniesHouseVerification(role) && (
+                        describeCompaniesHouseVerification(role, timeZone) && (
                                     <p className={cn('text-xs', role.companiesHouseVerification?.verifiedOn ? 'text-emerald-700' : role.companiesHouseVerification?.dueOn ? 'text-amber-700' : 'text-slate-400')} data-testid={`companies-house-verification-${role.id}`}>
-                                      {describeCompaniesHouseVerification(role)}
+                            {describeCompaniesHouseVerification(role, timeZone)}
                                     </p>
                                   )
                                 )}

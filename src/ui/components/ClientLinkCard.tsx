@@ -4,6 +4,7 @@ import { Card, CardBody, CardHeader } from './Card';
 import { Button } from './Button';
 import { Badge } from './Badge';
 import { useAppStore } from '../../application/store';
+import { usePracticeTimezone } from '../../application/selectors';
 import { createPortalLink, fileToUploadBody, getPortalStatus, listPortalLinks, revokePortalLink, type PortalLink, type PortalPurpose } from '../../integrations/portal';
 import { formatDate } from '../../domain/dates';
 import type { Job } from '../../domain/types';
@@ -21,6 +22,7 @@ import type { Job } from '../../domain/types';
  * browser-only mode.
  */
 export function ClientLinkCard({ job }: { job: Job }) {
+  const timeZone = usePracticeTimezone();
   const toast = useAppStore((s) => s.toast);
   const [configured, setConfigured] = useState(false);
   const [links, setLinks] = useState<PortalLink[]>([]);
@@ -131,10 +133,10 @@ export function ClientLinkCard({ job }: { job: Job }) {
               <li key={l.id} className="py-2 flex items-center justify-between gap-2 text-[13px]">
                 <span className="min-w-0">
                   <span className="font-medium text-slate-800 capitalize">{l.purpose}</span>
-                  <span className="text-slate-500"> · created {formatDate(l.createdAt.slice(0, 10))}</span>
+                  <span className="text-slate-500"> · created {formatDate(l.createdAt, { timeZone })}</span>
                   <span className="block text-[11px] text-slate-400">
-                    {l.lastOpenedAt ? `Opened ${formatDate(l.lastOpenedAt.slice(0, 10))} · ` : 'Not yet opened · '}
-                    expires {formatDate(l.expiresAt.slice(0, 10))}
+                    {l.lastOpenedAt ? `Opened ${formatDate(l.lastOpenedAt, { timeZone })} · ` : 'Not yet opened · '}
+                    expires {formatDate(l.expiresAt, { timeZone })}
                   </span>
                 </span>
                 <span className="flex items-center gap-2 shrink-0">

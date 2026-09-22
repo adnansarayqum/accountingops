@@ -19,6 +19,7 @@ export function ChasingPage() {
   const derived = useDerived();
   const data = useData();
   const today = useToday();
+  const timeZone = data.practice.timezone;
   const [view, setView] = useState<View>('due');
   const [composerJob, setComposerJob] = useState<Job | null>(null);
 
@@ -69,7 +70,7 @@ export function ChasingPage() {
                         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
                           <ResponsivenessBadge band={profile.band} />
                           <span>
-                            {v.chasing.remindersSent} reminder{v.chasing.remindersSent === 1 ? '' : 's'} sent{v.chasing.lastReminderAt ? ` · last ${formatAgo(v.chasing.lastReminderAt, today)}` : ''}
+                            {v.chasing.remindersSent} reminder{v.chasing.remindersSent === 1 ? '' : 's'} sent{v.chasing.lastReminderAt ? ` · last ${formatAgo(v.chasing.lastReminderAt, today, timeZone)}` : ''}
                           </span>
                           {v.chasing.nextStep && (
                             <span className="inline-flex items-center gap-1">

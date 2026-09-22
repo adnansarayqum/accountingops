@@ -68,6 +68,5 @@ describe('DuplicatePeopleCard', () => {
     render(<DuplicatePeopleCard />);
     await userEvent.setup().click(screen.getByTestId('merge-duplicate-people'));
     expect(confirmSpy.mock.calls[0][0]).toMatch(/Version history/);
-    useAppStore.setState({ authMode: 'local' });
   });
 });

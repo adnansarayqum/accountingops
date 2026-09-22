@@ -68,6 +68,10 @@ export function normalizePracticeData(data: PracticeData): PracticeData {
   const defaults = buildEmptyPracticeData();
   let changed = false;
   const result = { ...data };
+  if (!result.practice.timezone) {
+    result.practice = { ...result.practice, timezone: defaults.practice.timezone };
+    changed = true;
+  }
   for (const key of Object.keys(defaults) as (keyof PracticeData)[]) {
     if (result[key] === undefined) {
       (result as Record<string, unknown>)[key] = defaults[key];

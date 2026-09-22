@@ -42,7 +42,9 @@ database is configured:
 
 - **Browser-only** (no `DATABASE_URL`, what `npm run dev` gives you out of
   the box): no sign-in, and everything is stored in this browser's
-  `localStorage`. A brand-new practice starts empty — one owner, zero
+  `localStorage`. **This is demo/local mode, not a production data store:**
+  it has no server backup or collaboration and must not contain real client
+  or taxpayer data. A brand-new practice starts empty — one owner, zero
   clients. Add your first client from **Clients → New client** to see the
   workflow in action. (There's also a rich
   [test scenario](docs/TEST_SCENARIOS.md) used by the test suite, if you
@@ -69,7 +71,9 @@ before `npm run dev`.
 | `npm run typecheck` | `tsc -b` |
 | `npm run lint` | ESLint |
 | `npm test` | Vitest unit + integration tests |
+| `npm run test:ci` | Require reachable PostgreSQL, then run Vitest without silently skipping the critical DB suite |
 | `npm run test:e2e` | Playwright end-to-end (builds and serves the app itself) |
+| `npm run test:e2e:smoke` | Secret-free browser-only Playwright smoke journey |
 | `npm run check` | typecheck + lint + unit tests + build |
 
 For Playwright in environments with a pre-installed browser, set
@@ -107,6 +111,8 @@ e2e/               Playwright specs
 - [docs/PRODUCT_DECISIONS.md](docs/PRODUCT_DECISIONS.md) — the important decisions and why.
 - [docs/TEST_SCENARIOS.md](docs/TEST_SCENARIOS.md) — the fixture dataset's story, scene by scene.
 - [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) — Companies House (live), HMRC and accounting software (why they're not).
+- [docs/OPERATIONS.md](docs/OPERATIONS.md) — CI, migrations, deployment and rollback.
+- [SECURITY.md](SECURITY.md) — private vulnerability reporting and data-handling boundaries.
 
 ## What's simulated
 

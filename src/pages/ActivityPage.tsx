@@ -28,6 +28,7 @@ const ICONS: Record<ActivityKind, React.ComponentType<{ className?: string }>> =
 export function ActivityPage() {
   const data = useData();
   const derived = useDerived();
+  const timeZone = data.practice.timezone;
   const [tab, setTab] = useState<'activity' | 'audit'>('activity');
   const [kind, setKind] = useState<'all' | ActivityKind>('all');
   const list = data.activities.filter((a) => (kind === 'all' ? true : a.kind === kind));
@@ -74,7 +75,7 @@ export function ActivityPage() {
                       <div className="min-w-0">
                         <p className="text-sm text-slate-800">{a.message}</p>
                         <p className="text-xs text-slate-400 mt-0.5 flex flex-wrap gap-x-2">
-                          <span>{formatDateTime(a.occurredAt)}</span>
+                  <span>{formatDateTime(a.occurredAt, timeZone)}</span>
                           {a.actorUserId && <span>· {derived.userById.get(a.actorUserId)?.name}</span>}
                           {client && (
                             <Link to={`/clients/${client.id}`} className="text-primary-700 hover:underline">
@@ -117,7 +118,7 @@ export function ActivityPage() {
                 <tbody className="divide-y divide-slate-100 font-mono text-xs">
                   {data.auditEvents.slice(0, 200).map((e) => (
                     <tr key={e.id}>
-                      <td className="py-2 pl-5 pr-3 whitespace-nowrap text-slate-600">{formatDateTime(e.occurredAt)}</td>
+                  <td className="py-2 pl-5 pr-3 whitespace-nowrap text-slate-600">{formatDateTime(e.occurredAt, timeZone)}</td>
                       <td className="px-3 whitespace-nowrap font-sans text-slate-700">{e.actorUserId ? derived.userById.get(e.actorUserId)?.name : 'system'}</td>
                       <td className="px-3 whitespace-nowrap text-slate-900">{e.action}</td>
                       <td className="px-3 whitespace-nowrap text-slate-600">
