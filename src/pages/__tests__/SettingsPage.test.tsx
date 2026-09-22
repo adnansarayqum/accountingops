@@ -173,9 +173,14 @@ describe('SettingsPage least privilege (server mode)', () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.unstubAllGlobals();
     useAppStore.setState({ authMode: 'local', authUser: null });
   });
+
+  const settleAncillaryCards = async () => {
+    await screen.findByTestId('snapshot-version-2');
+  };
 
   it('an accountant is not offered restore, threshold edits, or renaming a colleague — but can still fix their own name', async () => {
     signInWith(ACCOUNTANT_PERMISSIONS);
@@ -184,7 +189,7 @@ describe('SettingsPage least privilege (server mode)', () => {
         <SettingsPage />
       </MemoryRouter>,
     );
-    await screen.findByTestId('snapshot-version-2');
+    await settleAncillaryCards();
     expect(screen.queryByTestId('restore-version-1')).not.toBeInTheDocument();
     expect(screen.getByText('Only an owner can restore an earlier version.')).toBeVisible();
 
@@ -203,7 +208,7 @@ describe('SettingsPage least privilege (server mode)', () => {
           <SettingsPage />
         </MemoryRouter>,
       );
-      await screen.findByTestId('snapshot-version-2');
+      await settleAncillaryCards();
       expect(screen.getByTestId('restore-version-1')).toBeVisible();
       expect(screen.getByRole('button', { name: 'Save thresholds' })).toBeVisible();
       expect(screen.getByRole('button', { name: 'Edit name for Sarah Mitchell' })).toBeVisible();
