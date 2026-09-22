@@ -11,7 +11,7 @@ permissions:
 jobs:
   quality:
     name: Node ${{ matrix.node }} / quality + PostgreSQL
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -35,8 +35,8 @@ jobs:
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/accountingops_test
       PGSSLMODE: disable
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -50,10 +50,10 @@ jobs:
 
   browser-smoke:
     name: Browser-only smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
