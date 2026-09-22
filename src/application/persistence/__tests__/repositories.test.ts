@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { HttpRepository, SnapshotConflictError } from '../httpRepository';
+import { HttpRepository, SnapshotConflictError, SnapshotForbiddenError } from '../httpRepository';
 import { LocalStorageRepository } from '../localStorageRepository';
 import { SCHEMA_VERSION } from '../repository';
 import { buildFixtureData } from '../../../testing/fixtures';
@@ -90,6 +90,93 @@ describe('HttpRepository versions', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'version_conflict', version: 12, data: theirsWithoutWip }), { status: 409 })));
     const err = await new HttpRepository().save(theirsWithoutWip as PracticeData).catch((e: unknown) => e);
     expect((err as SnapshotConflictError).current.wipEntries).toEqual([]);
+  });
+});
+
+describe('HttpRepository.save refusals', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("turns the server's role refusal into SnapshotForbiddenError, naming the permission — and does not touch the version", async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'forbidden', permission: 'practice.configure' }), { status: 403 })));
+    const repo = new HttpRepository();
+    const err = await repo.save(buildFixtureData('2026-09-11')).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SnapshotForbiddenError);
+    expect((err as SnapshotForbiddenError).permission).toBe('practice.configure');
+    expect(repo.currentVersion()).toBe(0);
+  });
+
+  it('leaves any other 403 (e.g. a temporary password still to be changed) as a plain failure', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'password_change_required' }), { status: 403 })));
+    const err = await new HttpRepository().save(buildFixtureData('2026-09-11')).catch((e: unknown) => e);
+    expect(err).not.toBeInstanceOf(SnapshotForbiddenError);
+    expect((err as Error).message).toBe("Couldn't save practice data.");
+  });
+});
+
+describe('HttpRepository.peek', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const storedAt = (version: number) => vi.fn(async () => new Response(JSON.stringify({ data: buildFixtureData('2026-09-11'), version }), { status: 200 }));
+
+  it('reads without moving the version — only adopt() does', async () => {
+    vi.stubGlobal('fetch', storedAt(9));
+    const repo = new HttpRepository();
+    const snapshot = await repo.peek();
+    expect(snapshot.data?.clients.length).toBeGreaterThan(0);
+    expect(repo.currentVersion()).toBe(0);
+    expect(snapshot.adopt()).toBe(true);
+    expect(repo.currentVersion()).toBe(9);
+  });
+
+  it('refuses to adopt a read that was overtaken by a save while it was in flight', async () => {
+    const repo = new HttpRepository();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === 'PUT') return new Response(JSON.stringify({ ok: true, version: 5 }), { status: 200 });
+        const answer = JSON.stringify({ data: buildFixtureData('2026-09-11'), version: 4 });
+        await gate;
+        return new Response(answer, { status: 200 });
+      }),
+    );
+    const peeking = repo.peek();
+    await repo.save(buildFixtureData('2026-09-11')); // lands as version 5 while the read (version 4) is on the wire
+    release();
+    const snapshot = await peeking;
+    expect(snapshot.adopt()).toBe(false);
+    expect(repo.currentVersion()).toBe(5);
+  });
+
+  it('refuses to adopt a read that a conflict response overtook', async () => {
+    const repo = new HttpRepository();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const theirs = buildFixtureData('2026-09-11');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === 'PUT') return new Response(JSON.stringify({ error: 'version_conflict', version: 12, data: theirs }), { status: 409 });
+        const answer = JSON.stringify({ data: theirs, version: 10 });
+        await gate;
+        return new Response(answer, { status: 200 });
+      }),
+    );
+    const peeking = repo.peek();
+    await repo.save(theirs).catch(() => {});
+    release();
+    expect((await peeking).adopt()).toBe(false);
+    expect(repo.currentVersion()).toBe(12);
+  });
+
+  it('treats the "nothing saved yet" answer as version 0 once adopted', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'not_found' }), { status: 404 })));
+    const repo = new HttpRepository();
+    const snapshot = await repo.peek();
+    expect(snapshot.data).toBeNull();
+    expect(snapshot.adopt()).toBe(true);
+    expect(repo.currentVersion()).toBe(0);
   });
 });
 

@@ -6,8 +6,10 @@
  * is returned so the communication can be traced in its activity log.
  */
 import { MessagingError } from './errors.mjs';
+import { isDatabaseConfigured } from '../db.mjs';
 
 const API_URL = 'https://api.postmarkapp.com/email';
+const SEND_TIMEOUT_MS = 20_000;
 const MESSAGE_STREAM = process.env.POSTMARK_MESSAGE_STREAM ?? 'outbound';
 
 function fromAddress() {
@@ -22,6 +24,10 @@ export const postmarkProvider = {
   isConfigured: () => Boolean(process.env.POSTMARK_SERVER_TOKEN?.trim() && fromAddress()),
   fromAddress,
   async send({ to, subject, body, replyTo }) {
+    // Enforced here as well as where the provider is chosen (index.mjs), so
+    // no caller — a route, the briefing scheduler, a future job — can reach
+    // Postmark by holding the adapter directly.
+    if (!isDatabaseConfigured()) throw new MessagingError(503, 'authenticated_mode_required');
     if (!postmarkProvider.isConfigured()) throw new MessagingError(503, 'not_configured');
     let res;
     try {
@@ -29,6 +35,8 @@ export const postmarkProvider = {
         method: 'POST',
         headers: { 'X-Postmark-Server-Token': process.env.POSTMARK_SERVER_TOKEN.trim(), 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ From: fromAddress(), To: to, Subject: subject, TextBody: body, ReplyTo: replyTo || undefined, MessageStream: MESSAGE_STREAM }),
+        // Bounded so a hung provider cannot hold an idempotency claim past its lease (lib/emailClaims.mjs).
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       });
     } catch {
       throw new MessagingError(502, 'upstream_unreachable');

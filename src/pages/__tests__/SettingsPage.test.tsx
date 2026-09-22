@@ -144,6 +144,72 @@ describe('SettingsPage account actions (server mode)', () => {
   });
 });
 
+describe('SettingsPage least privilege (server mode)', () => {
+  // The server refuses these operations for the role regardless (see
+  // docs/PERMISSIONS.md); the page just stops offering what would be refused.
+  const ACCOUNTANT_PERMISSIONS = ['data.read', 'data.write', 'history.read', 'messages.send', 'hmrc.read'];
+
+  function signInWith(permissions: string[] | undefined) {
+    useAppStore.setState({
+      authMode: 'server',
+      authUser: { id: 'u_adnan', username: 'adnan', name: 'Adnan Sarayqum', role: permissions ? 'accountant' : 'owner', mustChangePassword: false, permissions },
+    });
+  }
+
+  beforeEach(() => {
+    configureRepository(new MemoryRepository());
+    useAppStore.setState({ data: buildFixtureData(today), today, ready: true, currentUserId: 'u_adnan', toasts: [] });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url === '/api/practice-data/history') return new Response(JSON.stringify({ current: 2, versions: [{ version: 2, savedBy: 'u_adnan', savedAt: '2026-09-11T10:00:00Z' }, { version: 1, savedBy: 'u_adnan', savedAt: '2026-09-10T10:00:00Z' }] }), { status: 200 });
+        if (url === '/api/messages/status') return new Response(JSON.stringify({ email: { provider: 'simulated', configured: true, from: null }, whatsapp: { mode: 'click_to_chat' }, sms: { provider: 'simulated', configured: false } }), { status: 200 });
+        // Everything else the page's cards ask for (HMRC status, briefing settings) is simply "not available".
+        return new Response(JSON.stringify({ error: 'not_configured' }), { status: 503 });
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    useAppStore.setState({ authMode: 'local', authUser: null });
+  });
+
+  it('an accountant is not offered restore, threshold edits, or renaming a colleague — but can still fix their own name', async () => {
+    signInWith(ACCOUNTANT_PERMISSIONS);
+    render(
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>,
+    );
+    await screen.findByTestId('snapshot-version-2');
+    expect(screen.queryByTestId('restore-version-1')).not.toBeInTheDocument();
+    expect(screen.getByText('Only an owner can restore an earlier version.')).toBeVisible();
+
+    expect(screen.queryByRole('button', { name: 'Save thresholds' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Due soon window')).toBeDisabled();
+
+    expect(screen.queryByRole('button', { name: 'Edit name for Sarah Mitchell' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit name for Adnan Sarayqum' })).toBeVisible();
+  });
+
+  it('an owner (or any server that does not report permissions yet) sees everything, as before', async () => {
+    for (const permissions of [undefined, [...ACCOUNTANT_PERMISSIONS, 'snapshot.restore', 'practice.configure', 'team.manage', 'hmrc.connect']]) {
+      signInWith(permissions);
+      const { unmount } = render(
+        <MemoryRouter>
+          <SettingsPage />
+        </MemoryRouter>,
+      );
+      await screen.findByTestId('snapshot-version-2');
+      expect(screen.getByTestId('restore-version-1')).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Save thresholds' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Edit name for Sarah Mitchell' })).toBeVisible();
+      unmount();
+    }
+  });
+});
+
 describe('SettingsPage timing thresholds', () => {
   beforeEach(() => {
     configureRepository(new MemoryRepository());

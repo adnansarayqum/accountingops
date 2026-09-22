@@ -17,6 +17,8 @@ import { randomUUID } from 'node:crypto';
 import { isDatabaseConfigured } from '../lib/db.mjs';
 import { createRateLimiter } from '../lib/rateLimit.mjs';
 import { requireAuth } from './auth.mjs';
+import { PERMISSIONS, requirePermission } from '../lib/authorization.mjs';
+import { recordSecurityEvent } from '../lib/securityAudit.mjs';
 import { baseUrl, fetchVatObligations, HmrcError, isHmrcConfigured, isSandbox } from '../lib/hmrc/client.mjs';
 import { buildFraudPreventionHeaders, formatTimezone, missingHeaders } from '../lib/hmrc/fraudPreventionHeaders.mjs';
 import { clearTokens, connectionStatus, exchangeToken, withFreshToken, writeTokens } from '../lib/hmrc/tokenStore.mjs';
@@ -107,8 +109,18 @@ router.use((req, res, next) => (isHmrcConfigured() ? next() : res.status(503).js
 
 router.use(createRateLimiter({ windowMs: 60 * 1000, max: 30, keyFor: (req) => req.user?.id ?? req.ip }));
 
-/** Starts the consent round trip: returns the URL rather than redirecting, so the SPA controls the navigation. */
-router.get('/connect', (req, res) => {
+/**
+ * Starts the consent round trip: returns the URL rather than redirecting, so the SPA controls the navigation.
+ *
+ * Connecting (and disconnecting, below) changes what the whole practice's HMRC
+ * agent credentials do, so it is reserved for `hmrc.connect` — see
+ * docs/PERMISSIONS.md. Looking things up through an existing connection is
+ * ordinary work and only needs `hmrc.read`. Each is recorded in the security
+ * audit log; for the two that change the connection, the record is written
+ * first and the action does not go ahead if it cannot be.
+ */
+router.get('/connect', requirePermission(PERMISSIONS.HMRC_CONNECT), async (req, res) => {
+  await recordSecurityEvent({ req, action: 'hmrc.connect_started', targetType: 'hmrc', targetId: 'agent-services-account', details: { sandbox: isSandbox() } });
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: process.env.HMRC_CLIENT_ID,
@@ -123,9 +135,12 @@ router.get('/connect', (req, res) => {
  * Where HMRC send the user back. The state value proves this is the round
  * trip we started; without that check anyone could hand us a code.
  */
-router.get('/callback', async (req, res) => {
+router.get('/callback', requirePermission(PERMISSIONS.HMRC_CONNECT), async (req, res) => {
   const { code, state, error } = req.query;
-  if (error) return res.status(400).json({ error: 'consent_refused', detail: String(error).slice(0, 200) });
+  if (error) {
+    await recordSecurityEvent({ req, action: 'hmrc.connect_refused', outcome: 'failure', targetType: 'hmrc', targetId: 'agent-services-account' }).catch(() => {});
+    return res.status(400).json({ error: 'consent_refused', detail: String(error).slice(0, 200) });
+  }
   const remembered = consumeState(String(state ?? ''));
   // Bound to the session that started the round trip, not just to a state
   // value that exists: without this, a link crafted with an attacker's own
@@ -138,14 +153,21 @@ router.get('/callback', async (req, res) => {
   try {
     const tokens = await exchangeToken({ grant_type: 'authorization_code', code: String(code), redirect_uri: redirectUri(req) });
     await writeTokens({ ...tokens, connectedBy: remembered.userId });
+    // The connection is made either way; a failed audit write is loud, not fatal.
+    await recordSecurityEvent({ req, action: 'hmrc.connected', targetType: 'hmrc', targetId: 'agent-services-account', details: { sandbox: isSandbox(), scope: tokens.scope ?? null } }).catch((auditErr) => {
+      console.error(JSON.stringify({ level: 'error', at: new Date().toISOString(), source: 'security_audit', message: `Could not record hmrc.connected: ${auditErr?.message ?? auditErr}` }));
+    });
     res.json({ connected: true, sandbox: isSandbox() });
   } catch (err) {
     console.error(JSON.stringify({ level: 'error', at: new Date().toISOString(), source: 'hmrc', message: `Token exchange failed: ${err?.message ?? err}` }));
+    await recordSecurityEvent({ req, action: 'hmrc.connect_failed', outcome: 'failure', targetType: 'hmrc', targetId: 'agent-services-account' }).catch(() => {});
     res.status(502).json({ error: 'token_exchange_failed' });
   }
 });
 
-router.post('/disconnect', async (_req, res) => {
+router.post('/disconnect', requirePermission(PERMISSIONS.HMRC_CONNECT), async (req, res) => {
+  // Recorded before the tokens go: no disconnect without a trace.
+  await recordSecurityEvent({ req, action: 'hmrc.disconnected', targetType: 'hmrc', targetId: 'agent-services-account' });
   res.json({ disconnected: await clearTokens() });
 });
 
@@ -154,7 +176,7 @@ router.post('/disconnect', async (_req, res) => {
  * fraud prevention headers is posted with the request, which is why this is
  * a POST for what reads like a GET.
  */
-router.post('/vat/:vrn/obligations', express.json({ limit: '16kb' }), async (req, res) => {
+router.post('/vat/:vrn/obligations', requirePermission(PERMISSIONS.HMRC_READ), express.json({ limit: '16kb' }), async (req, res) => {
   const vrn = normaliseVrn(String(req.params.vrn ?? ''));
   if (!vrn || !isValidVrn(vrn)) return res.status(400).json({ error: 'invalid_vrn' });
 

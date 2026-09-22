@@ -259,6 +259,13 @@ append-only: actor, action, entity, before, after, timestamp, source,
 correlation id. In PostgreSQL the application role has no UPDATE/DELETE on
 `audit_events`.
 
+Today, while the whole practice is one client-authored snapshot, the
+`AuditEvent`s inside it are **not authoritative** — the browser writes them.
+The authoritative record of security-relevant operations (sign-ins, permission
+denials, snapshot restores, practice/team changes, the HMRC connection, real
+email sends) is the server-generated, append-only `security_audit_log` table.
+See `docs/PERMISSIONS.md`.
+
 ## Multi-tenancy
 
 Every tenant-owned record carries `practiceId`. `db/schema.sql` enables
@@ -321,11 +328,23 @@ Present today:
   and filings; tenant id on every record; no bodies or identifiers in
   server logs.
 
-Known gaps, in the order they should close: the audit log lives inside the
-client-authored snapshot, so "every reveal is audited" is forgeable by
-anyone who can PUT a snapshot — the real fix is a server-side, append-only
-table. Then, before wider use: RBAC (owner/manager/accountant/admin) with
-field-level authorisation for identifiers, encryption at rest for
+- **Server-side authorisation and a server audit trail** (`server/lib/
+  authorization.mjs`, `docs/PERMISSIONS.md`): practice-wide operations —
+  restoring history, connecting/disconnecting HMRC, changing practice settings
+  or the team roster — are reserved to the roles that need them, judged on the
+  server from `practice_users.role`; a server-generated, trigger-enforced
+  append-only `security_audit_log` records them.
+- **Runtime-validated snapshots** (`server/lib/snapshotSchema.mjs`): the
+  critical structures (team roles, job status, AML rating, communications,
+  audit events…) are checked field by field before a snapshot is stored;
+  enumerations are cross-checked against `src/domain/types.ts` by a test.
+
+Known gaps, in the order they should close: the `AuditEvent`s *inside the
+snapshot* are still client-authored, so "every reveal is audited" there is
+forgeable by anyone who can PUT a snapshot (the server's own trail above is
+not) — the real fix is per-entity server writes that generate the audit event
+themselves. Then, before wider use: field-level authorisation for
+identifiers (roles are coarse today), encryption at rest for
 `client_identifiers.value_encrypted` (envelope keys in a KMS), object storage
 with signed URLs for documents, redaction middleware for logs, retention and
 deletion policies, secrets in Railway variables only.

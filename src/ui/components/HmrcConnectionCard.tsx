@@ -4,6 +4,7 @@ import { Card, CardBody, CardHeader } from './Card';
 import { Button } from './Button';
 import { Badge } from './Badge';
 import { useAppStore } from '../../application/store';
+import { hasPermission } from '../../application/auth';
 import { disconnectHmrc, getHmrcConnectUrl, getHmrcStatus, type HmrcStatus } from '../../integrations/hmrcDeviceData';
 import { formatDate } from '../../domain/dates';
 
@@ -20,6 +21,7 @@ import { formatDate } from '../../domain/dates';
  */
 export function HmrcConnectionCard() {
   const toast = useAppStore((s) => s.toast);
+  const canConnect = hasPermission(useAppStore((s) => s.authUser), 'hmrc.connect');
   const [status, setStatus] = useState<HmrcStatus | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -50,9 +52,12 @@ export function HmrcConnectionCard() {
     if (!window.confirm('Disconnect the HMRC agent account? VAT deadlines will stop updating until it is reconnected.')) return;
     setBusy(true);
     try {
-      await disconnectHmrc();
-      await load();
-      toast({ title: 'HMRC disconnected', tone: 'success' });
+      if (await disconnectHmrc()) {
+        await load();
+        toast({ title: 'HMRC disconnected', tone: 'success' });
+      } else {
+        toast({ title: "Couldn't disconnect HMRC", description: 'Only an owner can change the HMRC connection.', tone: 'error' });
+      }
     } finally {
       setBusy(false);
     }
@@ -71,7 +76,7 @@ export function HmrcConnectionCard() {
         icon={<Landmark />}
         description="One authorisation covers every client — HMRC check the practice's authority over each one on every call."
         action={
-          status.connected ? (
+          !canConnect ? undefined : status.connected ? (
             <Button variant="secondary" size="sm" onClick={() => void disconnect()} disabled={busy} data-testid="hmrc-disconnect">
               Disconnect
             </Button>
@@ -99,6 +104,7 @@ export function HmrcConnectionCard() {
         ) : (
           <p>Connect the practice&rsquo;s agent services account to read VAT obligations — the filing periods and statutory due dates HMRC hold for each client.</p>
         )}
+        {!canConnect && <p className="text-slate-500">Only an owner can connect or disconnect HMRC.</p>}
       </CardBody>
     </Card>
   );
