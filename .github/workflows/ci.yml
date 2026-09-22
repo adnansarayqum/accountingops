@@ -34,9 +34,6 @@ jobs:
       CI: true
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/accountingops_test
       PGSSLMODE: disable
-      ADNAN_TEMP_PASSWORD: CI-only-Adnan-password-2026
-      FARHAN_TEMP_PASSWORD: CI-only-Farhan-password-2026
-      RAYHAN_TEMP_PASSWORD: CI-only-Rayhan-password-2026
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
