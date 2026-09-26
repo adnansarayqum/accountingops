@@ -5,6 +5,7 @@ const EVERY_COLLECTION = [
   'users', 'clients', 'contacts', 'identifiers', 'people', 'personRoles', 'subscriptions', 'obligations', 'jobs',
   'requestItems', 'documents', 'communications', 'reminderSequences', 'approvals', 'filings', 'activities',
   'auditEvents', 'inboxItems', 'notifications', 'onboardingCases', 'mtdReadiness', 'wipEntries', 'timeEntries',
+  'invoices',
 ];
 
 function fullSnapshot() {

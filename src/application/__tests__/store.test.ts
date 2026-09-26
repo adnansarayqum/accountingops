@@ -702,6 +702,87 @@ describe('application store — work in progress and time tracking', () => {
   });
 });
 
+describe('application store — invoicing', () => {
+  beforeEach(() => {
+    configureRepository(new MemoryRepository());
+    useAppStore.setState({ data: structuredClone(buildFixtureData(today)), today, ready: true, currentUserId: 'u_adnan', toasts: [] });
+  });
+
+  it('bills the selected unbilled WIP entries, numbered after the last invoice on file, and marks them invoiced', () => {
+    const invoice = useAppStore.getState().createInvoice('cl_abc', { wipEntryIds: ['wip_abc_1', 'wip_abc_2'], timeEntryIds: [] });
+    expect(invoice).toMatchObject({ clientId: 'cl_abc', number: 'INV-1043', subtotal: 240, status: 'draft' });
+    expect(invoice.lineItems).toHaveLength(2);
+    const wip1 = useAppStore.getState().data.wipEntries.find((w) => w.id === 'wip_abc_1')!;
+    expect(wip1).toMatchObject({ status: 'invoiced', resolutionNote: 'INV-1043' });
+    expect(useAppStore.getState().data.auditEvents[0]).toMatchObject({ action: 'invoice.create', entityId: invoice.id });
+  });
+
+  it('bills logged time at the practice default hourly rate', () => {
+    const invoice = useAppStore.getState().createInvoice('cl_abc', { wipEntryIds: [], timeEntryIds: ['time_abc_1', 'time_abc_2'] });
+    // 45 + 120 = 165 minutes at £60/hour = £165.
+    expect(invoice.subtotal).toBe(165);
+    expect(invoice.lineItems[0].timeEntryIds).toEqual(['time_abc_1', 'time_abc_2']);
+  });
+
+  it('combines WIP entries and time into one invoice', () => {
+    const invoice = useAppStore.getState().createInvoice('cl_abc', { wipEntryIds: ['wip_abc_1'], timeEntryIds: ['time_abc_1'] });
+    // £150 WIP + (45 minutes at £60/hour = £45).
+    expect(invoice.subtotal).toBe(195);
+    expect(invoice.lineItems).toHaveLength(2);
+  });
+
+  it('throws for an unknown client', () => {
+    expect(() => useAppStore.getState().createInvoice('cl_nope', { wipEntryIds: [], timeEntryIds: [] })).toThrow();
+  });
+
+  it('throws when nothing selected is eligible', () => {
+    expect(() => useAppStore.getState().createInvoice('cl_abc', { wipEntryIds: [], timeEntryIds: [] })).toThrow();
+    // Already invoiced on the fixture's own INV-1042 — not eligible again.
+    expect(() => useAppStore.getState().createInvoice('cl_khan', { wipEntryIds: ['wip_khan_1'], timeEntryIds: [] })).toThrow();
+  });
+
+  it('never bills the same entry twice, even across two separate invoices', () => {
+    useAppStore.getState().createInvoice('cl_abc', { wipEntryIds: [], timeEntryIds: ['time_abc_1'] });
+    expect(() => useAppStore.getState().createInvoice('cl_abc', { wipEntryIds: [], timeEntryIds: ['time_abc_1'] })).toThrow();
+  });
+
+  it('moves an invoice draft -> sent -> paid, refusing to skip a step', () => {
+    const invoice = useAppStore.getState().createInvoice('cl_abc', { wipEntryIds: ['wip_abc_1'], timeEntryIds: [] });
+    useAppStore.getState().updateInvoiceStatus(invoice.id, 'paid');
+    expect(useAppStore.getState().data.invoices.find((i) => i.id === invoice.id)).toMatchObject({ status: 'draft' });
+
+    useAppStore.getState().updateInvoiceStatus(invoice.id, 'sent');
+    const sent = useAppStore.getState().data.invoices.find((i) => i.id === invoice.id)!;
+    expect(sent.status).toBe('sent');
+    expect(sent.sentAt).toBeTruthy();
+
+    useAppStore.getState().updateInvoiceStatus(invoice.id, 'paid');
+    const paid = useAppStore.getState().data.invoices.find((i) => i.id === invoice.id)!;
+    expect(paid).toMatchObject({ status: 'paid', paidOn: today });
+  });
+
+  it('voids a draft or sent invoice and releases its WIP entries back to unbilled', () => {
+    const invoice = useAppStore.getState().createInvoice('cl_abc', { wipEntryIds: ['wip_abc_2'], timeEntryIds: [] });
+    useAppStore.getState().voidInvoice(invoice.id);
+    expect(useAppStore.getState().data.invoices.find((i) => i.id === invoice.id)).toMatchObject({ status: 'void' });
+    const wip2 = useAppStore.getState().data.wipEntries.find((w) => w.id === 'wip_abc_2')!;
+    expect(wip2).toMatchObject({ status: 'unbilled', resolvedAt: undefined, resolutionNote: undefined });
+  });
+
+  it('cannot void a paid invoice', () => {
+    const invoice = useAppStore.getState().createInvoice('cl_abc', { wipEntryIds: ['wip_abc_1'], timeEntryIds: [] });
+    useAppStore.getState().updateInvoiceStatus(invoice.id, 'sent');
+    useAppStore.getState().updateInvoiceStatus(invoice.id, 'paid');
+    useAppStore.getState().voidInvoice(invoice.id);
+    expect(useAppStore.getState().data.invoices.find((i) => i.id === invoice.id)).toMatchObject({ status: 'paid' });
+  });
+
+  it('sets the practice default hourly rate', () => {
+    useAppStore.getState().updateBillingSettings({ defaultHourlyRate: 90 });
+    expect(useAppStore.getState().data.practice.defaultHourlyRate).toBe(90);
+  });
+});
+
 describe('application store — applying client portal activity', () => {
   beforeEach(() => {
     configureRepository(new MemoryRepository());

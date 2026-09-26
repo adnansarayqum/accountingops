@@ -17,9 +17,12 @@ import {
   computeCompleteness,
   DEFAULT_WAITING_ON,
   generateNextJob,
+  invoiceSubtotal,
   itemsForJob,
+  nextInvoiceNumber,
   sanitizeThresholdPatch,
   suggestedTransitionOnCompleteness,
+  timeEntryAmount,
 } from '../domain/rules';
 import type { AmlRiskRating,
   Activity,
@@ -33,6 +36,8 @@ import type { AmlRiskRating,
   Contact,
   Document,
   IdentityVerificationStatus,
+  Invoice,
+  InvoiceLineItem,
   IsoDate,
   Job,
   JobStatus,
@@ -151,6 +156,14 @@ export interface AppState {
   logTime(clientId: string, input: { minutes: number; jobId?: string; note?: string; loggedOn?: IsoDate }): TimeEntry;
   /** Removes a time entry logged by mistake. */
   deleteTimeEntry(entryId: string): void;
+  /** Bills the given unbilled WIP entries and/or logged time entries (at the practice's default hourly rate) as one new invoice, numbered sequentially. Marks the WIP entries invoiced; referenced time entries can't be billed again while this invoice stands. Throws if the client is unknown or nothing eligible is selected. */
+  createInvoice(clientId: string, input: { wipEntryIds: string[]; timeEntryIds: string[]; dueOn?: IsoDate }): Invoice;
+  /** Moves a draft invoice to sent, or a sent invoice to paid. */
+  updateInvoiceStatus(invoiceId: string, status: 'sent' | 'paid', opts?: { paidOn?: IsoDate }): void;
+  /** Voids an invoice (only while draft or sent) and releases any WIP entries it billed back to unbilled, so the work can be re-invoiced. */
+  voidInvoice(invoiceId: string): void;
+  /** Sets the practice's default hourly rate in pounds, used to turn logged time into an invoice line item. */
+  updateBillingSettings(patch: { defaultHourlyRate?: number }): void;
   createClient(input: {
     name: string;
     type: ClientType;
@@ -1019,6 +1032,113 @@ export const useAppStore = create<AppState>((set, get) => {
         if (!entry) return;
         d.timeEntries = d.timeEntries.filter((t) => t.id !== entryId);
         ctx.audit('time.delete', 'time_entry', entryId, { clientId: entry.clientId, minutes: entry.minutes }, undefined);
+      });
+    },
+
+    createInvoice(clientId, input) {
+      // The number, and which entries are still eligible, must be read from
+      // the draft `d` rather than computed up front — on a conflict replay
+      // this same callback runs again against whatever the server actually
+      // has, and a number or entry list captured before that would risk a
+      // duplicate number or double-billing an entry someone else just
+      // invoiced first.
+      let created!: Invoice;
+      mutate((d, ctx) => {
+        const client = d.clients.find((c) => c.id === clientId);
+        if (!client) throw new Error('Unknown client.');
+
+        const claimedWipIds = new Set(d.invoices.filter((inv) => inv.status !== 'void').flatMap((inv) => inv.lineItems.map((li) => li.wipEntryId).filter((id): id is string => !!id)));
+        const claimedTimeIds = new Set(d.invoices.filter((inv) => inv.status !== 'void').flatMap((inv) => inv.lineItems.flatMap((li) => li.timeEntryIds ?? [])));
+
+        const lineItems: InvoiceLineItem[] = [];
+        const wipEntriesToMark = [];
+        for (const wipEntryId of input.wipEntryIds) {
+          const entry = d.wipEntries.find((w) => w.id === wipEntryId);
+          if (!entry || entry.clientId !== clientId || entry.status !== 'unbilled' || claimedWipIds.has(wipEntryId)) continue;
+          lineItems.push({ id: newId('li'), description: entry.description, amount: entry.amount, wipEntryId: entry.id });
+          wipEntriesToMark.push(entry);
+        }
+
+        const eligibleTimeIds = input.timeEntryIds.filter((id) => {
+          const entry = d.timeEntries.find((t) => t.id === id);
+          return !!entry && entry.clientId === clientId && !claimedTimeIds.has(id);
+        });
+        if (eligibleTimeIds.length > 0) {
+          const totalMinutes = eligibleTimeIds.reduce((sum, id) => sum + (d.timeEntries.find((t) => t.id === id)?.minutes ?? 0), 0);
+          lineItems.push({ id: newId('li'), description: `Time (${totalMinutes} minutes)`, amount: timeEntryAmount(totalMinutes, d.practice.defaultHourlyRate), timeEntryIds: eligibleTimeIds });
+        }
+
+        if (lineItems.length === 0) throw new Error('Nothing eligible to invoice — choose at least one unbilled item.');
+
+        const number = nextInvoiceNumber(d.invoices);
+        const subtotal = invoiceSubtotal(lineItems);
+        created = {
+          id: newId('inv'),
+          practiceId: d.practice.id,
+          clientId,
+          number,
+          lineItems,
+          subtotal,
+          status: 'draft',
+          issuedOn: get().today,
+          dueOn: input.dueOn ?? get().today,
+          createdAt: nowIso(),
+        };
+        d.invoices.push(created);
+        for (const entry of wipEntriesToMark) {
+          entry.status = 'invoiced';
+          entry.resolvedAt = nowIso();
+          entry.resolutionNote = number;
+        }
+        ctx.activity('client_updated', `Invoice ${number} created for ${client.name}: £${subtotal}.`, undefined, clientId);
+        ctx.audit('invoice.create', 'invoice', created.id, undefined, { clientId, number, subtotal, lineItemCount: lineItems.length });
+      });
+      return created;
+    },
+
+    updateInvoiceStatus(invoiceId, status, opts) {
+      mutate((d, ctx) => {
+        const invoice = d.invoices.find((i) => i.id === invoiceId);
+        if (!invoice) return;
+        // Forward-only: draft -> sent -> paid. A paid invoice doesn't slide back to sent by mistake.
+        if (status === 'sent' && invoice.status !== 'draft') return;
+        if (status === 'paid' && invoice.status !== 'sent') return;
+        const before = { status: invoice.status, sentAt: invoice.sentAt, paidOn: invoice.paidOn };
+        invoice.status = status;
+        if (status === 'sent') invoice.sentAt = nowIso();
+        if (status === 'paid') invoice.paidOn = opts?.paidOn ?? get().today;
+        const client = d.clients.find((c) => c.id === invoice.clientId);
+        ctx.activity('client_updated', `Invoice ${invoice.number} marked ${status}${client ? ` for ${client.name}` : ''}.`, undefined, invoice.clientId);
+        ctx.audit('invoice.status', 'invoice', invoiceId, before, { status: invoice.status, sentAt: invoice.sentAt, paidOn: invoice.paidOn });
+      });
+    },
+
+    voidInvoice(invoiceId) {
+      mutate((d, ctx) => {
+        const invoice = d.invoices.find((i) => i.id === invoiceId);
+        if (!invoice || (invoice.status !== 'draft' && invoice.status !== 'sent')) return;
+        const before = { status: invoice.status };
+        invoice.status = 'void';
+        for (const item of invoice.lineItems) {
+          if (!item.wipEntryId) continue;
+          const entry = d.wipEntries.find((w) => w.id === item.wipEntryId);
+          if (entry && entry.status === 'invoiced') {
+            entry.status = 'unbilled';
+            entry.resolvedAt = undefined;
+            entry.resolutionNote = undefined;
+          }
+        }
+        const client = d.clients.find((c) => c.id === invoice.clientId);
+        ctx.activity('client_updated', `Invoice ${invoice.number} voided${client ? ` for ${client.name}` : ''}.`, undefined, invoice.clientId);
+        ctx.audit('invoice.void', 'invoice', invoiceId, before, { status: 'void' });
+      });
+    },
+
+    updateBillingSettings(patch) {
+      mutate((d, ctx) => {
+        const before = { defaultHourlyRate: d.practice.defaultHourlyRate };
+        if (patch.defaultHourlyRate !== undefined) d.practice.defaultHourlyRate = Math.max(0, Math.round(patch.defaultHourlyRate));
+        ctx.audit('practice.billing_settings', 'practice', d.practice.id, before, { defaultHourlyRate: d.practice.defaultHourlyRate });
       });
     },
 

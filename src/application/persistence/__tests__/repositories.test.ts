@@ -32,11 +32,12 @@ describe('HttpRepository.load', () => {
   });
 
   it('fills in a collection missing from a snapshot saved before it existed, rather than handing back a gap every screen assumes is an array', async () => {
-    const { wipEntries: _wipEntries, timeEntries: _timeEntries, ...withoutNewCollections } = buildFixtureData('2026-09-11');
+    const { wipEntries: _wipEntries, timeEntries: _timeEntries, invoices: _invoices, ...withoutNewCollections } = buildFixtureData('2026-09-11');
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: withoutNewCollections }), { status: 200 })));
     const loaded = await new HttpRepository().load();
     expect(loaded?.wipEntries).toEqual([]);
     expect(loaded?.timeEntries).toEqual([]);
+    expect(loaded?.invoices).toEqual([]);
     // A collection that *is* present, even non-empty, is untouched.
     expect(loaded?.clients.length).toBe(withoutNewCollections.clients.length);
   });
@@ -128,10 +129,11 @@ describe('LocalStorageRepository.load', () => {
   });
 
   it('still fills in a collection missing under the current schema version — the version bump is the real guard, this is the backstop for forgetting it', async () => {
-    const { wipEntries: _wipEntries, timeEntries: _timeEntries, ...withoutNewCollections } = buildFixtureData('2026-09-11');
+    const { wipEntries: _wipEntries, timeEntries: _timeEntries, invoices: _invoices, ...withoutNewCollections } = buildFixtureData('2026-09-11');
     localStorage.setItem('test.data', JSON.stringify({ version: SCHEMA_VERSION, savedAt: new Date().toISOString(), data: withoutNewCollections }));
     const loaded = await new LocalStorageRepository('test.data').load();
     expect(loaded?.wipEntries).toEqual([]);
     expect(loaded?.timeEntries).toEqual([]);
+    expect(loaded?.invoices).toEqual([]);
   });
 });

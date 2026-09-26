@@ -29,6 +29,12 @@ export interface Practice {
    * fills in the same defaults every rule used before this existed.
    */
   thresholds?: Partial<PracticeThresholds>;
+  /**
+   * Pounds per hour, used to turn logged TimeEntry minutes into an invoice
+   * line item amount (see domain/rules/invoicing.ts's timeEntryAmount).
+   * Absent means time can't be billed yet — never guess a price.
+   */
+  defaultHourlyRate?: number;
 }
 
 /**
@@ -373,6 +379,48 @@ export interface TimeEntry {
   createdAt: IsoDateTime;
 }
 
+// ---------------------------------------------------------------------------
+// Billing
+// ---------------------------------------------------------------------------
+
+export type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'void';
+
+export interface InvoiceLineItem {
+  id: Id;
+  description: string;
+  /** Pounds — same convention as WipEntry.amount. */
+  amount: number;
+  /** Set when this line item bills a WipEntry — that entry is marked 'invoiced' and can't be billed again. */
+  wipEntryId?: Id;
+  /** Set when this line item bills logged time — those entries can't be billed again on another invoice. */
+  timeEntryIds?: Id[];
+}
+
+/**
+ * A bill sent to a client for unbilled work and/or logged time. This tracks
+ * what's owed, not a ledger — no VAT calculation, no double-entry, no
+ * reconciliation with an accounting system (see docs/PRODUCT_DECISIONS.md
+ * #1). "Overdue" is derived from `dueOn` (see domain/rules/invoicing.ts),
+ * the same way a job's overdue-ness is never a stored status — not one more
+ * state someone has to remember to set.
+ */
+export interface Invoice {
+  id: Id;
+  practiceId: Id;
+  clientId: Id;
+  /** Sequential and human-readable, e.g. "INV-1049". */
+  number: string;
+  lineItems: InvoiceLineItem[];
+  subtotal: number;
+  status: InvoiceStatus;
+  issuedOn: IsoDate;
+  dueOn: IsoDate;
+  paidOn?: IsoDate;
+  note?: string;
+  createdAt: IsoDateTime;
+  sentAt?: IsoDateTime;
+}
+
 export interface Communication {
   id: Id;
   practiceId: Id;
@@ -601,4 +649,5 @@ export interface PracticeData {
   mtdReadiness: MtdReadiness[];
   wipEntries: WipEntry[];
   timeEntries: TimeEntry[];
+  invoices: Invoice[];
 }
