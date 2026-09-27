@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { daysSince, formatSince } from '../dates';
+import { daysBetween, daysSince, formatDate, formatDateTime, formatSince, todayIso } from '../dates';
 
 describe('daysSince', () => {
   it('counts a timestamp by its local calendar day, not its UTC day', () => {
@@ -13,6 +13,32 @@ describe('daysSince', () => {
 
   it('takes a plain date as-is', () => {
     expect(daysSince('2026-09-08', '2026-09-11')).toBe(3);
+  });
+
+  it('uses the practice timezone when a timestamp crosses a calendar boundary', () => {
+    const instant = '2026-09-10T23:30:00.000Z';
+    expect(daysSince(instant, '2026-09-11', 'Europe/London')).toBe(0);
+    expect(daysSince(instant, '2026-09-11', 'America/New_York')).toBe(1);
+  });
+});
+
+describe('practice calendar dates', () => {
+  it('derives today and displayed timestamps from the practice timezone', () => {
+    const instant = new Date('2026-01-01T00:30:00.000Z');
+    expect(todayIso('Europe/London', instant)).toBe('2026-01-01');
+    expect(todayIso('America/New_York', instant)).toBe('2025-12-31');
+    expect(formatDateTime(instant.toISOString(), 'America/New_York')).toBe('31 Dec 2025, 19:30');
+    expect(formatDate(instant.toISOString(), { timeZone: 'Asia/Tokyo' })).toBe('1 Jan 2026');
+  });
+
+  it('counts calendar days correctly over both UK DST transitions', () => {
+    expect(daysBetween('2026-03-28', '2026-03-30')).toBe(2);
+    expect(daysBetween('2026-10-24', '2026-10-26')).toBe(2);
+  });
+
+  it('keeps browser-local behaviour when no timezone is supplied', () => {
+    const local = new Date(2026, 4, 6, 12, 0, 0);
+    expect(todayIso(undefined, local)).toBe('2026-05-06');
   });
 });
 

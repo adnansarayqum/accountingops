@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './ui/layout/AppShell';
 import { useAppStore, configureRepository } from './application/store';
@@ -8,25 +8,26 @@ import { ErrorBoundary } from './ui/components/ErrorBoundary';
 import { LoginPage } from './pages/LoginPage';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 import { UnavailablePage } from './pages/UnavailablePage';
-import { DashboardPage } from './pages/DashboardPage';
-import { AttentionPage } from './pages/AttentionPage';
-import { ClientsPage } from './pages/ClientsPage';
-import { ClientDetailPage } from './pages/ClientDetailPage';
-import { NewClientPage } from './pages/NewClientPage';
-import { ImportClientsPage } from './pages/ImportClientsPage';
-import { JobsPage } from './pages/JobsPage';
-import { JobDetailPage } from './pages/JobDetailPage';
-import { ChasingPage } from './pages/ChasingPage';
-import { InboxPage } from './pages/InboxPage';
-import { OnboardingPage } from './pages/OnboardingPage';
-import { CapacityPage } from './pages/CapacityPage';
-import { ReadinessPage } from './pages/ReadinessPage';
-import { BriefingPage } from './pages/BriefingPage';
-import { ActivityPage } from './pages/ActivityPage';
-import { AskPage } from './pages/AskPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { NotFoundPage } from './pages/NotFoundPage';
-import { PortalPage } from './pages/PortalPage';
+
+const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })));
+const AttentionPage = lazy(() => import('./pages/AttentionPage').then((module) => ({ default: module.AttentionPage })));
+const ClientsPage = lazy(() => import('./pages/ClientsPage').then((module) => ({ default: module.ClientsPage })));
+const ClientDetailPage = lazy(() => import('./pages/ClientDetailPage').then((module) => ({ default: module.ClientDetailPage })));
+const NewClientPage = lazy(() => import('./pages/NewClientPage').then((module) => ({ default: module.NewClientPage })));
+const ImportClientsPage = lazy(() => import('./pages/ImportClientsPage').then((module) => ({ default: module.ImportClientsPage })));
+const JobsPage = lazy(() => import('./pages/JobsPage').then((module) => ({ default: module.JobsPage })));
+const JobDetailPage = lazy(() => import('./pages/JobDetailPage').then((module) => ({ default: module.JobDetailPage })));
+const ChasingPage = lazy(() => import('./pages/ChasingPage').then((module) => ({ default: module.ChasingPage })));
+const InboxPage = lazy(() => import('./pages/InboxPage').then((module) => ({ default: module.InboxPage })));
+const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then((module) => ({ default: module.OnboardingPage })));
+const CapacityPage = lazy(() => import('./pages/CapacityPage').then((module) => ({ default: module.CapacityPage })));
+const ReadinessPage = lazy(() => import('./pages/ReadinessPage').then((module) => ({ default: module.ReadinessPage })));
+const BriefingPage = lazy(() => import('./pages/BriefingPage').then((module) => ({ default: module.BriefingPage })));
+const ActivityPage = lazy(() => import('./pages/ActivityPage').then((module) => ({ default: module.ActivityPage })));
+const AskPage = lazy(() => import('./pages/AskPage').then((module) => ({ default: module.AskPage })));
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then((module) => ({ default: module.SettingsPage })));
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then((module) => ({ default: module.NotFoundPage })));
+const PortalPage = lazy(() => import('./pages/PortalPage').then((module) => ({ default: module.PortalPage })));
 
 type AuthPhase = 'checking' | 'local' | 'unauthenticated' | 'must_change_password' | 'authenticated' | 'unavailable';
 
@@ -37,10 +38,12 @@ type AuthPhase = 'checking' | 'local' | 'unauthenticated' | 'must_change_passwor
  */
 export default function App() {
   return (
-    <Routes>
-      <Route path="/portal/:token" element={<PortalPage />} />
-      <Route path="*" element={<AuthenticatedApp />} />
-    </Routes>
+    <Suspense fallback={<SplashSkeleton />}>
+      <Routes>
+        <Route path="/portal/:token" element={<PortalPage />} />
+        <Route path="*" element={<AuthenticatedApp />} />
+      </Routes>
+    </Suspense>
   );
 }
 

@@ -84,10 +84,10 @@ export function groupRolesByPerson(entries: { role: PersonRole; person: Person }
   return order.map((id) => groups.get(id)!);
 }
 
-export function describeCompaniesHouseVerification(role: PersonRole): string | null {
+export function describeCompaniesHouseVerification(role: PersonRole, timeZone?: string): string | null {
   const seen = role.companiesHouseVerification;
   if (!seen) return null;
   if (seen.verifiedOn) return `Companies House: verified ${formatDate(seen.verifiedOn, { year: true })}`;
   if (seen.dueOn) return `Companies House: verification statement due by ${formatDate(seen.dueOn, { year: true })}`;
-  return `Companies House: nothing published yet (checked ${formatDate(seen.checkedAt)})`;
+  return `Companies House: nothing published yet (checked ${formatDate(seen.checkedAt, { timeZone })})`;
 }

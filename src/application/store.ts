@@ -56,8 +56,8 @@ import type { AmlRiskRating,
 } from '../domain/types';
 import { newId } from './ids';
 import { LocalStorageRepository } from './persistence/localStorageRepository';
-import type { PracticeRepository } from './persistence/repository';
-import { SnapshotConflictError } from './persistence/httpRepository';
+import { peekSnapshot, type PeekedSnapshot, type PracticeRepository } from './persistence/repository';
+import { SnapshotConflictError, SnapshotForbiddenError } from './persistence/httpRepository';
 
 export interface Toast {
   id: string;
@@ -242,6 +242,13 @@ let queued: PracticeData | null = null;
 // replayed on top of what they saved, so neither person's work is lost.
 let unsavedMutations: Mutation[] = [];
 
+/**
+ * Counts every local mutation. A background refresh notes it before it reads
+ * and drops what it read if it has moved — including a mutation that was
+ * saved (so `unsaved` is false again) before the read came back.
+ */
+let mutationEpoch = 0;
+
 /** How many times one save may lose the race before we stop replaying and take the server's copy. */
 const MAX_CONFLICT_REPLAYS = 3;
 
@@ -320,6 +327,22 @@ async function drainSaves(get: () => AppState, set: (patch: Partial<AppState>) =
           queued = null;
           set({ data: applyRetention(err.current), unsaved: false });
           get().toast({ title: "Someone else changed this first", description: 'Their version has been loaded. Your last change was not saved — please make it again.', tone: 'error' });
+          continue;
+        }
+        if (err instanceof SnapshotForbiddenError) {
+          // The server will refuse this change every time, and every later
+          // save would carry it too — so nothing this tab does could save
+          // again. Drop what is unsaved and go back to the stored practice.
+          unsavedMutations = [];
+          queued = null;
+          try {
+            const stored = await repository.load();
+            if (stored) set({ data: applyRetention(stored) });
+          } catch {
+            // Keep what is on screen; the next refresh will catch up.
+          }
+          set({ unsaved: false });
+          get().toast({ title: "That change isn't allowed for your role", description: 'It has not been saved and the practice has been reloaded. Ask an owner to make it.', tone: 'error' });
           continue;
         }
         console.error('Persist failed', err);
@@ -480,6 +503,7 @@ export const useAppStore = create<AppState>((set, get) => {
       return;
     }
     const result = applyMutation(state.data, fn, state.currentUserId);
+    mutationEpoch += 1;
     unsavedMutations.push(fn);
     set({ data: result, unsaved: true });
     persist(get, set);
@@ -487,7 +511,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
   return {
     data: buildEmptyPracticeData(),
-    today: todayIso(),
+    today: todayIso(buildEmptyPracticeData().practice.timezone),
     ready: false,
     currentUserId: OWNER_USER_ID,
     toasts: [],
@@ -497,7 +521,6 @@ export const useAppStore = create<AppState>((set, get) => {
     unsaved: false,
 
     async init() {
-      const today = todayIso();
       try {
         const loaded = await loadWithRetry();
         // A load never writes. An empty practice is only ever saved once
@@ -507,14 +530,16 @@ export const useAppStore = create<AppState>((set, get) => {
         unsavedMutations = [];
         // Feeds are capped on the way in as well as on every change, so a
         // snapshot saved before the caps existed shrinks on its next save.
-        set({ data: loaded ? applyRetention(loaded) : buildEmptyPracticeData(), today, ready: true, loadFailed: false, unsaved: false });
+        const data = loaded ? applyRetention(loaded) : buildEmptyPracticeData();
+        set({ data, today: todayIso(data.practice.timezone), ready: true, loadFailed: false, unsaved: false });
       } catch (err) {
         // A transient failure here must never leave the app stuck on the
         // splash screen forever — show the shell with an empty, read-only
         // stand-in and a way to retry. Read-only matters: the first save
         // from a writable empty practice would replace the real one.
         console.error('Failed to load practice data', err);
-        set({ data: buildEmptyPracticeData(), today, ready: true, loadFailed: true, unsaved: false });
+        const data = buildEmptyPracticeData();
+        set({ data, today: todayIso(data.practice.timezone), ready: true, loadFailed: true, unsaved: false });
         get().toast({ title: "Couldn't load practice data", description: 'Changes are paused until it loads. Use Try again at the top of the page.', tone: 'error' });
       }
     },
@@ -522,16 +547,26 @@ export const useAppStore = create<AppState>((set, get) => {
     async refresh() {
       const state = get();
       if (!state.ready || state.loadFailed || state.unsaved || saveInFlight) return false;
-      let loaded: PracticeData | null;
+      // Bound to the repository the read started on: a repository swap
+      // mid-flight (sign-in completing) makes this read someone else's.
+      const readFrom = repository;
+      const epoch = mutationEpoch;
+      let peeked: PeekedSnapshot;
       try {
-        loaded = await repository.load();
+        peeked = await peekSnapshot(readFrom);
       } catch {
         return false;
       }
       // A mutation that started while the read was in flight is newer than
-      // what was read — keep it.
-      if (!loaded || get().unsaved || saveInFlight) return false;
-      loaded = applyRetention(loaded);
+      // what was read — keep it, and do NOT adopt the read's version: the
+      // repository would otherwise base the next save on a version whose
+      // data this client threw away, letting that save overwrite the very
+      // changes it never saw without the server's conflict check firing.
+      if (!peeked.data || readFrom !== repository || epoch !== mutationEpoch || get().unsaved || saveInFlight) return false;
+      const loaded = applyRetention(peeked.data);
+      // Adopting the version is what makes the read "ours"; refused when the
+      // repository moved on (a save landed) while the read was in flight.
+      if (!peeked.adopt()) return false;
       if (JSON.stringify(loaded) === JSON.stringify(get().data)) return false;
       set({ data: loaded });
       return true;
@@ -1301,7 +1336,7 @@ export const useAppStore = create<AppState>((set, get) => {
     },
     generateCorporationTaxObligations() {
       let summary: CorporationTaxBackfillSummary = { clientsUpdated: 0, jobsCreated: 0, overdueCreated: 0 };
-      const today = nowIso().slice(0, 10);
+      const today = get().today;
       if (findMissingCorporationTax(get().data, today).length === 0) return summary;
       mutate((d, ctx) => {
         const rows = findMissingCorporationTax(d, today);

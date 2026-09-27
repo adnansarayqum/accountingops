@@ -5,7 +5,7 @@
  * narrow input and returns a bounded, tenant-scoped result. The whole
  * database is never handed to a model.
  */
-import { daysUntil } from '../../domain/dates';
+import { daysSince, daysUntil } from '../../domain/dates';
 import { maskIdentifier } from '../../domain/rules';
 import { IDENTIFIER_LABELS, JOB_STATUS_LABELS, SERVICES } from '../../domain/catalog';
 import type { PracticeData, ServiceCode } from '../../domain/types';
@@ -104,7 +104,7 @@ export const assistantTools = {
         if (opts.minDaysSilent === undefined) return true;
         const profile = ctx.derived.responsivenessByClient.get(v.client.id);
         const last = profile?.lastInbound?.sentAt;
-        const silent = last ? daysUntil(ctx.today, last.slice(0, 10)) * -1 : 999;
+        const silent = last ? daysSince(last, ctx.today, ctx.data.practice.timezone) : 999;
         return silent >= opts.minDaysSilent;
       })
       .map((v) => ({

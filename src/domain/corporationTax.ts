@@ -1,4 +1,4 @@
-import { addDays, addMonths, daysBetween, daysUntil, nowIso } from './dates';
+import { addDays, addMonths, daysBetween, daysUntil, nowIso, todayIso } from './dates';
 import { SERVICES } from './catalog';
 import { jobNameFor, periodKeyFor } from './rules';
 import type { Client, InformationRequestItem, IsoDate, Job, Obligation, PracticeData, ServiceSubscription } from './types';
@@ -118,7 +118,7 @@ export function applyCorporationTaxBackfill(
   rows: MissingCorporationTax[],
   idFactory: (prefix: string) => string,
 ): CorporationTaxBackfillSummary {
-  const today = nowIso().slice(0, 10);
+  const today = todayIso(data.practice.timezone);
   for (const row of rows) {
     buildCorporationTaxRecords(
       { practiceId: data.practice.id, clientId: row.clientId, periodEnd: row.periodEnd, today },

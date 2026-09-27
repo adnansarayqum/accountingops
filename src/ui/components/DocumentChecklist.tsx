@@ -4,12 +4,14 @@ import { Button } from './Button';
 import { ProgressBar } from './ProgressBar';
 import { Input } from './Form';
 import { useAppStore } from '../../application/store';
+import { usePracticeTimezone } from '../../application/selectors';
 import { formatDate } from '../../domain/dates';
 import type { InformationRequestItem, Job } from '../../domain/types';
 import { computeCompleteness } from '../../domain/rules';
 import { cn } from '../cn';
 
 export function DocumentChecklist({ job, items, compact = false, editable = true }: { job: Job; items: InformationRequestItem[]; compact?: boolean; editable?: boolean }) {
+  const timeZone = usePracticeTimezone();
   const markReceived = useAppStore((s) => s.markItemReceived);
   const markMissing = useAppStore((s) => s.markItemMissing);
   const addItem = useAppStore((s) => s.addRequestItem);
@@ -47,7 +49,7 @@ export function DocumentChecklist({ job, items, compact = false, editable = true
                 <p className={cn('text-sm', received ? 'text-slate-700' : 'text-slate-900 font-medium')}>{item.label}</p>
                 {!compact && (
                   <p className="text-xs text-slate-500">
-                    {received ? `Received ${formatDate(item.receivedAt)}` : item.status === 'requested' ? `Requested ${formatDate(item.requestedAt)} — still waiting` : 'Not yet requested'}
+                    {received ? `Received ${formatDate(item.receivedAt, { timeZone })}` : item.status === 'requested' ? `Requested ${formatDate(item.requestedAt, { timeZone })} — still waiting` : 'Not yet requested'}
                   </p>
                 )}
               </div>

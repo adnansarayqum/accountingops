@@ -17,6 +17,8 @@ import { hashPassword, needsRehash, verifyPassword } from '../lib/passwords.mjs'
 import { hashSessionToken } from '../lib/sessionTokens.mjs';
 import { createRateLimiter } from '../lib/rateLimit.mjs';
 import { clearSessionCookie, parseCookies, SESSION_COOKIE, setSessionCookie } from '../lib/cookies.mjs';
+import { permissionsFor } from '../lib/authorization.mjs';
+import { recordSecurityEvent } from '../lib/securityAudit.mjs';
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
 
@@ -119,19 +121,40 @@ router.use((req, res, next) => {
   next();
 });
 
+/**
+ * Writes to the security audit log without ever failing the request: sign-in
+ * must not become unavailable because the note about it could not be saved
+ * (the failure is logged). Operations that change the practice as a whole
+ * are stricter — see routes/practiceData.mjs and routes/hmrc.mjs.
+ */
+async function auditBestEffort(event) {
+  try {
+    await recordSecurityEvent(event);
+  } catch (err) {
+    console.error(JSON.stringify({ level: 'error', at: new Date().toISOString(), source: 'security_audit', message: `Could not record ${event.action}: ${err?.message ?? err}` }));
+  }
+}
+
 router.post('/login', loginByAddress, loginByUsername, async (req, res) => {
   const { username, password } = req.body ?? {};
   if (!username || !password) return res.status(400).json({ error: 'missing_credentials' });
   const { rows } = await query('select * from practice_users where username = $1', [normaliseUsername(username)]);
   const user = rows[0];
   const ok = user ? await verifyPassword(String(password), user.password_hash, user.password_salt) : await verifyAgainstDecoy(String(password));
-  if (!ok) return res.status(401).json({ error: 'invalid_credentials' });
+  if (!ok) {
+    // The attempted username is recorded (capped); the password never is. An
+    // unknown name and a wrong password look identical to the caller and are
+    // told apart only here, where an administrator can see them.
+    await auditBestEffort({ req, actor: { id: user?.id ?? null, username: normaliseUsername(username).slice(0, 100), role: user?.role ?? null }, action: 'auth.login', outcome: 'failure', targetType: 'user', targetId: user?.id ?? null, details: { knownUser: Boolean(user) } });
+    return res.status(401).json({ error: 'invalid_credentials' });
+  }
   await upgradeHashIfStale(user, String(password));
   const token = randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
   await query('insert into practice_sessions (token, user_id, expires_at) values ($1,$2,$3)', [hashSessionToken(token), user.id, expiresAt]);
   setSessionCookie(res, token, expiresAt);
-  res.json({ user: { id: user.id, username: user.username, name: user.name, role: user.role, mustChangePassword: user.must_change_password } });
+  await auditBestEffort({ req, actor: { id: user.id, username: user.username, role: user.role }, action: 'auth.login', targetType: 'user', targetId: user.id, details: { mustChangePassword: user.must_change_password } });
+  res.json({ user: { id: user.id, username: user.username, name: user.name, role: user.role, mustChangePassword: user.must_change_password, permissions: permissionsFor(user.role) } });
 });
 
 router.post('/logout', async (req, res) => {
@@ -146,6 +169,7 @@ router.post('/logout-everywhere', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ error: 'not_authenticated' });
   await query('delete from practice_sessions where user_id = $1', [user.id]);
+  await auditBestEffort({ req, actor: user, action: 'auth.logout_everywhere', targetType: 'user', targetId: user.id });
   clearSessionCookie(res);
   res.json({ ok: true });
 });
@@ -153,7 +177,10 @@ router.post('/logout-everywhere', async (req, res) => {
 router.get('/me', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ error: 'not_authenticated' });
-  res.json({ user });
+  // What this role may do, computed here so the UI never carries its own
+  // copy of the matrix (docs/PERMISSIONS.md). Advisory for the UI only: every
+  // route re-checks on the server.
+  res.json({ user: { ...user, permissions: permissionsFor(user.role) } });
 });
 
 router.post('/change-password', async (req, res) => {
@@ -173,6 +200,7 @@ router.post('/change-password', async (req, res) => {
   // has access — make it actually lock the others out, not just the
   // account. Keeps the session making this request signed in.
   await query('delete from practice_sessions where user_id = $1 and token != $2', [user.id, hashSessionToken(token)]);
+  await auditBestEffort({ req, actor: user, action: 'auth.password_changed', targetType: 'user', targetId: user.id, details: { wasTemporary: user.mustChangePassword } });
   res.json({ ok: true });
 });
 

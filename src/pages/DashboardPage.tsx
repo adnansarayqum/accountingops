@@ -13,7 +13,7 @@ import { CORE_TILE_SERVICES, serviceStatuses, workloadSlices, type ServiceStatus
 import { formatPounds } from '../domain/rules';
 import { SERVICES } from '../domain/catalog';
 import type { ServiceCode } from '../domain/types';
-import { formatAgo, formatDate, weekdayName } from '../domain/dates';
+import { formatAgo, formatDate, hourInTimeZone, weekdayName } from '../domain/dates';
 
 /** The line under a service tile: what's overdue, what's due soon, and how much is open in total. */
 function serviceTileHint(status: ServiceStatus, dueSoonDays: number): string {
@@ -52,6 +52,7 @@ export function DashboardPage() {
   const derived = useDerived();
   const data = useData();
   const today = useToday();
+  const timeZone = data.practice.timezone;
   const currentUserId = useAppStore((s) => s.currentUserId);
   const me = data.users.find((u) => u.id === currentUserId);
 
@@ -77,7 +78,7 @@ export function DashboardPage() {
       <div className="flex flex-wrap items-end justify-between gap-3 mb-4">
         <div>
           <h1 className="text-[26px] font-bold tracking-tight text-slate-900 leading-tight">
-            {greeting(new Date().getHours())}, {me?.name.split(' ')[0] ?? 'there'} <span aria-hidden="true">👋</span>
+            {greeting(hourInTimeZone(new Date(), timeZone))}, {me?.name.split(' ')[0] ?? 'there'} <span aria-hidden="true">👋</span>
           </h1>
           <p className="text-[13px] text-slate-500 mt-0.5">Here's what needs your attention today.</p>
         </div>
@@ -328,7 +329,7 @@ export function DashboardPage() {
                   {data.activities.slice(0, 4).map((a) => (
                     <li key={a.id} className="text-[12.5px] text-slate-700 leading-snug">
                       {a.message}
-                      <span className="block text-[10.5px] text-slate-400 mt-0.5">{formatAgo(a.occurredAt, today)}</span>
+                      <span className="block text-[10.5px] text-slate-400 mt-0.5">{formatAgo(a.occurredAt, today, timeZone)}</span>
                     </li>
                   ))}
                 </ul>

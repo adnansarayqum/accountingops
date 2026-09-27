@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
+import { act, cleanup, renderHook } from '@testing-library/react';
 import { useAppStore } from '../store';
 import { useRefreshOnFocus, useUnsavedChangesWarning } from '../usePersistenceGuards';
 
@@ -35,6 +35,7 @@ describe('useRefreshOnFocus', () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.useRealTimers();
     useAppStore.setState({ refresh: originalRefresh });
   });

@@ -16,6 +16,7 @@ export function OnboardingPage() {
   const data = useData();
   const derived = useDerived();
   const today = useToday();
+  const timeZone = data.practice.timezone;
   const toggle = useAppStore((s) => s.toggleOnboardingItem);
   const setStage = useAppStore((s) => s.setOnboardingStage);
   const toast = useAppStore((s) => s.toast);
@@ -49,7 +50,7 @@ export function OnboardingPage() {
                   }
                   description={
                     <span className="flex items-center gap-2">
-                      <Avatar user={derived.userById.get(client.ownerUserId)} size="xs" /> {derived.userById.get(client.ownerUserId)?.name} · started {formatAgo(oc.startedAt, today)}
+                      <Avatar user={derived.userById.get(client.ownerUserId)} size="xs" /> {derived.userById.get(client.ownerUserId)?.name} · started {formatAgo(oc.startedAt, today, timeZone)}
                     </span>
                   }
                   action={<span className="text-lg font-bold tabular text-slate-900">{pct}%</span>}

@@ -145,7 +145,7 @@ export function CompaniesHouseChangesCard() {
                 </p>
                 <p className="text-xs text-slate-500 truncate">{describeChange(change)}</p>
               </div>
-              <span className="shrink-0 text-[11px] text-slate-400">{formatAgo(change.seenAt, today)}</span>
+              <span className="shrink-0 text-[11px] text-slate-400">{formatAgo(change.seenAt, today, data.practice.timezone)}</span>
             </li>
           ))}
         </ul>

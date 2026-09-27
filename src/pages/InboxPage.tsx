@@ -19,6 +19,7 @@ export function InboxPage() {
   const data = useData();
   const derived = useDerived();
   const today = useToday();
+  const timeZone = data.practice.timezone;
   const confirm = useAppStore((s) => s.confirmInboxItem);
   const dismiss = useAppStore((s) => s.dismissInboxItem);
   const update = useAppStore((s) => s.updateInboxSuggestion);
@@ -80,7 +81,7 @@ export function InboxPage() {
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-slate-900 break-all">{item.fileName}</p>
                           <p className="text-xs text-slate-500 mt-0.5 inline-flex items-center gap-1">
-                            <Icon className="h-3 w-3" /> {item.source === 'scan' ? 'Scanned post' : item.sender} · {formatAgo(item.receivedAt, today)} · {item.sizeKb >= 1024 ? `${(item.sizeKb / 1024).toFixed(1)} MB` : `${item.sizeKb} KB`}
+                            <Icon className="h-3 w-3" /> {item.source === 'scan' ? 'Scanned post' : item.sender} · {formatAgo(item.receivedAt, today, timeZone)} · {item.sizeKb >= 1024 ? `${(item.sizeKb / 1024).toFixed(1)} MB` : `${item.sizeKb} KB`}
                           </p>
                           <div className="mt-2">
                             <div className="flex items-center justify-between text-xs mb-1">
@@ -174,7 +175,7 @@ export function InboxPage() {
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-slate-900 truncate">{item.fileName}</p>
                       <p className="text-xs text-slate-500">
-                        {item.suggestion.documentType} · {client?.name ?? '—'} · {item.resolvedAt ? formatDateTime(item.resolvedAt) : ''}
+                        {item.suggestion.documentType} · {client?.name ?? '—'} · {item.resolvedAt ? formatDateTime(item.resolvedAt, timeZone) : ''}
                       </p>
                     </div>
                     <Badge tone={item.status === 'confirmed' ? 'green' : 'neutral'}>{item.status === 'confirmed' ? 'Attached' : 'Dismissed'}</Badge>

@@ -10,7 +10,7 @@
 import { toUkE164Digits } from '../domain/phone';
 
 export interface MessagingStatus {
-  email: { provider: string; configured: boolean; from: string | null };
+  email: { provider: string; configured: boolean; from: string | null; error?: string };
   whatsapp: { mode: 'click_to_chat' };
   sms: { provider: string; configured: boolean };
 }
@@ -45,6 +45,11 @@ const SEND_ERRORS: Record<string, string> = {
   rate_limited: 'Too many messages in a short time — wait a minute and try again.',
   upstream_unreachable: "Couldn't reach the email provider. Try again in a moment.",
   not_authenticated: 'Your session has expired — sign in again.',
+  authenticated_mode_required: 'Real email can only be sent from the signed-in, server-backed app — nothing was sent.',
+  send_in_progress: 'This email is already being sent — wait a moment and check before trying again.',
+  send_outcome_unknown: "We couldn't confirm whether this email went out, so it won't be sent again automatically. Check the provider's activity log; to send again, close this window and reopen it.",
+  idempotency_key_reused: 'This draft was already used for a different message — close and reopen it to send.',
+  forbidden: "Your role isn't allowed to send email.",
 };
 
 /** Sends one email through the server. Resolves with how it was delivered; throws with a message fit for a toast. */

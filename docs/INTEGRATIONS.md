@@ -44,11 +44,43 @@ behind a tiny interface (`send({to, subject, body}) → {providerMessageId,
 status}`), selected per channel by environment and defaulting to
 `simulated`, so development and tests never need a provider. The route
 validates the recipient, subject and body, requires a signed-in session
-when a database is configured, limits each caller to thirty sends a minute,
-and remembers each draft's idempotency key for ten minutes so a double
-click or a replayed request can't send the same reminder twice. Every
-communication records how it left (`deliveryStatus`, `providerName`,
-`providerMessageId`), and the client record shows it.
+when a database is configured, and limits each caller to thirty sends a
+minute. Every communication records how it left (`deliveryStatus`,
+`providerName`, `providerMessageId`), and the client record shows it.
+
+**Real email fails closed.** A provider that really delivers mail (Postmark)
+only runs in *authenticated, server-backed* mode — a database is configured,
+so every request carries a signed-in user. With no database (the original
+browser-only build, which has no login) a configured Postmark is refused with
+`503 authenticated_mode_required`: nothing is sent, and nothing is silently
+simulated either (the UI would then log a "sent" that never left).
+`GET /api/messages/status` reports it as `configured: false` with that error.
+The guard is enforced in the provider selector, in the Postmark adapter itself,
+and in the route, so no caller can reach Postmark around it. The simulated
+provider keeps working everywhere, exactly as before.
+
+**Idempotency is durable when it matters.** One key per opened draft, so a
+double click, a retry, a second tab or a restart can't send the same reminder
+twice. For signed-in sends the key is *claimed* by an `INSERT` into
+`email_send_claims` (`server/lib/emailClaims.mjs`), which PostgreSQL makes
+atomic: of any number of simultaneous requests with one key, exactly one calls
+the provider; the rest are answered `409 send_in_progress` or, once it has
+finished, replay its result unchanged (`deduplicated: true`).
+
+- **Scoped to the signed-in user** — someone else's identical key neither
+  replays nor blocks yours.
+- **Bound to the message** — the same key with different content is refused
+  `422 idempotency_key_reused`, never answered with the wrong message's result.
+- **Kept 24 hours**, then reusable.
+- **Never guesses.** If Postmark returned an error the message was not
+  accepted, so the claim is released and the same key may try again. If the
+  outcome cannot be known (connection lost mid-send, a crash after claiming, a
+  lease that ran out — the provider call itself times out at 20 s, the lease is
+  120 s) the key is kept as `unknown` and answered `409 send_outcome_unknown`:
+  a duplicate to a client is worse than asking a person to check Postmark's
+  activity log and reopen the composer for a new key.
+- **Browser-only simulated mode** keeps a ten-minute in-memory map. Nothing is
+  sent there, so losing it on restart costs nothing.
 
 **What this is not.** No inbound path yet — a client's reply doesn't
 change `responseStatus` unless it arrives through the Smart Inbox — and no

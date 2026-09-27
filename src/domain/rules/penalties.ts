@@ -1,4 +1,4 @@
-import { addMonths, daysUntil } from '../dates';
+import { addMonths, daysSince, daysUntil, toIsoDateInTimeZone } from '../dates';
 import type { Job, ServiceCode } from '../types';
 
 /**
@@ -114,8 +114,8 @@ function filedHistory(jobs: Job[], job: Job): Job[] {
   return jobs.filter((j) => j.clientId === job.clientId && j.serviceCode === job.serviceCode && j.status === 'filed' && j.filedAt && j.id !== job.id).sort((a, b) => b.periodEnd.localeCompare(a.periodEnd));
 }
 
-function wasLate(j: Job): boolean {
-  return Boolean(j.filedAt && j.filedAt.slice(0, 10) > j.dueDate);
+function wasLate(j: Job, timeZone?: string): boolean {
+  return Boolean(j.filedAt && daysSince(j.filedAt, j.dueDate, timeZone) < 0);
 }
 
 function frequencyOf(job: Job, history: Job[]): 'monthly' | 'quarterly' | 'annual' {
@@ -132,7 +132,7 @@ function frequencyOf(job: Job, history: Job[]): 'monthly' | 'quarterly' | 'annua
  * a `next` step on the day after it, which is how "£150 in 9 days" is
  * known before anything is late.
  */
-export function penaltyExposureFor(job: Job, allJobs: Job[], today: string): PenaltyExposure | null {
+export function penaltyExposureFor(job: Job, allJobs: Job[], today: string, timeZone?: string): PenaltyExposure | null {
   if (job.status === 'filed') return null;
   const daysLate = -daysUntil(job.dueDate, today);
   const history = filedHistory(allJobs, job);
@@ -142,7 +142,7 @@ export function penaltyExposureFor(job: Job, allJobs: Job[], today: string): Pen
     case 'annual_accounts': {
       // Doubled when the immediately preceding accounts were also late.
       const previous = history[0];
-      const doubled = Boolean(previous && wasLate(previous));
+      const doubled = Boolean(previous && wasLate(previous, timeZone));
       const months = daysLate >= 1 ? monthsLate(job.dueDate, today) : -1;
       const bandsByMonth = [
         { months: 0, band: ACCOUNTS_BANDS[0] },
@@ -168,7 +168,7 @@ export function penaltyExposureFor(job: Job, allJobs: Job[], today: string): Pen
     }
     case 'corporation_tax': {
       // Three in a row: the two most recent filed returns both late.
-      const repeat = history.length >= 2 && wasLate(history[0]) && wasLate(history[1]);
+      const repeat = history.length >= 2 && wasLate(history[0], timeZone) && wasLate(history[1], timeZone);
       const bands = repeat ? CT_REPEAT_BANDS : CT_BANDS;
       const { current, next } = bandFor(bands, daysLate);
       const notes = ['At 6 months and again at 12 months, HMRC add 10% of the unpaid tax — not counted here.'];
@@ -206,7 +206,7 @@ export function penaltyExposureFor(job: Job, allJobs: Job[], today: string): Pen
       const frequency = frequencyOf(job, history);
       const threshold = VAT_POINT_THRESHOLD[frequency];
       const lookbackFrom = addMonths(today, -POINTS_LOOKBACK_MONTHS);
-      const points = history.filter((j) => wasLate(j) && (j.filedAt ?? '').slice(0, 10) >= lookbackFrom).length;
+      const points = history.filter((j) => wasLate(j, timeZone) && j.filedAt && toIsoDateInTimeZone(new Date(j.filedAt), timeZone) >= lookbackFrom).length;
       const wouldReach = points + 1 >= threshold;
       const incurred = daysLate >= 1 && wouldReach ? VAT_PENALTY : 0;
       const notes = [`${points} late-submission point${points === 1 ? '' : 's'} in the last 24 months; the threshold is ${threshold}.`];
@@ -244,9 +244,9 @@ export function penaltyExposureFor(job: Job, allJobs: Job[], today: string): Pen
  * The practice-wide picture. `horizonDays` is how far ahead "at risk"
  * looks — the dashboard uses the same due-soon window as everything else.
  */
-export function summarisePenalties(jobs: Job[], today: string, horizonDays: number): PenaltySummary {
+export function summarisePenalties(jobs: Job[], today: string, horizonDays: number, timeZone?: string): PenaltySummary {
   const items = jobs
-    .map((j) => penaltyExposureFor(j, jobs, today))
+    .map((j) => penaltyExposureFor(j, jobs, today, timeZone))
     .filter((x): x is PenaltyExposure => x !== null)
     .filter((x) => x.incurred > 0 || x.unquantified || (x.next !== null && x.next.amount > 0 && x.next.inDays <= horizonDays))
     .sort((a, b) => b.incurred - a.incurred || (a.next?.inDays ?? Infinity) - (b.next?.inDays ?? Infinity));

@@ -13,7 +13,7 @@ import { HmrcConnectionCard } from '../ui/components/HmrcConnectionCard';
 import { BriefingEmailCard } from '../ui/components/BriefingEmailCard';
 import { useAppStore } from '../application/store';
 import { useData } from '../application/selectors';
-import { changePassword, logout, logoutEverywhere } from '../application/auth';
+import { changePassword, hasPermission, logout, logoutEverywhere } from '../application/auth';
 import { DEFAULT_THRESHOLDS, MAX_THRESHOLD_DAYS, MIN_THRESHOLD_DAYS, resolveThresholds } from '../domain/rules';
 import type { PracticeThresholds } from '../domain/types';
 
@@ -24,6 +24,9 @@ export function SettingsPage() {
   const authUser = useAppStore((s) => s.authUser);
   const renameUser = useAppStore((s) => s.renameUser);
   const toast = useAppStore((s) => s.toast);
+  // Advisory — the server refuses the save regardless (docs/PERMISSIONS.md).
+  // Anyone may correct their own display name; other members' need team.manage.
+  const canManageTeam = hasPermission(authUser, 'team.manage');
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState('');
 
@@ -98,9 +101,11 @@ export function SettingsPage() {
                   ) : (
                     <p className="text-[13px] font-medium text-slate-900 flex items-center gap-1.5">
                       {u.name}
-                      <button type="button" onClick={() => startEditing(u.id, u.name)} className="text-slate-300 hover:text-slate-600" aria-label={`Edit name for ${u.name}`}>
-                        <Pencil className="h-3 w-3" />
-                      </button>
+                      {(canManageTeam || u.id === currentUserId) && (
+                        <button type="button" onClick={() => startEditing(u.id, u.name)} className="text-slate-300 hover:text-slate-600" aria-label={`Edit name for ${u.name}`}>
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      )}
                     </p>
                   )}
                   <p className="text-xs text-slate-500 capitalize">
@@ -229,6 +234,7 @@ function ThresholdsCard() {
   const data = useData();
   const updatePracticeThresholds = useAppStore((s) => s.updatePracticeThresholds);
   const toast = useAppStore((s) => s.toast);
+  const canConfigure = hasPermission(useAppStore((s) => s.authUser), 'practice.configure');
   const [draft, setDraft] = useState<Record<keyof PracticeThresholds, string>>(() => draftFrom(resolveThresholds(data.practice.thresholds)));
   const [errors, setErrors] = useState<Partial<Record<keyof PracticeThresholds, string>>>({});
   /** Links an input to its Field's error message for assistive tech. */
@@ -274,6 +280,7 @@ function ThresholdsCard() {
                   value={draft[field.key]}
                   onChange={(e) => setDraft({ ...draft, [field.key]: e.target.value })}
                   className="w-24"
+                  disabled={!canConfigure}
                   {...invalid(field.key, field.id)}
                 />
                 <span className="text-xs text-slate-500">days</span>
@@ -281,10 +288,16 @@ function ThresholdsCard() {
             </Field>
           ))}
           <div className="sm:col-span-2 flex flex-wrap gap-2 pt-1">
-            <Button type="submit">Save thresholds</Button>
-            <Button type="button" variant="ghost" icon={<RotateCcw />} onClick={resetDraft}>
-              Reset to defaults
-            </Button>
+            {canConfigure ? (
+              <>
+                <Button type="submit">Save thresholds</Button>
+                <Button type="button" variant="ghost" icon={<RotateCcw />} onClick={resetDraft}>
+                  Reset to defaults
+                </Button>
+              </>
+            ) : (
+              <p className="text-[13px] text-slate-500">Only an owner or manager can change the practice&rsquo;s timing thresholds.</p>
+            )}
           </div>
         </form>
       </CardBody>

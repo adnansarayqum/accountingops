@@ -5,11 +5,13 @@ import { useFocusTrap } from '../useFocusTrap';
 
 export function Modal({ open, onClose, title, description, children, footer, size = 'md' }: { open: boolean; onClose: () => void; title: ReactNode; description?: ReactNode; children: ReactNode; footer?: ReactNode; size?: 'sm' | 'md' | 'lg' }) {
   const ref = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useFocusTrap(ref, open);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') onCloseRef.current();
     };
     document.addEventListener('keydown', onKey);
     const first = ref.current?.querySelector<HTMLElement>('input, textarea, select, button:not([data-close])');
@@ -20,7 +22,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   const width = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-3xl' }[size];
   return (

@@ -3,6 +3,14 @@ import { buildEmptyPracticeData, normalizePracticeData } from '../emptyState';
 import { buildFixtureData } from '../../testing/fixtures';
 
 describe('normalizePracticeData', () => {
+  it('adds the default practice timezone to snapshots saved before timezone existed', () => {
+    const current = buildEmptyPracticeData();
+    const { timezone: _timezone, ...practice } = current.practice;
+    const old = { ...current, practice };
+
+    expect(normalizePracticeData(old as ReturnType<typeof buildEmptyPracticeData>).practice.timezone).toBe('Europe/London');
+  });
+
   it('leaves a fully-shaped snapshot untouched', () => {
     const data = buildFixtureData('2026-09-11');
     expect(normalizePracticeData(data)).toBe(data);

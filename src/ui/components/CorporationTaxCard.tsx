@@ -23,7 +23,7 @@ export function CorporationTaxCard() {
   const authMode = useAppStore((s) => s.authMode);
   const generate = useAppStore((s) => s.generateCorporationTaxObligations);
   const toast = useAppStore((s) => s.toast);
-  const today = todayIso();
+  const today = todayIso(data.practice.timezone);
   const missing = useMemo(() => findMissingCorporationTax(data, today), [data, today]);
   const overdue = missing.filter((m) => m.alreadyOverdue).length;
 
