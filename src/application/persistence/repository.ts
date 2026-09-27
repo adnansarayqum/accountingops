@@ -37,4 +37,4 @@ export async function peekSnapshot(repo: PracticeRepository): Promise<PeekedSnap
 }
 
 /** Bump when the persisted shape changes so stale snapshots are discarded. */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;

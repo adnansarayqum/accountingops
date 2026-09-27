@@ -3,6 +3,7 @@ export * from './attention';
 export * from './capacity';
 export * from './chasing';
 export * from './completeness';
+export * from './invoicing';
 export * from './masking';
 export * from './metrics';
 export * from './nextAction';

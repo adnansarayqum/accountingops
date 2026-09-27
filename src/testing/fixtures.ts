@@ -25,6 +25,7 @@ import type {
   IdentifierKind,
   InboxItem,
   InformationRequestItem,
+  Invoice,
   IsoDate,
   Job,
   JobStatus,
@@ -964,6 +965,25 @@ export function buildFixtureData(today: IsoDate): PracticeData {
   ];
 
   // -------------------------------------------------------------------------
+  // Invoices — INV-1042 is the invoice `wip_khan_1` above was billed on.
+  // -------------------------------------------------------------------------
+  const invoices: Invoice[] = [
+    {
+      id: 'inv_khan_1',
+      practiceId: FIXTURE_PRACTICE_ID,
+      clientId: 'cl_khan',
+      number: 'INV-1042',
+      lineItems: [{ id: 'li_khan_1', description: 'Redid the fixed asset schedule after client supplied corrected invoices.', amount: 120, wipEntryId: 'wip_khan_1' }],
+      subtotal: 120,
+      status: 'sent',
+      issuedOn: ago(2).slice(0, 10),
+      dueOn: inDays(12),
+      sentAt: ago(2),
+      createdAt: ago(2),
+    },
+  ];
+
+  // -------------------------------------------------------------------------
   // Onboarding
   // -------------------------------------------------------------------------
   const checklist = (done: string[]): OnboardingCase['checklist'] => {
@@ -1091,7 +1111,7 @@ export function buildFixtureData(today: IsoDate): PracticeData {
   ];
 
   return {
-    practice: { id: FIXTURE_PRACTICE_ID, name: 'Farhan & Raihan', timezone: 'Europe/London' },
+    practice: { id: FIXTURE_PRACTICE_ID, name: 'Farhan & Raihan', timezone: 'Europe/London', defaultHourlyRate: 60 },
     users: FIXTURE_USERS,
     clients,
     contacts,
@@ -1115,6 +1135,7 @@ export function buildFixtureData(today: IsoDate): PracticeData {
     mtdReadiness,
     wipEntries,
     timeEntries,
+    invoices,
   };
 }
 

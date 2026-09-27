@@ -27,12 +27,13 @@ describe('normalizePracticeData', () => {
 
   it('fills every collection that is missing, not just one, using the same defaults a brand-new practice starts with', () => {
     const full = buildFixtureData('2026-09-11');
-    const { wipEntries: _w, timeEntries: _t, onboardingCases: _o, ...gappy } = full;
+    const { wipEntries: _w, timeEntries: _t, onboardingCases: _o, invoices: _i, ...gappy } = full;
     const result = normalizePracticeData(gappy as typeof full);
     const empty = buildEmptyPracticeData();
     expect(result.wipEntries).toEqual(empty.wipEntries);
     expect(result.timeEntries).toEqual(empty.timeEntries);
     expect(result.onboardingCases).toEqual(empty.onboardingCases);
+    expect(result.invoices).toEqual(empty.invoices);
   });
 
   it('never overwrites a collection that is present but empty', () => {

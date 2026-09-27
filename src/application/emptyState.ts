@@ -48,6 +48,7 @@ export function buildEmptyPracticeData(): PracticeData {
     mtdReadiness: [],
     wipEntries: [],
     timeEntries: [],
+    invoices: [],
   };
 }
 

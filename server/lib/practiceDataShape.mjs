@@ -67,6 +67,7 @@ const KNOWN_ARRAYS = [
   'mtdReadiness',
   'wipEntries',
   'timeEntries',
+  'invoices',
 ];
 
 function isPlainObject(value) {
