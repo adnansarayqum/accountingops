@@ -3,6 +3,7 @@ import type {
   ClientType,
   Id,
   IdentifierKind,
+  InvoiceStatus,
   JobStatus,
   OnboardingStage,
   ReminderSequence,
@@ -104,6 +105,13 @@ export const JOB_STATUS_LABELS: Record<JobStatus, string> = {
  * "Waiting for …", which tells you nothing. Every one still names the same
  * state; nowhere should show these when there is room for the full label.
  */
+export const INVOICE_STATUS_LABELS: Record<InvoiceStatus, string> = {
+  draft: 'Draft',
+  sent: 'Sent',
+  paid: 'Paid',
+  void: 'Void',
+};
+
 export const JOB_STATUS_SHORT_LABELS: Record<JobStatus, string> = {
   waiting_for_records: 'Awaiting records',
   ready_to_start: 'Ready to start',

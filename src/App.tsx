@@ -26,6 +26,8 @@ const BriefingPage = lazy(() => import('./pages/BriefingPage').then((module) => 
 const ActivityPage = lazy(() => import('./pages/ActivityPage').then((module) => ({ default: module.ActivityPage })));
 const AskPage = lazy(() => import('./pages/AskPage').then((module) => ({ default: module.AskPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((module) => ({ default: module.SettingsPage })));
+const InvoicesPage = lazy(() => import('./pages/InvoicesPage').then((module) => ({ default: module.InvoicesPage })));
+const InvoiceDetailPage = lazy(() => import('./pages/InvoiceDetailPage').then((module) => ({ default: module.InvoiceDetailPage })));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then((module) => ({ default: module.NotFoundPage })));
 const PortalPage = lazy(() => import('./pages/PortalPage').then((module) => ({ default: module.PortalPage })));
 
@@ -142,6 +144,8 @@ function AuthenticatedApp() {
           <Route path="jobs" element={<JobsPage />} />
           <Route path="jobs/:jobId" element={<JobDetailPage />} />
           <Route path="chasing" element={<ChasingPage />} />
+          <Route path="invoices" element={<InvoicesPage />} />
+          <Route path="invoices/:invoiceId" element={<InvoiceDetailPage />} />
           <Route path="onboarding" element={<OnboardingPage />} />
           <Route path="capacity" element={<CapacityPage />} />
           <Route path="readiness" element={<ReadinessPage />} />

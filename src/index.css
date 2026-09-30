@@ -176,3 +176,28 @@
     transform: translateY(0) scale(1);
   }
 }
+
+/*
+ * "Download as PDF" for an invoice is just the browser's own print dialog —
+ * no PDF library. Hide everything, then un-hide only the page's designated
+ * print target (#invoice-print-area), so the sidebar, topbar and toaster
+ * disappear automatically without touching those components.
+ */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #invoice-print-area,
+  #invoice-print-area * {
+    visibility: visible;
+  }
+  #invoice-print-area {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+  }
+  .card {
+    box-shadow: none;
+    border: none;
+  }
+}

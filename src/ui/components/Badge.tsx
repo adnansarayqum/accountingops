@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import { cn } from '../cn';
-import type { JobStatus, WaitingOn, ResponsivenessBand } from '../../domain/types';
-import { JOB_STATUS_LABELS, WAITING_ON_LABELS, RESPONSIVENESS_LABELS } from '../../domain/catalog';
+import type { Invoice, InvoiceStatus, JobStatus, WaitingOn, ResponsivenessBand } from '../../domain/types';
+import { INVOICE_STATUS_LABELS, JOB_STATUS_LABELS, WAITING_ON_LABELS, RESPONSIVENESS_LABELS } from '../../domain/catalog';
+import { isInvoiceOverdue } from '../../domain/rules';
 
 export type Tone = 'neutral' | 'blue' | 'green' | 'amber' | 'red' | 'violet' | 'slate';
 
@@ -79,6 +80,29 @@ export function ResponsivenessBadge({ band }: { band: ResponsivenessBand }) {
   return (
     <Badge tone={RESPONSIVENESS_TONE[band]} dot>
       {RESPONSIVENESS_LABELS[band]}
+    </Badge>
+  );
+}
+
+const INVOICE_STATUS_TONE: Record<InvoiceStatus, Tone> = {
+  draft: 'neutral',
+  sent: 'blue',
+  paid: 'green',
+  void: 'slate',
+};
+
+/** Overdue overrides the stored status — the same way a job's due-date badges already layer over its own status — rather than being one more state someone has to remember to set. */
+export function InvoiceStatusBadge({ invoice, today, className }: { invoice: Invoice; today: string; className?: string }) {
+  if (invoice.status === 'sent' && isInvoiceOverdue(invoice, today)) {
+    return (
+      <Badge tone="red" dot className={className}>
+        Overdue
+      </Badge>
+    );
+  }
+  return (
+    <Badge tone={INVOICE_STATUS_TONE[invoice.status]} dot={invoice.status === 'sent' || invoice.status === 'paid'} className={className}>
+      {INVOICE_STATUS_LABELS[invoice.status]}
     </Badge>
   );
 }
