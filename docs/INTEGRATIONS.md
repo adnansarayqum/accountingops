@@ -373,12 +373,13 @@ the client's own actions on their own job.
 Without a database the router answers 503 and the Client link card on the
 job page renders nothing, so the browser-only mode is unchanged.
 
-## Telegram photo intake — linking is live, matching is not built yet
+## Telegram photo intake — letters are read and matched; Smart Inbox pickup is not built yet
 
 A client meeting surfaced a plain ask: photograph an HMRC letter, have it
-filed automatically. `server/routes/telegram.mjs` is the webhook and
-account-linking half of that; reading the photo and matching it to a
-client is a later phase built on top.
+filed automatically. `server/routes/telegram.mjs` receives the photo, reads
+it, matches it to a client and replies. What it files is queued in
+`telegram_activity`; the browser pulling that queue into Smart Inbox, and
+the "pick the client" buttons for an uncertain match, are later phases.
 
 **This is the first inbound, unsolicited third-party-initiated route in
 this codebase.** Every other integration here only ever calls out (HMRC,
@@ -400,9 +401,32 @@ next save must not be able to silently re-link or un-link who a chat acts
 as, the same reason session tokens aren't in the snapshot either.
 
 Every update the bot receives gets an explicit reply — an unlinked chat is
-told how to link, an unrecognised message is told what to send, a photo
-(once matching is built) is told what happened to it. Nothing is ever
-silent.
+told how to link, an unrecognised message is told what to send, a photo is
+told what happened to it. Nothing is ever silent.
+
+**Reading the letter is this app's first language-model call**
+(`server/lib/telegramVision.mjs`, Anthropic's API, `ANTHROPIC_API_KEY`).
+One request per photo, default model Claude Opus (`TELEGRAM_VISION_MODEL`
+to change it), asking for the document type, reference, date and any
+identifiers printed on it, plus which client it's for — as JSON constrained
+to a fixed schema. What leaves the server is exactly: the photo, and each
+client's name with its company number, UTR, VAT number and PAYE reference.
+Credentials the practice records (Companies House auth codes, Gateway
+logins, personal codes) and NINOs are never sent — the roster is built from
+an allow-list, not a deny-list (`telegramMatch.mjs`'s `buildRoster`). A
+safety classifier misfiring on an ordinary letter reruns the request on a
+fallback model (`fallbacks: "default"`) instead of failing it.
+
+The model's answer is not trusted on its own. If an identifier it read off
+the letter matches exactly one client's recorded identifier (company
+numbers normalised the same way as everywhere else in the app), that client
+wins — even over the model's own pick. Otherwise the model's pick files only
+at 85% confidence or above; anything less is held as a pending match and Ray
+is told the best guesses. The photo is always stored before the model is
+called, so a failed read loses nothing; a redelivered update (Telegram
+retries what it thinks went unanswered) is recognised by its file id and
+never read — or paid for — twice. Without `ANTHROPIC_API_KEY`, photos are
+still stored and the reply says reading isn't set up.
 
 Without `TELEGRAM_BOT_TOKEN`/`TELEGRAM_WEBHOOK_SECRET` set, the whole
 router is 503 and the Settings card renders nothing — browser-only mode is
