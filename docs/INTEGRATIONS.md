@@ -373,6 +373,43 @@ the client's own actions on their own job.
 Without a database the router answers 503 and the Client link card on the
 job page renders nothing, so the browser-only mode is unchanged.
 
+## Telegram photo intake — linking is live, matching is not built yet
+
+A client meeting surfaced a plain ask: photograph an HMRC letter, have it
+filed automatically. `server/routes/telegram.mjs` is the webhook and
+account-linking half of that; reading the photo and matching it to a
+client is a later phase built on top.
+
+**This is the first inbound, unsolicited third-party-initiated route in
+this codebase.** Every other integration here only ever calls out (HMRC,
+Companies House, Postmark); the client portal's own public route is
+capability-token-based (the practice hands out the link), not something a
+stranger dials into. A Telegram webhook is verified instead by the shared
+secret Telegram itself sends on every update (`setWebhook`'s
+`secret_token`, checked against the `X-Telegram-Bot-Api-Secret-Token`
+header with a length check before a constant-time compare) — wrong or
+missing secret is a uniform 403, nothing else distinguishing why.
+
+**Linking is per user, not per practice** (unlike HMRC's one connection
+covering every client): Settings → Connect Telegram issues a short-lived,
+single-use code (only its SHA-256 stored, same reasoning as the portal's
+own tokens); sending `/start <code>` to the bot links that Telegram chat
+to that practice user. The chat-to-user mapping lives in its own table
+(`telegram_links`), never the practice snapshot — a stale browser tab's
+next save must not be able to silently re-link or un-link who a chat acts
+as, the same reason session tokens aren't in the snapshot either.
+
+Every update the bot receives gets an explicit reply — an unlinked chat is
+told how to link, an unrecognised message is told what to send, a photo
+(once matching is built) is told what happened to it. Nothing is ever
+silent.
+
+Without `TELEGRAM_BOT_TOKEN`/`TELEGRAM_WEBHOOK_SECRET` set, the whole
+router is 503 and the Settings card renders nothing — browser-only mode is
+unaffected, and there is nowhere in that mode to hold a chat-to-user link
+or a photo's bytes regardless, so this integration is DB-mode-only by
+construction, the same posture the client portal already has.
+
 ## Security notes
 
 - API keys live only in environment variables read server-side

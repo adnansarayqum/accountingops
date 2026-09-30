@@ -8,6 +8,7 @@ import companiesHouseRouter from './server/routes/companiesHouse.mjs';
 import companiesHouseStreamRouter from './server/routes/companiesHouseStream.mjs';
 import hmrcRouter from './server/routes/hmrc.mjs';
 import portalRouter from './server/routes/portal.mjs';
+import telegramRouter from './server/routes/telegram.mjs';
 import briefingRouter from './server/routes/briefing.mjs';
 import authRouter from './server/routes/auth.mjs';
 import practiceDataRouter from './server/routes/practiceData.mjs';
@@ -48,6 +49,7 @@ function apiMiddleware(): Plugin {
     app.use('/api/companies-house', companiesHouseRouter);
     app.use('/api/hmrc', hmrcRouter);
     app.use('/api/portal', portalRouter);
+    app.use('/api/telegram', telegramRouter);
     app.use('/api/briefing', briefingRouter);
     app.use('/api/messages', messagesRouter);
     app.use('/api/auth', authRouter);
