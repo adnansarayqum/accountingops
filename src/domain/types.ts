@@ -329,6 +329,8 @@ export interface Document {
   sizeKb: number;
   /** Set when the file itself is held by the server (a client portal upload) and can be downloaded from /api/portal/uploads/:id. */
   portalUploadId?: Id;
+  /** Set when the file came in via the Telegram intake and is held by the server, downloadable from /api/telegram/uploads/:id. */
+  telegramUploadId?: Id;
 }
 
 // ---------------------------------------------------------------------------
@@ -549,7 +551,7 @@ export interface InboxItem {
   practiceId: Id;
   fileName: string;
   receivedAt: IsoDateTime;
-  source: 'email' | 'portal' | 'scan';
+  source: 'email' | 'portal' | 'scan' | 'telegram';
   sender?: string;
   sizeKb: number;
   suggestion: InboxSuggestion;
@@ -557,6 +559,8 @@ export interface InboxItem {
   resolvedAt?: IsoDateTime;
   /** Item is only shown once the demo scenario reaches a given step. */
   hidden?: boolean;
+  /** Set when the file came in via the Telegram intake and is held by the server, downloadable from /api/telegram/uploads/:id. */
+  telegramUploadId?: Id;
 }
 
 export interface Notification {
