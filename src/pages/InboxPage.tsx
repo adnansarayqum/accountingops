@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, X, FileText, Inbox, Mail, ScanLine, Globe, Pencil } from 'lucide-react';
+import { Check, X, FileText, Inbox, Mail, ScanLine, Globe, Pencil, Send } from 'lucide-react';
 import { PageHeader } from '../ui/components/PageHeader';
 import { Card, CardBody } from '../ui/components/Card';
 import { Badge } from '../ui/components/Badge';
@@ -29,7 +29,7 @@ export function InboxPage() {
 
   const pending = data.inboxItems.filter((i) => i.status === 'pending');
   const processed = data.inboxItems.filter((i) => i.status !== 'pending').sort((a, b) => (b.resolvedAt ?? '').localeCompare(a.resolvedAt ?? ''));
-  const SourceIcon = { email: Mail, portal: Globe, scan: ScanLine };
+  const SourceIcon = { email: Mail, portal: Globe, scan: ScanLine, telegram: Send };
 
   const onConfirm = (item: InboxItem) => {
     try {

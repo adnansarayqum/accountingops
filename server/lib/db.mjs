@@ -224,6 +224,80 @@ async function runMigrations() {
     )
   `);
   await query('create index if not exists portal_activity_pending_idx on portal_activity (created_at) where applied_at is null');
+
+  // Telegram photo intake (see lib/telegramMatch.mjs, routes/telegram.mjs).
+  // A chat is linked to exactly one practice user via a one-time code, never
+  // via the practice snapshot — a stale browser tab's next save must not be
+  // able to silently re-link or un-link who a chat acts as.
+  await query(`
+    create table if not exists telegram_links (
+      id         text primary key,
+      chat_id    text not null unique,
+      user_id    text not null references practice_users(id) on delete cascade,
+      linked_at  timestamptz not null default now()
+    )
+  `);
+  await query(`
+    create table if not exists telegram_link_codes (
+      code_hash   text primary key,
+      user_id     text not null references practice_users(id) on delete cascade,
+      created_at  timestamptz not null default now(),
+      expires_at  timestamptz not null,
+      used_at     timestamptz
+    )
+  `);
+  // The photo's bytes, same shape as portal_uploads — a bytea column, not
+  // disk or object storage, matching the interim adapter this build already
+  // uses elsewhere.
+  await query(`
+    create table if not exists telegram_uploads (
+      id                text primary key,
+      chat_id           text not null,
+      telegram_file_id  text not null,
+      file_name         text not null,
+      content_type      text not null,
+      size_bytes        integer not null,
+      content           bytea not null,
+      created_at        timestamptz not null default now()
+    )
+  `);
+  // One row per photo awaiting a reply when the match is too uncertain to
+  // file automatically. No portal equivalent — this exists because Telegram
+  // has a live back-and-forth, unlike a one-shot portal link.
+  await query(`
+    create table if not exists telegram_pending_matches (
+      id           text primary key,
+      chat_id      text not null,
+      message_id   text not null,
+      upload_id    text not null references telegram_uploads(id) on delete cascade,
+      candidates   jsonb not null,
+      extracted    jsonb not null,
+      created_at   timestamptz not null default now(),
+      resolved_at  timestamptz
+    )
+  `);
+  // The queue the client polls and applies through receiveInboxItem, same
+  // pattern as portal_activity — the practice snapshot is client-authored,
+  // so a webhook cannot write into it directly.
+  await query(`
+    create table if not exists telegram_activity (
+      id                   text primary key,
+      upload_id            text references telegram_uploads(id) on delete cascade,
+      client_id            text not null,
+      document_type        text not null,
+      period               text,
+      extracted_reference  text,
+      extracted_date       date,
+      confidence           real not null,
+      rationale            text not null,
+      file_name            text not null,
+      size_kb              integer not null,
+      created_at           timestamptz not null default now(),
+      applied_at           timestamptz
+    )
+  `);
+  await query('create index if not exists telegram_activity_pending_idx on telegram_activity (created_at) where applied_at is null');
+
   await query(`
     create table if not exists practice_snapshot_history (
       id          bigserial primary key,
