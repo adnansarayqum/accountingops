@@ -4,6 +4,7 @@ import { buildImportedClientRecords, PLACEHOLDER_CONTACT_NAME, type ClientRoster
 import type { AuthUser } from './auth';
 import type { CompanyPeopleResponse, CompanyProfile } from '../integrations/companiesHouseTypes';
 import type { PortalActivity } from '../integrations/portal';
+import type { TelegramActivity } from '../integrations/telegram';
 import { AML_RATING_LABELS, AML_REVIEW_MONTHS } from '../domain/rules/aml';
 import { nowIso, todayIso } from '../domain/dates';
 import { normaliseCompanyNumber } from '../domain/companyNumber';
@@ -119,6 +120,15 @@ export interface AppState {
    * since deleted, say) is returned too, so it is not offered forever.
    */
   applyPortalActivity(activity: PortalActivity[]): { applied: string[]; skipped: string[] };
+  /**
+   * Letters the Telegram bot has dealt with, into Smart Inbox. One the bot
+   * filed (or Ray picked the client for) is confirmed straight away through
+   * confirmInboxItem — the bot already told him "Filed under X" — so it
+   * lands attached to the client; one left unassigned, or whose client has
+   * since gone, waits in Smart Inbox to be sorted. An upload already in the
+   * inbox (two tabs polling the same queue) is skipped, not duplicated.
+   */
+  receiveTelegramActivity(activity: TelegramActivity[]): { applied: string[]; skipped: string[] };
   markItemMissing(itemId: string): void;
   addRequestItem(jobId: string, label: string): void;
 
@@ -828,6 +838,50 @@ export const useAppStore = create<AppState>((set, get) => {
       return { applied, skipped };
     },
 
+    receiveTelegramActivity(activity) {
+      const applied: string[] = [];
+      const skipped: string[] = [];
+      for (const entry of activity) {
+        if (get().data.inboxItems.some((i) => i.telegramUploadId === entry.uploadId)) {
+          skipped.push(entry.id);
+          continue;
+        }
+        const itemId = newId('inbox');
+        let clientKnown = false;
+        mutate((d, ctx) => {
+          clientKnown = Boolean(entry.clientId && d.clients.some((c) => c.id === entry.clientId));
+          d.inboxItems.push({
+            id: itemId,
+            practiceId: d.practice.id,
+            fileName: entry.fileName,
+            receivedAt: entry.createdAt,
+            source: 'telegram',
+            sender: 'Telegram',
+            sizeKb: entry.sizeKb,
+            telegramUploadId: entry.uploadId,
+            status: 'pending',
+            suggestion: {
+              clientId: clientKnown ? (entry.clientId ?? undefined) : undefined,
+              documentType: entry.documentType,
+              period: entry.period ?? undefined,
+              extractedReference: entry.extractedReference ?? undefined,
+              extractedDate: entry.extractedDate ?? undefined,
+              confidence: clientKnown ? entry.confidence : 0,
+              rationale: clientKnown ? entry.rationale : entry.clientId ? 'Filed in Telegram under a client that no longer exists.' : entry.rationale,
+            },
+          });
+          if (!clientKnown) ctx.activity('document_received', `${entry.documentType} (${entry.fileName}) arrived from Telegram — sort it in Smart Inbox.`);
+        });
+        // mutate refuses (and says so) while the practice's data failed to
+        // load; leaving the row unacknowledged keeps the letter queued for
+        // the next pass instead of losing it.
+        if (!get().data.inboxItems.some((i) => i.id === itemId)) continue;
+        if (clientKnown) get().confirmInboxItem(itemId);
+        applied.push(entry.id);
+      }
+      return { applied, skipped };
+    },
+
     addRequestItem(jobId, label) {
       mutate((d, ctx) => {
         const job = d.jobs.find((j) => j.id === jobId);
@@ -892,6 +946,7 @@ export const useAppStore = create<AppState>((set, get) => {
           receivedAt: nowIso(),
           source: 'inbox',
           sizeKb: item.sizeKb,
+          ...(item.telegramUploadId ? { telegramUploadId: item.telegramUploadId } : {}),
         };
         d.documents.push(doc);
         item.status = 'confirmed';
@@ -908,21 +963,26 @@ export const useAppStore = create<AppState>((set, get) => {
             matched = true;
           }
         }
-        d.communications.push({
-          id: newId('cm'),
-          practiceId: d.practice.id,
-          clientId,
-          jobId: job?.id,
-          direction: 'inbound',
-          channel: item.source === 'portal' ? 'portal' : 'email',
-          recipient: item.sender ?? 'inbox',
-          subject: item.fileName,
-          body: `${documentType} received via Smart Inbox (${item.fileName}).`,
-          sentAt: nowIso(),
-          responseStatus: 'n/a',
-          simulated: true,
-        });
-        for (const c of d.communications.filter((c) => c.jobId === job?.id && c.direction === 'outbound' && c.responseStatus === 'awaiting')) c.responseStatus = 'responded';
+        // A letter photographed into Telegram came from HMRC or Companies
+        // House, not the client — recording it as the client getting in touch
+        // would make them look responsive and quietly stop their chasing.
+        if (item.source !== 'telegram') {
+          d.communications.push({
+            id: newId('cm'),
+            practiceId: d.practice.id,
+            clientId,
+            jobId: job?.id,
+            direction: 'inbound',
+            channel: item.source === 'portal' ? 'portal' : 'email',
+            recipient: item.sender ?? 'inbox',
+            subject: item.fileName,
+            body: `${documentType} received via Smart Inbox (${item.fileName}).`,
+            sentAt: nowIso(),
+            responseStatus: 'n/a',
+            simulated: true,
+          });
+          for (const c of d.communications.filter((c) => c.jobId === job?.id && c.direction === 'outbound' && c.responseStatus === 'awaiting')) c.responseStatus = 'responded';
+        }
         ctx.activity('inbox_processed', `${documentType} (${item.fileName}) attached to ${client?.name}${job ? ` — ${job.name}` : ''}${matched ? ' and checklist updated' : ''}.`, job);
         ctx.audit('inbox.confirm', 'inbox_item', itemId, { status: 'pending' }, { status: 'confirmed', clientId, jobId: job?.id, documentId: doc.id });
         ctx.notify('document', 'Document attached', `${documentType} attached to ${client?.name}.`, job);

@@ -373,13 +373,21 @@ the client's own actions on their own job.
 Without a database the router answers 503 and the Client link card on the
 job page renders nothing, so the browser-only mode is unchanged.
 
-## Telegram photo intake — letters are read and matched; Smart Inbox pickup is not built yet
+## Telegram photo intake — live end to end
 
 A client meeting surfaced a plain ask: photograph an HMRC letter, have it
 filed automatically. `server/routes/telegram.mjs` receives the photo, reads
 it, matches it to a client and replies. What it files is queued in
-`telegram_activity`; the browser pulling that queue into Smart Inbox is a
-later phase.
+`telegram_activity` — the bot never writes the practice snapshot, for the
+same reason the client portal doesn't — and an open, visible tab pulls the
+queue in every minute (`useTelegramActivity`, the twin of
+`usePortalActivity`), re-reading the stored snapshot first. A letter the bot
+filed (or Ray picked the client for) is attached to that client straight
+away and shows under Smart Inbox → Processed; one left unassigned, or whose
+client has since been deleted, waits under To review. Every one keeps a
+"View photo" link to the original (`GET /api/telegram/uploads/:id`, signed
+in only). Attaching one is not recorded as the client getting in touch —
+the letter is from HMRC, and it must not quietly stop that client's chasing.
 
 **This is the first inbound, unsolicited third-party-initiated route in
 this codebase.** Every other integration here only ever calls out (HMRC,

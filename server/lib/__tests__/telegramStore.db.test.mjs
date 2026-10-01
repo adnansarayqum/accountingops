@@ -128,6 +128,30 @@ describe.skipIf(!RUN)('telegram link store (PostgreSQL)', () => {
     expect((await db.query('select client_id from telegram_activity where upload_id = $1', [uploadId])).rows[0].client_id).toBeNull();
   });
 
+  it('hands queued letters to the practice oldest first, once, and serves the photo back', async () => {
+    const bytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
+    const a = await store.saveUpload({ chatId: 77, fileId: 'file_d', fileName: 'telegram-4.jpg', contentType: 'image/jpeg', bytes });
+    const b = await store.saveUpload({ chatId: 77, fileId: 'file_e', fileName: 'telegram-5.png', contentType: 'image/png', bytes: Buffer.alloc(2048) });
+    const first = await store.queueActivity({ uploadId: a, fileName: 'telegram-4.jpg', sizeBytes: 4, suggestion: { clientId: 'cl_acme', documentType: 'VAT notice', extractedDate: '2026-09-20', confidence: 0.95, rationale: 'VAT number matches.' } });
+    await db.query("update telegram_activity set created_at = now() - interval '1 minute' where id = $1", [first]);
+    const second = await store.queueActivity({ uploadId: b, fileName: 'telegram-5.png', sizeBytes: 2048, suggestion: { clientId: null, documentType: 'Other', confidence: 0, rationale: 'Left to sort in Smart Inbox.' } });
+
+    const pending = await store.pendingActivity();
+    expect(pending.map((p) => p.id)).toEqual([first, second]);
+    expect(pending[0]).toMatchObject({ uploadId: a, clientId: 'cl_acme', documentType: 'VAT notice', extractedDate: '2026-09-20', period: null, sizeKb: 1, fileName: 'telegram-4.jpg' });
+    expect(pending[0].confidence).toBeCloseTo(0.95);
+    expect(pending[1]).toMatchObject({ clientId: null, extractedDate: null, sizeKb: 2 });
+
+    expect(await store.markActivityApplied([first, 'tga_unknown', 7])).toBe(1);
+    expect(await store.markActivityApplied([first])).toBe(0);
+    expect((await store.pendingActivity()).map((p) => p.id)).toEqual([second]);
+
+    const file = await store.readUpload(a);
+    expect(file).toMatchObject({ fileName: 'telegram-4.jpg', contentType: 'image/jpeg' });
+    expect(Buffer.compare(file.content, bytes)).toBe(0);
+    expect(await store.readUpload('tgu_missing')).toBeNull();
+  });
+
   it('hands a chat over to whichever user links it last', async () => {
     await store.consumeLinkCode((await store.createLinkCode('u_ray')).code, 1);
     await store.consumeLinkCode((await store.createLinkCode('u_farhan')).code, 1);

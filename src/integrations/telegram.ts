@@ -55,3 +55,44 @@ export async function createTelegramLinkCode(): Promise<TelegramLinkCode | null>
     return null;
   }
 }
+
+/** A letter the bot has dealt with, waiting to be pulled into Smart Inbox. `clientId` is null when Ray left it to sort here. */
+export interface TelegramActivity {
+  id: string;
+  uploadId: string;
+  clientId: string | null;
+  documentType: string;
+  period: string | null;
+  extractedReference: string | null;
+  extractedDate: string | null;
+  confidence: number;
+  rationale: string;
+  fileName: string;
+  sizeKb: number;
+  createdAt: string;
+}
+
+export async function getTelegramActivity(): Promise<TelegramActivity[]> {
+  try {
+    const res = await fetch('/api/telegram/activity');
+    if (!res.ok) return [];
+    return (await safeJson<{ activity: TelegramActivity[] }>(res))?.activity ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function acknowledgeTelegramActivity(ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  try {
+    const res = await fetch('/api/telegram/activity/ack', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
+    if (!res.ok) return 0;
+    return (await safeJson<{ applied: number }>(res))?.applied ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function telegramUploadUrl(uploadId: string): string {
+  return `/api/telegram/uploads/${encodeURIComponent(uploadId)}`;
+}

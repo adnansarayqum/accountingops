@@ -13,6 +13,7 @@ import { useCompaniesHouseSync } from '../../application/useCompaniesHouseSync';
 import { useRefreshOnFocus, useUnsavedChangesWarning } from '../../application/usePersistenceGuards';
 import { useLiveToday } from '../../application/useLiveToday';
 import { usePortalActivity } from '../../application/usePortalActivity';
+import { useTelegramActivity } from '../../application/useTelegramActivity';
 import { LoadFailedBanner } from '../components/LoadFailedBanner';
 
 export function AppShell() {
@@ -28,6 +29,7 @@ export function AppShell() {
   useUnsavedChangesWarning();
   useLiveToday();
   usePortalActivity();
+  useTelegramActivity();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

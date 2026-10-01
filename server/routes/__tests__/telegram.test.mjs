@@ -16,6 +16,7 @@ const fake = vi.hoisted(() => ({
   pending: [],
   edits: [],
   answers: [],
+  acked: [],
   downloadError: null,
   extraction: null,
   readCalls: [],
@@ -96,6 +97,15 @@ vi.mock('../../lib/telegramStore.mjs', () => ({
   setPendingMessageId: vi.fn(async (id, messageId) => {
     fake.pending.find((p) => p.id === id).messageId = messageId;
   }),
+  pendingActivity: vi.fn(async () => fake.activity.filter((a) => !a.applied).map((a, i) => ({ id: `tga_${i + 1}`, uploadId: a.uploadId }))),
+  markActivityApplied: vi.fn(async (ids) => {
+    fake.acked.push(...ids);
+    return ids.length;
+  }),
+  readUpload: vi.fn(async (id) => {
+    const upload = fake.uploads.find((u) => u.id === id);
+    return upload ? { fileName: upload.fileName, contentType: upload.contentType, content: upload.bytes } : null;
+  }),
   resolvePendingMatch: vi.fn(async (id, chatId) => {
     const row = fake.pending.find((p) => p.id === id && String(p.chatId) === String(chatId) && !p.resolved);
     if (!row) return null;
@@ -160,6 +170,7 @@ afterEach(() => {
   fake.pending.length = 0;
   fake.edits.length = 0;
   fake.answers.length = 0;
+  fake.acked.length = 0;
   fake.readCalls.length = 0;
   fake.downloadError = null;
   fake.extraction = null;
@@ -389,6 +400,48 @@ describe('POST /webhook photos', () => {
     await webhook(update(CHAT, { document: { file_id: 'd2', mime_type: 'application/pdf' } }));
     await replyMatching(/only read photos for now/);
     expect(fake.uploads).toHaveLength(1);
+  });
+});
+
+describe('Smart Inbox pickup', () => {
+  const asRay = { 'x-test-user': 'u_ray' };
+  const rawGet = (path, headers = {}) =>
+    new Promise((resolve, reject) => {
+      http
+        .get(`${baseUrl}${path}`, { headers }, (res) => {
+          const chunks = [];
+          res.on('data', (c) => chunks.push(c));
+          res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+        })
+        .on('error', reject);
+    });
+
+  it('lists and acknowledges queued letters for a signed-in user only', async () => {
+    fake.activity.push({ uploadId: 'tgu_1' });
+    expect((await request('GET', '/api/telegram/activity')).status).toBe(401);
+    expect((await request('POST', '/api/telegram/activity/ack', { ids: ['tga_1'] })).status).toBe(401);
+
+    expect((await request('GET', '/api/telegram/activity', undefined, asRay)).body).toEqual({ activity: [{ id: 'tga_1', uploadId: 'tgu_1' }] });
+    expect((await request('POST', '/api/telegram/activity/ack', { ids: ['tga_1', 42] }, asRay)).body).toEqual({ applied: 2 });
+    expect(fake.acked).toEqual(['tga_1', 42]);
+  });
+
+  it('caps an acknowledgement at 500 ids and treats a malformed body as none', async () => {
+    await request('POST', '/api/telegram/activity/ack', { ids: Array.from({ length: 600 }, (_, i) => `tga_${i}`) }, asRay);
+    expect(fake.acked).toHaveLength(500);
+    expect((await request('POST', '/api/telegram/activity/ack', { ids: 'tga_1' }, asRay)).body).toEqual({ applied: 0 });
+  });
+
+  it('serves the photo inline, uncached, with its own type — and only to a signed-in user', async () => {
+    fake.uploads.push({ id: 'tgu_7', chatId: 11, fileId: 'f7', fileName: 'telegram-"x".jpg', contentType: 'image/jpeg', bytes: Buffer.from([0xff, 0xd8, 0xff]) });
+    expect((await rawGet('/api/telegram/uploads/tgu_7')).status).toBe(401);
+    const res = await rawGet('/api/telegram/uploads/tgu_7', asRay);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('image/jpeg');
+    expect(res.headers['content-disposition']).toBe('inline; filename="telegram-x.jpg"');
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.body.equals(Buffer.from([0xff, 0xd8, 0xff]))).toBe(true);
+    expect((await rawGet('/api/telegram/uploads/tgu_missing', asRay)).status).toBe(404);
   });
 });
 
