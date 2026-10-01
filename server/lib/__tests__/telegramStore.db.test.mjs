@@ -109,6 +109,25 @@ describe.skipIf(!RUN)('telegram link store (PostgreSQL)', () => {
     expect(pending).toMatchObject({ chat_id: '77', message_id: '901', candidates: ['cl_acme'], extracted: { documentType: 'Other' }, resolved_at: null });
   });
 
+  it('resolves a pending match once — even two taps racing — and only from its own chat', async () => {
+    const uploadId = await store.saveUpload({ chatId: 77, fileId: 'file_b', fileName: 'telegram-2.jpg', contentType: 'image/jpeg', bytes: Buffer.alloc(4096) });
+    const id = await store.savePendingMatch({ chatId: 77, messageId: null, uploadId, candidates: ['cl_acme', 'cl_khan'], extracted: { suggestion: { documentType: 'VAT notice' } } });
+    await store.setPendingMessageId(id, 905);
+
+    expect(await store.resolvePendingMatch(id, 78)).toBeNull();
+    const results = await Promise.all([store.resolvePendingMatch(id, 77), store.resolvePendingMatch(id, 77)]);
+    const won = results.filter(Boolean);
+    expect(won).toHaveLength(1);
+    expect(won[0]).toEqual({ id, messageId: '905', uploadId, candidates: ['cl_acme', 'cl_khan'], extracted: { suggestion: { documentType: 'VAT notice' } }, fileName: 'telegram-2.jpg', sizeBytes: 4096 });
+    expect(await store.resolvePendingMatch(id, 77)).toBeNull();
+  });
+
+  it('queues a letter with no client for Smart Inbox to sort', async () => {
+    const uploadId = await store.saveUpload({ chatId: 77, fileId: 'file_c', fileName: 'telegram-3.jpg', contentType: 'image/jpeg', bytes: Buffer.alloc(10) });
+    await store.queueActivity({ uploadId, fileName: 'telegram-3.jpg', sizeBytes: 10, suggestion: { clientId: null, documentType: 'Other', confidence: 0, rationale: 'Left to sort in Smart Inbox.' } });
+    expect((await db.query('select client_id from telegram_activity where upload_id = $1', [uploadId])).rows[0].client_id).toBeNull();
+  });
+
   it('hands a chat over to whichever user links it last', async () => {
     await store.consumeLinkCode((await store.createLinkCode('u_ray')).code, 1);
     await store.consumeLinkCode((await store.createLinkCode('u_farhan')).code, 1);
