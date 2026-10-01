@@ -17,9 +17,20 @@ import express from 'express';
 import { isDatabaseConfigured } from '../lib/db.mjs';
 import { createRateLimiter } from '../lib/rateLimit.mjs';
 import { requireAuth } from './auth.mjs';
-import { isTelegramConfigured, parseStartCommand, verifyWebhookSecret } from '../lib/telegram.mjs';
-import { downloadFile, sendMessage } from '../lib/telegramApi.mjs';
-import { consumeLinkCode, createLinkCode, findLinkByChatId, findLinkByUserId, findUploadByFileId, queueActivity, saveUpload, savePendingMatch } from '../lib/telegramStore.mjs';
+import { encodePick, isTelegramConfigured, parsePick, parseStartCommand, PICK_ELSEWHERE, verifyWebhookSecret } from '../lib/telegram.mjs';
+import { answerCallback, downloadFile, editMessage, sendMessage } from '../lib/telegramApi.mjs';
+import {
+  consumeLinkCode,
+  createLinkCode,
+  findLinkByChatId,
+  findLinkByUserId,
+  findUploadByFileId,
+  queueActivity,
+  resolvePendingMatch,
+  saveUpload,
+  savePendingMatch,
+  setPendingMessageId,
+} from '../lib/telegramStore.mjs';
 import { readPracticeSnapshot } from '../lib/briefingStore.mjs';
 import { readLetter } from '../lib/telegramVision.mjs';
 import { buildRoster, decideMatch } from '../lib/telegramMatch.mjs';
@@ -80,12 +91,49 @@ async function fileLetter(chatId, image) {
     return;
   }
 
-  const guesses = decision.candidates.map(clientName);
-  const text = guesses.length
-    ? `I couldn't tell for sure which client this ${decision.suggestion.documentType} is for — best guess: ${guesses.join(', or ')}. It's saved; I'll ask you to pick soon.`
-    : `I couldn't match this ${decision.suggestion.documentType} to any client. It's saved; I'll ask you to pick soon.`;
-  const messageId = await sendMessage(chatId, text);
-  await savePendingMatch({ chatId, messageId, uploadId, candidates: decision.candidates, extracted: { ...extraction, suggestion: decision.suggestion } });
+  // Saved before the prompt is sent: its buttons carry the row's id, and the
+  // message id they need to edit only exists once it has gone out.
+  const pendingId = await savePendingMatch({ chatId, messageId: null, uploadId, candidates: decision.candidates, extracted: { ...extraction, suggestion: decision.suggestion } });
+  const buttons = [
+    ...decision.candidates.map((id, index) => ({ text: clientName(id), data: encodePick(pendingId, index) })),
+    { text: 'Someone else — sort it in Smart Inbox', data: encodePick(pendingId, PICK_ELSEWHERE) },
+  ];
+  const text = decision.candidates.length
+    ? `I couldn't tell for sure which client this ${decision.suggestion.documentType} is for. Which is it?`
+    : `I couldn't match this ${decision.suggestion.documentType} to any client. It's saved — sort it in Smart Inbox?`;
+  const messageId = await sendMessage(chatId, text, { buttons });
+  await setPendingMessageId(pendingId, messageId);
+}
+
+/** A tap on one of fileLetter's "which client?" buttons. */
+async function resolvePick(callback) {
+  const chatId = callback.message?.chat?.id;
+  const pick = parsePick(callback.data);
+  if (chatId == null || !pick || !(await findLinkByChatId(chatId))) {
+    await answerCallback(callback.id, "That button doesn't work any more.");
+    return;
+  }
+  const pending = await resolvePendingMatch(pick.pendingId, chatId);
+  if (!pending) {
+    await answerCallback(callback.id, "That one's already been dealt with.");
+    return;
+  }
+
+  const base = pending.extracted?.suggestion ?? { documentType: 'Other' };
+  const clientId = pick.choice === PICK_ELSEWHERE ? null : (pending.candidates[pick.choice] ?? null);
+  const suggestion = clientId
+    ? { ...base, clientId, confidence: 1, rationale: 'Picked in Telegram.' }
+    : { ...base, clientId: null, confidence: 0, rationale: 'Left to sort in Smart Inbox.' };
+  await queueActivity({ uploadId: pending.uploadId, fileName: pending.fileName, sizeBytes: pending.sizeBytes, suggestion });
+
+  let text = `Left for you in Smart Inbox: ${base.documentType}.`;
+  if (clientId) {
+    const snapshot = await readPracticeSnapshot();
+    text = `Filed under ${snapshot?.clients?.find((c) => c.id === clientId)?.name ?? clientId}: ${base.documentType}.`;
+  }
+  await answerCallback(callback.id, clientId ? 'Filed.' : 'Left for Smart Inbox.');
+  if (pending.messageId) await editMessage(chatId, pending.messageId, text);
+  else await sendMessage(chatId, text);
 }
 
 router.get('/status', (_req, res) => {
@@ -109,7 +157,12 @@ function verifyTelegram(req, res, next) {
 
 // Per chat, not per address: Telegram's own servers make every call, so an
 // IP-keyed limit would cap every chat in the practice together.
-const webhookLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 30, keyFor: (req) => req.body?.message?.chat?.id ?? req.ip, name: 'rate_limited' });
+const webhookLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 30,
+  keyFor: (req) => req.body?.message?.chat?.id ?? req.body?.callback_query?.message?.chat?.id ?? req.ip,
+  name: 'rate_limited',
+});
 
 router.post('/webhook', verifyTelegram, express.json({ limit: '1mb' }), webhookLimiter, async (req, res) => {
   // Telegram retries on anything but a 200, so every update is acknowledged
@@ -117,9 +170,20 @@ router.post('/webhook', verifyTelegram, express.json({ limit: '1mb' }), webhookL
   // retried (and possibly duplicated) delivery.
   res.status(200).json({ ok: true });
 
+  const callback = req.body?.callback_query;
+  if (callback) {
+    try {
+      await resolvePick(callback);
+    } catch (err) {
+      console.error(JSON.stringify({ level: 'error', at: new Date().toISOString(), source: 'telegram', message: `Button handling failed: ${err?.message ?? err}` }));
+      await answerCallback(callback.id, 'Something went wrong — try again.');
+    }
+    return;
+  }
+
   const message = req.body?.message;
   const chatId = message?.chat?.id;
-  if (chatId == null) return; // callback_query and anything else land in a later phase.
+  if (chatId == null) return; // Edits, channel posts and the like — nothing to answer.
 
   try {
     const start = parseStartCommand(message.text);

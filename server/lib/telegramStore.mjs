@@ -87,7 +87,7 @@ export async function queueActivity({ uploadId, fileName, sizeBytes, suggestion 
     [
       id,
       uploadId,
-      suggestion.clientId,
+      suggestion.clientId ?? null,
       suggestion.documentType,
       suggestion.period ?? null,
       suggestion.extractedReference ?? null,
@@ -110,4 +110,37 @@ export async function savePendingMatch({ chatId, messageId, uploadId, candidates
     [id, String(chatId), String(messageId ?? ''), uploadId, JSON.stringify(candidates), JSON.stringify(extracted)],
   );
   return id;
+}
+
+/** Attaches the "which client?" prompt's message id once it has been sent, so the answer can edit it. */
+export async function setPendingMessageId(id, messageId) {
+  await ensureSchema();
+  await query('update telegram_pending_matches set message_id = $2 where id = $1', [id, String(messageId ?? '')]);
+}
+
+/**
+ * Claims a pending match for an answer, once. A single statement, so a
+ * double tap (or a tap from any other chat) resolves nothing and gets null.
+ * Returns the row joined with its upload's name and size for queueing.
+ */
+export async function resolvePendingMatch(id, chatId) {
+  await ensureSchema();
+  const { rows } = await query(
+    `update telegram_pending_matches p set resolved_at = now()
+       from telegram_uploads u
+      where p.id = $1 and p.chat_id = $2 and p.resolved_at is null and u.id = p.upload_id
+      returning p.id, p.message_id, p.upload_id, p.candidates, p.extracted, u.file_name, u.size_bytes`,
+    [id, String(chatId)],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    messageId: row.message_id,
+    uploadId: row.upload_id,
+    candidates: row.candidates,
+    extracted: row.extracted,
+    fileName: row.file_name,
+    sizeBytes: row.size_bytes,
+  };
 }

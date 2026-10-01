@@ -48,6 +48,26 @@ export function parseStartCommand(text) {
   return { code: match[1] ?? null };
 }
 
+/** The "someone else" button: leave the letter unassigned for Smart Inbox. */
+export const PICK_ELSEWHERE = 'x';
+
+/**
+ * callback_data for a "which client?" button. Carries the candidate's
+ * index, never a client id — the server resolves it against the candidates
+ * it stored itself, so a button can only ever choose a client the bot
+ * offered. Telegram caps callback_data at 64 bytes.
+ */
+export function encodePick(pendingId, choice) {
+  return `p:${pendingId}:${choice}`;
+}
+
+export function parsePick(data) {
+  if (typeof data !== 'string' || data.length > 64) return null;
+  const match = /^p:(tgp_[0-9a-f-]{36}):([0-9]|x)$/.exec(data);
+  if (!match) return null;
+  return { pendingId: match[1], choice: match[2] === PICK_ELSEWHERE ? PICK_ELSEWHERE : Number(match[2]) };
+}
+
 export function isTelegramConfigured(env = process.env) {
   return Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_WEBHOOK_SECRET);
 }

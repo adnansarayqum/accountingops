@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { generateLinkCode, hashLinkCode, isTelegramConfigured, LINK_CODE_BYTES, parseStartCommand, verifyWebhookSecret } from '../telegram.mjs';
+import { encodePick, generateLinkCode, hashLinkCode, isTelegramConfigured, LINK_CODE_BYTES, parsePick, parseStartCommand, PICK_ELSEWHERE, verifyWebhookSecret } from '../telegram.mjs';
+
+describe('pick buttons', () => {
+  const pendingId = 'tgp_0b9a4f1e-6a3c-4d7e-9f00-1234567890ab';
+
+  it('round-trip a candidate index or "someone else", within Telegram’s 64-byte limit', () => {
+    for (const choice of [0, 2, PICK_ELSEWHERE]) {
+      const data = encodePick(pendingId, choice);
+      expect(Buffer.byteLength(data)).toBeLessThanOrEqual(64);
+      expect(parsePick(data)).toEqual({ pendingId, choice });
+    }
+  });
+
+  it('reject anything that is not exactly a pick', () => {
+    for (const bad of [undefined, null, '', 'p:', `p:${pendingId}`, `p:${pendingId}:12`, `p:${pendingId}:y`, `p:cl_acme:0`, `q:${pendingId}:0`, `p:${pendingId}:0${'x'.repeat(64)}`]) {
+      expect(parsePick(bad)).toBeNull();
+    }
+  });
+});
 
 describe('link codes', () => {
   it('are short uppercase hex, and never the same twice', () => {

@@ -15,25 +15,47 @@ function apiUrl(method, env = process.env) {
  * no request left to fail — losing a reply to Ray is unfortunate, but it
  * must not turn into a retried, possibly-duplicated webhook delivery.
  */
-/** Returns the sent message's id (so a later reply can edit it), or null when it didn't send. */
-export async function sendMessage(chatId, text, env = process.env) {
+/** POSTs a Bot API method; returns its `result`, or null on any failure (logged). */
+async function call(method, payload, env) {
   try {
-    const res = await fetch(apiUrl('sendMessage', env), {
+    const res = await fetch(apiUrl(method, env), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text }),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
-      log(`sendMessage failed: ${res.status}`);
+      log(`${method} failed: ${res.status}`);
       return null;
     }
     const body = await res.json().catch(() => null);
-    return body?.result?.message_id ?? null;
+    return body?.result ?? null;
   } catch (err) {
-    log(`sendMessage failed: ${err?.message ?? err}`);
+    log(`${method} failed: ${err?.message ?? err}`);
     return null;
   }
+}
+
+/**
+ * Returns the sent message's id (so a later reply can edit it), or null
+ * when it didn't send. `buttons` ([{ text, data }]) become an inline
+ * keyboard, one button per row.
+ */
+export async function sendMessage(chatId, text, { buttons, env = process.env } = {}) {
+  const payload = { chat_id: chatId, text };
+  if (buttons?.length) payload.reply_markup = { inline_keyboard: buttons.map((b) => [{ text: b.text, callback_data: b.data }]) };
+  const result = await call('sendMessage', payload, env);
+  return result?.message_id ?? null;
+}
+
+/** Replaces a message's text, dropping any buttons it had. */
+export async function editMessage(chatId, messageId, text, { env = process.env } = {}) {
+  await call('editMessageText', { chat_id: chatId, message_id: Number(messageId), text }, env);
+}
+
+/** Every button tap must be answered, or Telegram leaves it spinning. */
+export async function answerCallback(callbackQueryId, text, { env = process.env } = {}) {
+  await call('answerCallbackQuery', { callback_query_id: callbackQueryId, text }, env);
 }
 
 /** Larger than any phone photo of a letter; Telegram's own bot download limit is 20 MB. */

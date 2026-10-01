@@ -14,6 +14,8 @@ const fake = vi.hoisted(() => ({
   uploads: [],
   activity: [],
   pending: [],
+  edits: [],
+  answers: [],
   downloadError: null,
   extraction: null,
   readCalls: [],
@@ -45,9 +47,15 @@ vi.mock('../auth.mjs', () => ({
 }));
 
 vi.mock('../../lib/telegramApi.mjs', () => ({
-  sendMessage: vi.fn(async (chatId, text) => {
-    fake.replies.push({ chatId, text });
+  sendMessage: vi.fn(async (chatId, text, opts) => {
+    fake.replies.push({ chatId, text, buttons: opts?.buttons });
     return 900 + fake.replies.length;
+  }),
+  editMessage: vi.fn(async (chatId, messageId, text) => {
+    fake.edits.push({ chatId, messageId, text });
+  }),
+  answerCallback: vi.fn(async (id, text) => {
+    fake.answers.push({ id, text });
   }),
   downloadFile: vi.fn(async () => {
     if (fake.downloadError) throw new Error(fake.downloadError);
@@ -81,8 +89,19 @@ vi.mock('../../lib/telegramStore.mjs', () => ({
     return `tga_${fake.activity.length}`;
   }),
   savePendingMatch: vi.fn(async (row) => {
-    fake.pending.push(row);
-    return `tgp_${fake.pending.length}`;
+    const id = `tgp_00000000-0000-4000-8000-${String(fake.pending.length + 1).padStart(12, '0')}`;
+    fake.pending.push({ id, ...row, resolved: false });
+    return id;
+  }),
+  setPendingMessageId: vi.fn(async (id, messageId) => {
+    fake.pending.find((p) => p.id === id).messageId = messageId;
+  }),
+  resolvePendingMatch: vi.fn(async (id, chatId) => {
+    const row = fake.pending.find((p) => p.id === id && String(p.chatId) === String(chatId) && !p.resolved);
+    if (!row) return null;
+    row.resolved = true;
+    const upload = fake.uploads.find((u) => u.id === row.uploadId);
+    return { id, messageId: String(row.messageId), uploadId: row.uploadId, candidates: row.candidates, extracted: row.extracted, fileName: upload.fileName, sizeBytes: upload.bytes.length };
   }),
 }));
 
@@ -139,6 +158,8 @@ afterEach(() => {
   fake.uploads.length = 0;
   fake.activity.length = 0;
   fake.pending.length = 0;
+  fake.edits.length = 0;
+  fake.answers.length = 0;
   fake.readCalls.length = 0;
   fake.downloadError = null;
   fake.extraction = null;
@@ -256,14 +277,71 @@ describe('POST /webhook photos', () => {
     expect(fake.pending).toEqual([]);
   });
 
-  it('holds an uncertain match and says who it might be', async () => {
-    fake.extraction = extraction({ clientId: 'cl_khan', confidence: 0.5 });
-    await webhook(photo());
-    await replyMatching(/best guess: Khan Consulting/);
-    expect(fake.activity).toEqual([]);
-    expect(fake.pending).toHaveLength(1);
-    expect(fake.pending[0]).toMatchObject({ chatId: CHAT, uploadId: 'tgu_1', candidates: ['cl_khan'] });
-    expect(fake.pending[0].messageId).toBeGreaterThan(900);
+  describe('when unsure', () => {
+    const tap = (data, { chatId = CHAT, id = 'cb1' } = {}) => webhook({ update_id: 3, callback_query: { id, data, message: { message_id: 1, chat: { id: chatId } } } });
+    const answered = async (id = 'cb1') => {
+      await vi.waitFor(() => expect(fake.answers.some((a) => a.id === id)).toBe(true));
+      return fake.answers.find((a) => a.id === id).text;
+    };
+    const askAbout = async (overrides) => {
+      fake.extraction = extraction(overrides);
+      await webhook(photo());
+      await replyMatching(/Which is it\?|sort it in Smart Inbox\?/);
+      return fake.replies.filter((r) => r.chatId === CHAT).at(-1);
+    };
+
+    it('holds the letter and asks with a button per guess, plus "someone else"', async () => {
+      const prompt = await askAbout({ clientId: 'cl_khan', confidence: 0.5 });
+      expect(fake.activity).toEqual([]);
+      expect(fake.pending).toHaveLength(1);
+      expect(fake.pending[0]).toMatchObject({ chatId: CHAT, uploadId: 'tgu_1', candidates: ['cl_khan'] });
+      expect(prompt.buttons.map((b) => b.text)).toEqual(['Khan Consulting', 'Someone else — sort it in Smart Inbox']);
+      expect(fake.pending[0].messageId).toBeGreaterThan(900);
+    });
+
+    it('offers only Smart Inbox when it has no guess at all', async () => {
+      const prompt = await askAbout({ clientId: null });
+      expect(prompt.buttons.map((b) => b.text)).toEqual(['Someone else — sort it in Smart Inbox']);
+    });
+
+    it('files under the client tapped, and replaces the question with the outcome', async () => {
+      const prompt = await askAbout({ clientId: 'cl_khan', confidence: 0.5 });
+      await tap(prompt.buttons[0].data);
+      expect(await answered()).toBe('Filed.');
+      expect(fake.activity).toHaveLength(1);
+      expect(fake.activity[0]).toMatchObject({ uploadId: 'tgu_1', sizeBytes: 2048, suggestion: { clientId: 'cl_khan', confidence: 1, rationale: 'Picked in Telegram.', extractedReference: 'REF1' } });
+      expect(fake.edits).toEqual([{ chatId: CHAT, messageId: String(fake.pending[0].messageId), text: 'Filed under Khan Consulting: Corporation Tax notice to deliver.' }]);
+    });
+
+    it('queues "someone else" unassigned for Smart Inbox', async () => {
+      const prompt = await askAbout({ clientId: 'cl_khan', confidence: 0.5 });
+      await tap(prompt.buttons.at(-1).data);
+      expect(await answered()).toBe('Left for Smart Inbox.');
+      expect(fake.activity[0].suggestion).toMatchObject({ clientId: null, confidence: 0 });
+      expect(fake.edits[0].text).toMatch(/Left for you in Smart Inbox/);
+    });
+
+    it('files once, however many times the button is tapped', async () => {
+      const prompt = await askAbout({ clientId: 'cl_khan', confidence: 0.5 });
+      await tap(prompt.buttons[0].data, { id: 'cb1' });
+      await answered('cb1');
+      await tap(prompt.buttons[0].data, { id: 'cb2' });
+      expect(await answered('cb2')).toMatch(/already been dealt with/);
+      expect(fake.activity).toHaveLength(1);
+    });
+
+    it('ignores a tap from any other chat, and a forged or garbled button', async () => {
+      const prompt = await askAbout({ clientId: 'cl_khan', confidence: 0.5 });
+      fake.links.set('99', { userId: 'u_farhan', linkedAt: '2026-09-30T12:00:00.000Z' });
+      await tap(prompt.buttons[0].data, { chatId: 99, id: 'other' });
+      expect(await answered('other')).toMatch(/already been dealt with/);
+      await tap('p:cl_acme:0', { id: 'forged' });
+      expect(await answered('forged')).toMatch(/doesn't work any more/);
+      await tap(prompt.buttons[0].data, { chatId: 12345, id: 'unlinked' });
+      expect(await answered('unlinked')).toMatch(/doesn't work any more/);
+      expect(fake.activity).toEqual([]);
+      expect(fake.pending[0].resolved).toBe(false);
+    });
   });
 
   it('keeps the photo and says so when it cannot be read', async () => {

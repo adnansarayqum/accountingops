@@ -297,6 +297,9 @@ async function runMigrations() {
     )
   `);
   await query('create index if not exists telegram_activity_pending_idx on telegram_activity (created_at) where applied_at is null');
+  // A letter Ray chose to sort in Smart Inbox rather than pick a client for
+  // in Telegram arrives unassigned. Idempotent on an already-nullable column.
+  await query('alter table telegram_activity alter column client_id drop not null');
 
   await query(`
     create table if not exists practice_snapshot_history (

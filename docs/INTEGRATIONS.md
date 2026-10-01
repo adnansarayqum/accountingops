@@ -378,8 +378,8 @@ job page renders nothing, so the browser-only mode is unchanged.
 A client meeting surfaced a plain ask: photograph an HMRC letter, have it
 filed automatically. `server/routes/telegram.mjs` receives the photo, reads
 it, matches it to a client and replies. What it files is queued in
-`telegram_activity`; the browser pulling that queue into Smart Inbox, and
-the "pick the client" buttons for an uncertain match, are later phases.
+`telegram_activity`; the browser pulling that queue into Smart Inbox is a
+later phase.
 
 **This is the first inbound, unsolicited third-party-initiated route in
 this codebase.** Every other integration here only ever calls out (HMRC,
@@ -422,7 +422,12 @@ the letter matches exactly one client's recorded identifier (company
 numbers normalised the same way as everywhere else in the app), that client
 wins — even over the model's own pick. Otherwise the model's pick files only
 at 85% confidence or above; anything less is held as a pending match and Ray
-is told the best guesses. The photo is always stored before the model is
+is asked, with a button per best guess plus "Someone else — sort it in
+Smart Inbox" (queued with no client, for reclassifying there). A button
+carries only the guess's position, never a client id, so it can only ever
+choose a client the bot itself offered; and the answer claims the pending
+match in one statement, so a double tap — or a tap from any other chat —
+files nothing twice. The photo is always stored before the model is
 called, so a failed read loses nothing; a redelivered update (Telegram
 retries what it thinks went unanswered) is recognised by its file id and
 never read — or paid for — twice. Without `ANTHROPIC_API_KEY`, photos are
