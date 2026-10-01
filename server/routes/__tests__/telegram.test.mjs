@@ -11,6 +11,28 @@ const fake = vi.hoisted(() => ({
   replies: [],
   links: new Map(),
   codes: new Map(),
+  uploads: [],
+  activity: [],
+  pending: [],
+  downloadError: null,
+  extraction: null,
+  readCalls: [],
+  snapshot: {
+    clients: [
+      { id: 'cl_acme', name: 'Acme Ltd' },
+      { id: 'cl_khan', name: 'Khan Consulting' },
+    ],
+    identifiers: [{ id: 'i1', clientId: 'cl_acme', kind: 'company_number', value: '08654123', sensitive: false }],
+  },
+}));
+
+vi.mock('../../lib/briefingStore.mjs', () => ({ readPracticeSnapshot: vi.fn(async () => fake.snapshot) }));
+
+vi.mock('../../lib/telegramVision.mjs', () => ({
+  readLetter: vi.fn(async (input) => {
+    fake.readCalls.push(input);
+    return fake.extraction;
+  }),
 }));
 
 vi.mock('../auth.mjs', () => ({
@@ -25,6 +47,11 @@ vi.mock('../auth.mjs', () => ({
 vi.mock('../../lib/telegramApi.mjs', () => ({
   sendMessage: vi.fn(async (chatId, text) => {
     fake.replies.push({ chatId, text });
+    return 900 + fake.replies.length;
+  }),
+  downloadFile: vi.fn(async () => {
+    if (fake.downloadError) throw new Error(fake.downloadError);
+    return { bytes: Buffer.alloc(2048, 1), filePath: 'photos/file_1.jpg' };
   }),
 }));
 
@@ -43,12 +70,26 @@ vi.mock('../../lib/telegramStore.mjs', () => ({
   }),
   findLinkByChatId: vi.fn(async (chatId) => fake.links.get(String(chatId)) ?? null),
   findLinkByUserId: vi.fn(async (userId) => [...fake.links.values()].find((l) => l.userId === userId) ?? null),
+  findUploadByFileId: vi.fn(async (chatId, fileId) => fake.uploads.find((u) => u.chatId === chatId && u.fileId === fileId)?.id ?? null),
+  saveUpload: vi.fn(async (upload) => {
+    const id = `tgu_${fake.uploads.length + 1}`;
+    fake.uploads.push({ id, ...upload });
+    return id;
+  }),
+  queueActivity: vi.fn(async (row) => {
+    fake.activity.push(row);
+    return `tga_${fake.activity.length}`;
+  }),
+  savePendingMatch: vi.fn(async (row) => {
+    fake.pending.push(row);
+    return `tgp_${fake.pending.length}`;
+  }),
 }));
 
 const { default: router } = await import('../telegram.mjs');
 
 const SECRET = 's'.repeat(64);
-const ENV_KEYS = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'DATABASE_URL'];
+const ENV_KEYS = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'DATABASE_URL', 'ANTHROPIC_API_KEY'];
 const originalEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 
 let server;
@@ -88,12 +129,19 @@ beforeEach(() => {
   process.env.DATABASE_URL = 'postgres://fake-for-route-tests/none';
   process.env.TELEGRAM_BOT_TOKEN = 'bot-token';
   process.env.TELEGRAM_WEBHOOK_SECRET = SECRET;
+  process.env.ANTHROPIC_API_KEY = 'sk-test';
 });
 
 afterEach(() => {
   fake.replies.length = 0;
   fake.links.clear();
   fake.codes.clear();
+  fake.uploads.length = 0;
+  fake.activity.length = 0;
+  fake.pending.length = 0;
+  fake.readCalls.length = 0;
+  fake.downloadError = null;
+  fake.extraction = null;
   for (const k of ENV_KEYS) {
     if (originalEnv[k] === undefined) delete process.env[k];
     else process.env[k] = originalEnv[k];
@@ -158,20 +206,111 @@ describe('POST /webhook linking', () => {
     expect(await lastReplyTo(7)).toMatch(/isn't valid any more/);
   });
 
-  it('tells an unlinked chat how to connect instead of accepting its photo', async () => {
+  it('tells an unlinked chat how to connect, and never reads or stores its photo', async () => {
     await webhook(update(9, { photo: [{ file_id: 'f1' }] }));
     expect(await lastReplyTo(9)).toMatch(/isn't connected to an account yet/);
-  });
-
-  it('acknowledges a photo from a linked chat with the placeholder reply', async () => {
-    fake.links.set('11', { userId: 'u_ray', linkedAt: '2026-09-30T12:00:00.000Z' });
-    await webhook(update(11, { photo: [{ file_id: 'f1' }] }));
-    expect(await lastReplyTo(11)).toMatch(/reading photos isn't wired up yet/);
+    expect(fake.uploads).toEqual([]);
+    expect(fake.readCalls).toEqual([]);
   });
 
   it('acknowledges updates with no message (a later phase handles them) without replying', async () => {
     expect((await webhook({ update_id: 2, callback_query: { id: 'q' } })).status).toBe(200);
     expect(fake.replies).toEqual([]);
+  });
+});
+
+describe('POST /webhook photos', () => {
+  const CHAT = 11;
+  const replyMatching = async (pattern) => {
+    await vi.waitFor(() => expect(fake.replies.some((r) => r.chatId === CHAT && pattern.test(r.text))).toBe(true));
+    return fake.replies.filter((r) => r.chatId === CHAT).map((r) => r.text);
+  };
+  const photo = (fileId = 'f1') => update(CHAT, { photo: [{ file_id: `${fileId}_small` }, { file_id: fileId }] });
+  const extraction = (overrides = {}) => ({
+    documentType: 'Corporation Tax notice to deliver',
+    reference: 'REF1',
+    letterDate: '2026-09-20',
+    period: null,
+    identifiers: { companyNumber: null, utr: null, vatNumber: null, payeReference: null },
+    clientId: null,
+    confidence: 0,
+    rationale: 'From the name.',
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    fake.links.set(String(CHAT), { userId: 'u_ray', linkedAt: '2026-09-30T12:00:00.000Z' });
+  });
+
+  it('stores the largest size, reads it, and files a confident match for Smart Inbox', async () => {
+    fake.extraction = extraction({ identifiers: { companyNumber: '8654123' } });
+    await webhook(photo());
+    const replies = await replyMatching(/Filed under Acme Ltd: Corporation Tax notice to deliver/);
+    expect(replies[0]).toMatch(/reading it now/);
+
+    expect(fake.uploads).toHaveLength(1);
+    expect(fake.uploads[0]).toMatchObject({ fileId: 'f1', contentType: 'image/jpeg' });
+    expect(fake.readCalls[0].roster.map((c) => c.id)).toEqual(['cl_acme', 'cl_khan']);
+    expect(fake.activity).toHaveLength(1);
+    expect(fake.activity[0]).toMatchObject({ uploadId: 'tgu_1', sizeBytes: 2048, suggestion: { clientId: 'cl_acme', extractedReference: 'REF1' } });
+    expect(fake.pending).toEqual([]);
+  });
+
+  it('holds an uncertain match and says who it might be', async () => {
+    fake.extraction = extraction({ clientId: 'cl_khan', confidence: 0.5 });
+    await webhook(photo());
+    await replyMatching(/best guess: Khan Consulting/);
+    expect(fake.activity).toEqual([]);
+    expect(fake.pending).toHaveLength(1);
+    expect(fake.pending[0]).toMatchObject({ chatId: CHAT, uploadId: 'tgu_1', candidates: ['cl_khan'] });
+    expect(fake.pending[0].messageId).toBeGreaterThan(900);
+  });
+
+  it('keeps the photo and says so when it cannot be read', async () => {
+    fake.extraction = null;
+    await webhook(photo());
+    await replyMatching(/couldn't read that one — it's saved/);
+    expect(fake.uploads).toHaveLength(1);
+    expect(fake.activity).toEqual([]);
+  });
+
+  it('keeps the photo without calling the model when no API key is set', async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    await webhook(photo());
+    await replyMatching(/reading letters isn't set up/);
+    expect(fake.uploads).toHaveLength(1);
+    expect(fake.readCalls).toEqual([]);
+  });
+
+  it('reports a failed download without storing anything', async () => {
+    fake.downloadError = 'getFile failed: 400';
+    await webhook(photo());
+    await replyMatching(/couldn't download that/);
+    expect(fake.uploads).toEqual([]);
+  });
+
+  it('does not read (or pay for) a redelivered photo twice', async () => {
+    fake.extraction = extraction({ identifiers: { companyNumber: '08654123' } });
+    await webhook(photo());
+    await replyMatching(/Filed under/);
+    const repliesBefore = fake.replies.length;
+    await webhook(photo());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fake.readCalls).toHaveLength(1);
+    expect(fake.uploads).toHaveLength(1);
+    expect(fake.replies).toHaveLength(repliesBefore);
+  });
+
+  it('reads an image sent as a file, and explains that other files are not readable yet', async () => {
+    fake.extraction = extraction({ identifiers: { companyNumber: '08654123' } });
+    await webhook(update(CHAT, { document: { file_id: 'd1', mime_type: 'image/png' } }));
+    await replyMatching(/Filed under Acme Ltd/);
+    expect(fake.uploads[0]).toMatchObject({ contentType: 'image/png' });
+    expect(fake.uploads[0].fileName).toMatch(/\.png$/);
+
+    await webhook(update(CHAT, { document: { file_id: 'd2', mime_type: 'application/pdf' } }));
+    await replyMatching(/only read photos for now/);
+    expect(fake.uploads).toHaveLength(1);
   });
 });
 

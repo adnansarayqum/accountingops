@@ -43,6 +43,7 @@ describe.skipIf(!RUN)('telegram link store (PostgreSQL)', () => {
   beforeEach(async () => {
     await db.query('delete from telegram_links');
     await db.query('delete from telegram_link_codes');
+    await db.query('delete from telegram_uploads');
   });
 
   afterAll(async () => {
@@ -82,6 +83,30 @@ describe.skipIf(!RUN)('telegram link store (PostgreSQL)', () => {
     await store.consumeLinkCode((await store.createLinkCode('u_ray')).code, 2);
     expect(await store.findLinkByChatId(1)).toBeNull();
     expect(await store.findLinkByUserId('u_ray')).toMatchObject({ chatId: '2' });
+  });
+
+  it('stores a photo, finds it again by file id for this chat only, and queues what it was matched to', async () => {
+    const bytes = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01]);
+    const uploadId = await store.saveUpload({ chatId: 77, fileId: 'file_a', fileName: 'telegram-1.jpg', contentType: 'image/jpeg', bytes });
+    expect(await store.findUploadByFileId(77, 'file_a')).toBe(uploadId);
+    expect(await store.findUploadByFileId(78, 'file_a')).toBeNull();
+    const { rows } = await db.query('select content, size_bytes from telegram_uploads where id = $1', [uploadId]);
+    expect(Buffer.compare(rows[0].content, bytes)).toBe(0);
+    expect(rows[0].size_bytes).toBe(5);
+
+    await store.queueActivity({
+      uploadId,
+      fileName: 'telegram-1.jpg',
+      sizeBytes: 300_000,
+      suggestion: { clientId: 'cl_acme', documentType: 'VAT notice', extractedReference: 'R1', extractedDate: '2026-09-20', confidence: 0.95, rationale: 'VAT number matches.' },
+    });
+    const activity = (await db.query('select * from telegram_activity')).rows[0];
+    expect(activity).toMatchObject({ upload_id: uploadId, client_id: 'cl_acme', document_type: 'VAT notice', extracted_reference: 'R1', period: null, rationale: 'VAT number matches.', size_kb: 293, applied_at: null });
+    expect(activity.confidence).toBeCloseTo(0.95);
+
+    await store.savePendingMatch({ chatId: 77, messageId: 901, uploadId, candidates: ['cl_acme'], extracted: { documentType: 'Other' } });
+    const pending = (await db.query('select * from telegram_pending_matches')).rows[0];
+    expect(pending).toMatchObject({ chat_id: '77', message_id: '901', candidates: ['cl_acme'], extracted: { documentType: 'Other' }, resolved_at: null });
   });
 
   it('hands a chat over to whichever user links it last', async () => {
