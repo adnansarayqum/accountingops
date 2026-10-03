@@ -25,7 +25,10 @@ import {
   findLinkByChatId,
   findLinkByUserId,
   findUploadByFileId,
+  markActivityApplied,
+  pendingActivity,
   queueActivity,
+  readUpload,
   resolvePendingMatch,
   saveUpload,
   savePendingMatch,
@@ -230,6 +233,27 @@ router.post('/webhook', verifyTelegram, express.json({ limit: '1mb' }), webhookL
 
 router.use(requireAuth);
 router.use(express.json());
+
+router.get('/activity', async (_req, res) => {
+  res.json({ activity: await pendingActivity() });
+});
+
+router.post('/activity/ack', async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.slice(0, 500) : [];
+  res.json({ applied: await markActivityApplied(ids) });
+});
+
+// Inline, not attachment: it is always an image, and "View photo" should
+// open it in the browser rather than download it.
+router.get('/uploads/:id', async (req, res) => {
+  const file = await readUpload(String(req.params.id));
+  if (!file) return res.status(404).json({ error: 'not_found' });
+  res.setHeader('Content-Type', file.contentType);
+  res.setHeader('Content-Disposition', `inline; filename="${file.fileName.replace(/"/g, '')}"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.send(file.content);
+});
 
 router.get('/link', async (req, res) => {
   const link = await findLinkByUserId(req.user.id);

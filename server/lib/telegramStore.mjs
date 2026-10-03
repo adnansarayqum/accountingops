@@ -144,3 +144,49 @@ export async function resolvePendingMatch(id, chatId) {
     sizeBytes: row.size_bytes,
   };
 }
+
+// ---------------------------------------------------------------------------
+// The practice's side: pulling filed letters into Smart Inbox
+// ---------------------------------------------------------------------------
+
+/** Letters not yet pulled into the practice's data, oldest first. */
+export async function pendingActivity(limit = 100) {
+  await ensureSchema();
+  const n = Math.min(500, Math.max(1, Number(limit) || 100));
+  const { rows } = await query(
+    // extracted_date as text: a pg `date` comes back as local midnight, which
+    // toISOString() can shift a day in any timezone east of UTC.
+    `select id, upload_id, client_id, document_type, period, extracted_reference, extracted_date::text as extracted_date, confidence, rationale, file_name, size_kb, created_at
+       from telegram_activity where applied_at is null order by created_at asc limit $1`,
+    [n],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    uploadId: r.upload_id,
+    clientId: r.client_id ?? null,
+    documentType: r.document_type,
+    period: r.period ?? null,
+    extractedReference: r.extracted_reference ?? null,
+    extractedDate: r.extracted_date ?? null,
+    confidence: Number(r.confidence),
+    rationale: r.rationale,
+    fileName: r.file_name,
+    sizeKb: r.size_kb,
+    createdAt: new Date(r.created_at).toISOString(),
+  }));
+}
+
+export async function markActivityApplied(ids) {
+  await ensureSchema();
+  const list = Array.isArray(ids) ? ids.filter((x) => typeof x === 'string') : [];
+  if (list.length === 0) return 0;
+  const { rowCount } = await query('update telegram_activity set applied_at = now() where applied_at is null and id = any($1)', [list]);
+  return rowCount;
+}
+
+export async function readUpload(id) {
+  await ensureSchema();
+  const { rows } = await query('select file_name, content_type, content from telegram_uploads where id = $1', [id]);
+  const row = rows[0];
+  return row ? { fileName: row.file_name, contentType: row.content_type, content: row.content } : null;
+}

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { findMissingCorporationTax } from '../../domain/corporationTax';
 import { configureRepository, useAppStore } from '../store';
 import { PLACEHOLDER_CONTACT_NAME } from '../clientImport';
@@ -6,6 +6,7 @@ import { MemoryRepository } from '../persistence/memoryRepository';
 import { computeDerived } from '../selectors';
 import { buildFixtureData } from '../../testing/fixtures';
 import type { CompanyPerson, CompanyProfile } from '../../integrations/companiesHouseTypes';
+import type { TelegramActivity } from '../../integrations/telegram';
 
 const today = '2026-09-11';
 
@@ -827,6 +828,91 @@ describe('application store — applying client portal activity', () => {
       { ...base, id: 'pa_5', clientId: 'cl_wrong', kind: 'upload', uploadId: 'up_5', fileName: 'y.pdf', sizeKb: 1 },
     ]);
     expect(result).toEqual({ applied: [], skipped: ['pa_4', 'pa_5'] });
+  });
+});
+
+describe('application store — receiving letters from Telegram', () => {
+  beforeEach(() => {
+    configureRepository(new MemoryRepository());
+    useAppStore.setState({ data: structuredClone(buildFixtureData(today)), today, ready: true, currentUserId: 'u_adnan', toasts: [], loadFailed: false });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ loadFailed: false });
+  });
+
+  const row = (overrides: Partial<TelegramActivity> = {}): TelegramActivity => ({
+    id: 'tga_1',
+    uploadId: 'tgu_1',
+    clientId: 'cl_abc',
+    documentType: 'Corporation Tax notice to deliver',
+    period: '2025-26',
+    extractedReference: 'REF1',
+    extractedDate: '2026-09-20',
+    confidence: 0.95,
+    rationale: 'Company number on the letter matches this client.',
+    fileName: 'telegram-2026-09-30.jpg',
+    sizeKb: 240,
+    createdAt: '2026-09-30T10:00:00.000Z',
+    ...overrides,
+  });
+
+  it('files a letter the bot matched straight onto the client, keeping a handle to the photo', () => {
+    const before = useAppStore.getState().data;
+    const result = useAppStore.getState().receiveTelegramActivity([row()]);
+    expect(result).toEqual({ applied: ['tga_1'], skipped: [] });
+    const after = useAppStore.getState().data;
+    const item = after.inboxItems.find((i) => i.telegramUploadId === 'tgu_1')!;
+    expect(item).toMatchObject({ source: 'telegram', sender: 'Telegram', status: 'confirmed', suggestion: { clientId: 'cl_abc', extractedReference: 'REF1', extractedDate: '2026-09-20' } });
+    const doc = after.documents.find((d) => d.telegramUploadId === 'tgu_1')!;
+    expect(doc).toMatchObject({ clientId: 'cl_abc', documentType: 'Corporation Tax notice to deliver', source: 'inbox', sizeKb: 240 });
+    expect(after.documents).toHaveLength(before.documents.length + 1);
+  });
+
+  it('does not record an HMRC letter as the client getting in touch', () => {
+    const before = useAppStore.getState().data.communications;
+    useAppStore.getState().receiveTelegramActivity([row()]);
+    const after = useAppStore.getState().data.communications;
+    expect(after).toHaveLength(before.length);
+    expect(after.map((c) => c.responseStatus)).toEqual(before.map((c) => c.responseStatus));
+  });
+
+  it('leaves a letter with no client waiting in Smart Inbox', () => {
+    useAppStore.getState().receiveTelegramActivity([row({ clientId: null, confidence: 0, rationale: 'Left to sort in Smart Inbox.' })]);
+    const item = useAppStore.getState().data.inboxItems.find((i) => i.telegramUploadId === 'tgu_1')!;
+    expect(item.status).toBe('pending');
+    expect(item.suggestion.clientId).toBeUndefined();
+    expect(useAppStore.getState().data.documents.some((d) => d.telegramUploadId === 'tgu_1')).toBe(false);
+  });
+
+  it('holds a letter for review when its client has since been deleted', () => {
+    useAppStore.getState().receiveTelegramActivity([row({ clientId: 'cl_gone' })]);
+    const item = useAppStore.getState().data.inboxItems.find((i) => i.telegramUploadId === 'tgu_1')!;
+    expect(item).toMatchObject({ status: 'pending', suggestion: { confidence: 0 } });
+    expect(item.suggestion.clientId).toBeUndefined();
+    expect(item.suggestion.rationale).toMatch(/no longer exists/);
+  });
+
+  it('copies the photo onto the document when a waiting letter is confirmed by hand', () => {
+    useAppStore.getState().receiveTelegramActivity([row({ clientId: null })]);
+    const item = useAppStore.getState().data.inboxItems.find((i) => i.telegramUploadId === 'tgu_1')!;
+    useAppStore.getState().updateInboxSuggestion(item.id, { clientId: 'cl_khan' });
+    useAppStore.getState().confirmInboxItem(item.id);
+    expect(useAppStore.getState().data.documents.find((d) => d.telegramUploadId === 'tgu_1')).toMatchObject({ clientId: 'cl_khan' });
+  });
+
+  it('skips a letter already in the inbox rather than duplicating it', () => {
+    useAppStore.getState().receiveTelegramActivity([row()]);
+    const result = useAppStore.getState().receiveTelegramActivity([row({ id: 'tga_again' })]);
+    expect(result).toEqual({ applied: [], skipped: ['tga_again'] });
+    expect(useAppStore.getState().data.inboxItems.filter((i) => i.telegramUploadId === 'tgu_1')).toHaveLength(1);
+  });
+
+  it('leaves the row unacknowledged while changes are paused, so the letter is not lost', () => {
+    useAppStore.setState({ loadFailed: true });
+    const result = useAppStore.getState().receiveTelegramActivity([row()]);
+    expect(result).toEqual({ applied: [], skipped: [] });
+    expect(useAppStore.getState().data.inboxItems.some((i) => i.telegramUploadId === 'tgu_1')).toBe(false);
   });
 });
 

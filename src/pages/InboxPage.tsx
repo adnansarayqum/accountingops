@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, X, FileText, Inbox, Mail, ScanLine, Globe, Pencil, Send } from 'lucide-react';
+import { Check, X, FileText, Inbox, Mail, ScanLine, Globe, Pencil, Send, Image as ImageIcon } from 'lucide-react';
 import { PageHeader } from '../ui/components/PageHeader';
 import { Card, CardBody } from '../ui/components/Card';
 import { Badge } from '../ui/components/Badge';
@@ -14,6 +14,7 @@ import { useData, useDerived, useToday } from '../application/selectors';
 import { formatAgo, formatDate, formatDateTime } from '../domain/dates';
 import type { InboxItem } from '../domain/types';
 import { cn } from '../ui/cn';
+import { telegramUploadUrl } from '../integrations/telegram';
 
 export function InboxPage() {
   const data = useData();
@@ -83,6 +84,7 @@ export function InboxPage() {
                           <p className="text-xs text-slate-500 mt-0.5 inline-flex items-center gap-1">
                             <Icon className="h-3 w-3" /> {item.source === 'scan' ? 'Scanned post' : item.sender} · {formatAgo(item.receivedAt, today, timeZone)} · {item.sizeKb >= 1024 ? `${(item.sizeKb / 1024).toFixed(1)} MB` : `${item.sizeKb} KB`}
                           </p>
+                          <ViewPhotoLink item={item} />
                           <div className="mt-2">
                             <div className="flex items-center justify-between text-xs mb-1">
                               <span className="text-slate-500">Confidence</span>
@@ -177,6 +179,7 @@ export function InboxPage() {
                       <p className="text-xs text-slate-500">
                         {item.suggestion.documentType} · {client?.name ?? '—'} · {item.resolvedAt ? formatDateTime(item.resolvedAt, timeZone) : ''}
                       </p>
+                      <ViewPhotoLink item={item} />
                     </div>
                     <Badge tone={item.status === 'confirmed' ? 'green' : 'neutral'}>{item.status === 'confirmed' ? 'Attached' : 'Dismissed'}</Badge>
                   </li>
@@ -196,5 +199,20 @@ function Suggestion({ label, value }: { label: string; value: React.ReactNode })
       <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</dt>
       <dd className="mt-0.5 text-slate-800">{value}</dd>
     </div>
+  );
+}
+
+function ViewPhotoLink({ item }: { item: InboxItem }) {
+  if (!item.telegramUploadId) return null;
+  return (
+    <a
+      href={telegramUploadUrl(item.telegramUploadId)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary-700 hover:underline"
+      data-testid={`view-photo-${item.id}`}
+    >
+      <ImageIcon className="h-3 w-3" /> View photo
+    </a>
   );
 }
