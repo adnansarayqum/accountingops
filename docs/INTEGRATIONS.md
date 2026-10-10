@@ -373,79 +373,17 @@ the client's own actions on their own job.
 Without a database the router answers 503 and the Client link card on the
 job page renders nothing, so the browser-only mode is unchanged.
 
-## Telegram photo intake — live end to end
+## Telegram photo intake — retired
 
-A client meeting surfaced a plain ask: photograph an HMRC letter, have it
-filed automatically. `server/routes/telegram.mjs` receives the photo, reads
-it, matches it to a client and replies. What it files is queued in
-`telegram_activity` — the bot never writes the practice snapshot, for the
-same reason the client portal doesn't — and an open, visible tab pulls the
-queue in every minute (`useTelegramActivity`, the twin of
-`usePortalActivity`), re-reading the stored snapshot first. A letter the bot
-filed (or Ray picked the client for) is attached to that client straight
-away and shows under Smart Inbox → Processed; one left unassigned, or whose
-client has since been deleted, waits under To review. Every one keeps a
-"View photo" link to the original (`GET /api/telegram/uploads/:id`, signed
-in only). Attaching one is not recorded as the client getting in touch —
-the letter is from HMRC, and it must not quietly stop that client's chasing.
-
-**This is the first inbound, unsolicited third-party-initiated route in
-this codebase.** Every other integration here only ever calls out (HMRC,
-Companies House, Postmark); the client portal's own public route is
-capability-token-based (the practice hands out the link), not something a
-stranger dials into. A Telegram webhook is verified instead by the shared
-secret Telegram itself sends on every update (`setWebhook`'s
-`secret_token`, checked against the `X-Telegram-Bot-Api-Secret-Token`
-header with a length check before a constant-time compare) — wrong or
-missing secret is a uniform 403, nothing else distinguishing why.
-
-**Linking is per user, not per practice** (unlike HMRC's one connection
-covering every client): Settings → Connect Telegram issues a short-lived,
-single-use code (only its SHA-256 stored, same reasoning as the portal's
-own tokens); sending `/start <code>` to the bot links that Telegram chat
-to that practice user. The chat-to-user mapping lives in its own table
-(`telegram_links`), never the practice snapshot — a stale browser tab's
-next save must not be able to silently re-link or un-link who a chat acts
-as, the same reason session tokens aren't in the snapshot either.
-
-Every update the bot receives gets an explicit reply — an unlinked chat is
-told how to link, an unrecognised message is told what to send, a photo is
-told what happened to it. Nothing is ever silent.
-
-**Reading the letter is this app's first language-model call**
-(`server/lib/telegramVision.mjs`, Anthropic's API, `ANTHROPIC_API_KEY`).
-One request per photo, default model Claude Opus (`TELEGRAM_VISION_MODEL`
-to change it), asking for the document type, reference, date and any
-identifiers printed on it, plus which client it's for — as JSON constrained
-to a fixed schema. What leaves the server is exactly: the photo, and each
-client's name with its company number, UTR, VAT number and PAYE reference.
-Credentials the practice records (Companies House auth codes, Gateway
-logins, personal codes) and NINOs are never sent — the roster is built from
-an allow-list, not a deny-list (`documentMatch.mjs`'s `buildRoster`). A
-safety classifier misfiring on an ordinary letter reruns the request on a
-fallback model (`fallbacks: "default"`) instead of failing it.
-
-The model's answer is not trusted on its own. If an identifier it read off
-the letter matches exactly one client's recorded identifier (company
-numbers normalised the same way as everywhere else in the app), that client
-wins — even over the model's own pick. Otherwise the model's pick files only
-at 85% confidence or above; anything less is held as a pending match and Ray
-is asked, with a button per best guess plus "Someone else — sort it in
-Smart Inbox" (queued with no client, for reclassifying there). A button
-carries only the guess's position, never a client id, so it can only ever
-choose a client the bot itself offered; and the answer claims the pending
-match in one statement, so a double tap — or a tap from any other chat —
-files nothing twice. The photo is always stored before the model is
-called, so a failed read loses nothing; a redelivered update (Telegram
-retries what it thinks went unanswered) is recognised by its file id and
-never read — or paid for — twice. Without `ANTHROPIC_API_KEY`, photos are
-still stored and the reply says reading isn't set up.
-
-Without `TELEGRAM_BOT_TOKEN`/`TELEGRAM_WEBHOOK_SECRET` set, the whole
-router is 503 and the Settings card renders nothing — browser-only mode is
-unaffected, and there is nowhere in that mode to hold a chat-to-user link
-or a photo's bytes regardless, so this integration is DB-mode-only by
-construction, the same posture the client portal already has.
+The first version of "photograph a letter and have it filed" was a Telegram
+bot. Sharing into the installed app (below) does the same job for photos,
+PDFs and text from WhatsApp or email, and replaced it — the bot's webhook,
+account linking, Settings card and its own read-and-match step are gone,
+and the `TELEGRAM_*` variables do nothing. Its matching rules live on in
+`documentMatch.mjs`. One route stays, `GET /api/telegram/uploads/:id`
+(signed in only), because Smart Inbox items and documents it filed still
+link to their photos; its tables are kept, not dropped, so nothing it
+stored is lost.
 
 ## Shared intake — documents shared into the app
 
@@ -453,7 +391,7 @@ Ray's ask from a client call: when clients send bank statements, letters or
 details on WhatsApp or by email, share them into the app and have it file
 them. `server/routes/intake.mjs` is the engine that phone sharing (and,
 later, an iPhone Shortcut and a forwarding address) feed into; it is the
-Telegram pipeline generalised, and replaces it.
+Telegram pipeline generalised, and replaced it.
 
 **One share, one read.** `POST /api/intake/batches` takes any mix of up to
 ten photos, PDFs and plain text (checked by their real bytes, not the label
@@ -479,7 +417,7 @@ let Ray correct it (`/activity/:id/assign`, only by whoever shared it, only
 before the practice has it) or press Done (`/batches/:id/release`). An
 abandoned share simply releases when the hold runs out — no scheduler. An
 open tab then pulls it into Smart Inbox every minute (`useIntakeActivity`),
-exactly like the portal and Telegram: filed documents arrive attached to
+exactly like the client portal: filed documents arrive attached to
 their client, the rest wait under To review, and every page stays one tap
 away (`GET /api/intake/uploads/:id`, signed in only, served inline with
 `nosniff`; text as `text/plain`). A bank statement from a client counts as
