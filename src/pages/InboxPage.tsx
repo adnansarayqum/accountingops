@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, X, FileText, Inbox, Mail, ScanLine, Globe, Pencil, Send, Image as ImageIcon } from 'lucide-react';
+import { Check, X, FileText, Inbox, Mail, ScanLine, Globe, Pencil, Send, Smartphone, Image as ImageIcon } from 'lucide-react';
 import { PageHeader } from '../ui/components/PageHeader';
 import { Card, CardBody } from '../ui/components/Card';
 import { Badge } from '../ui/components/Badge';
@@ -15,6 +15,7 @@ import { formatAgo, formatDate, formatDateTime } from '../domain/dates';
 import type { InboxItem } from '../domain/types';
 import { cn } from '../ui/cn';
 import { telegramUploadUrl } from '../integrations/telegram';
+import { intakeUploadUrl } from '../integrations/intake';
 
 export function InboxPage() {
   const data = useData();
@@ -30,7 +31,7 @@ export function InboxPage() {
 
   const pending = data.inboxItems.filter((i) => i.status === 'pending');
   const processed = data.inboxItems.filter((i) => i.status !== 'pending').sort((a, b) => (b.resolvedAt ?? '').localeCompare(a.resolvedAt ?? ''));
-  const SourceIcon = { email: Mail, portal: Globe, scan: ScanLine, telegram: Send };
+  const SourceIcon = { email: Mail, portal: Globe, scan: ScanLine, telegram: Send, share: Smartphone };
 
   const onConfirm = (item: InboxItem) => {
     try {
@@ -81,10 +82,11 @@ export function InboxPage() {
                         </span>
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-slate-900 break-all">{item.fileName}</p>
+                          {item.summary && <p className="text-xs text-slate-700 mt-0.5" data-testid={`inbox-summary-${item.id}`}>{item.summary}</p>}
                           <p className="text-xs text-slate-500 mt-0.5 inline-flex items-center gap-1">
                             <Icon className="h-3 w-3" /> {item.source === 'scan' ? 'Scanned post' : item.sender} · {formatAgo(item.receivedAt, today, timeZone)} · {item.sizeKb >= 1024 ? `${(item.sizeKb / 1024).toFixed(1)} MB` : `${item.sizeKb} KB`}
                           </p>
-                          <ViewPhotoLink item={item} />
+                          <ViewFileLinks item={item} />
                           <div className="mt-2">
                             <div className="flex items-center justify-between text-xs mb-1">
                               <span className="text-slate-500">Confidence</span>
@@ -179,7 +181,7 @@ export function InboxPage() {
                       <p className="text-xs text-slate-500">
                         {item.suggestion.documentType} · {client?.name ?? '—'} · {item.resolvedAt ? formatDateTime(item.resolvedAt, timeZone) : ''}
                       </p>
-                      <ViewPhotoLink item={item} />
+                      <ViewFileLinks item={item} />
                     </div>
                     <Badge tone={item.status === 'confirmed' ? 'green' : 'neutral'}>{item.status === 'confirmed' ? 'Attached' : 'Dismissed'}</Badge>
                   </li>
@@ -202,17 +204,26 @@ function Suggestion({ label, value }: { label: string; value: React.ReactNode })
   );
 }
 
-function ViewPhotoLink({ item }: { item: InboxItem }) {
-  if (!item.telegramUploadId) return null;
+const FILE_LINK = 'inline-flex items-center gap-1 text-xs font-medium text-primary-700 hover:underline';
+
+/** Links to the original file(s) the server holds: a Telegram photo, or every page of a shared document. */
+function ViewFileLinks({ item }: { item: InboxItem }) {
+  if (item.telegramUploadId) {
+    return (
+      <a href={telegramUploadUrl(item.telegramUploadId)} target="_blank" rel="noopener noreferrer" className={cn('mt-1', FILE_LINK)} data-testid={`view-photo-${item.id}`}>
+        <ImageIcon className="h-3 w-3" /> View photo
+      </a>
+    );
+  }
+  const ids = item.intakeUploadIds ?? [];
+  if (ids.length === 0) return null;
   return (
-    <a
-      href={telegramUploadUrl(item.telegramUploadId)}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary-700 hover:underline"
-      data-testid={`view-photo-${item.id}`}
-    >
-      <ImageIcon className="h-3 w-3" /> View photo
-    </a>
+    <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1" data-testid={`view-files-${item.id}`}>
+      {ids.map((id, index) => (
+        <a key={id} href={intakeUploadUrl(id)} target="_blank" rel="noopener noreferrer" className={FILE_LINK}>
+          <ImageIcon className="h-3 w-3" /> {ids.length === 1 ? 'View file' : `Page ${index + 1}`}
+        </a>
+      ))}
+    </p>
   );
 }

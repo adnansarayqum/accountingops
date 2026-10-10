@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AUTO_FILE_THRESHOLD, buildRoster, decideMatch } from '../telegramMatch.mjs';
+import { AUTO_FILE_THRESHOLD, buildRoster, decideMatch } from '../documentMatch.mjs';
 
 const identifier = (clientId, kind, value, sensitive = false) => ({ id: `id_${clientId}_${kind}`, practiceId: 'prac_main', clientId, kind, value, sensitive });
 

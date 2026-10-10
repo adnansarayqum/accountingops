@@ -10,7 +10,7 @@
  * untouched.
  *
  * A photo from a linked chat is stored, read (telegramVision.mjs),
- * matched (telegramMatch.mjs), and either queued for Smart Inbox or held
+ * matched (documentMatch.mjs), and either queued for Smart Inbox or held
  * as a pending match. Every path ends in a reply — nothing is ever silent.
  */
 import express from 'express';
@@ -36,7 +36,7 @@ import {
 } from '../lib/telegramStore.mjs';
 import { readPracticeSnapshot } from '../lib/briefingStore.mjs';
 import { readLetter } from '../lib/telegramVision.mjs';
-import { buildRoster, decideMatch } from '../lib/telegramMatch.mjs';
+import { buildRoster, decideMatch } from '../lib/documentMatch.mjs';
 
 const router = express.Router();
 

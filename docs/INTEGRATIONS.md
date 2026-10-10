@@ -421,7 +421,7 @@ to a fixed schema. What leaves the server is exactly: the photo, and each
 client's name with its company number, UTR, VAT number and PAYE reference.
 Credentials the practice records (Companies House auth codes, Gateway
 logins, personal codes) and NINOs are never sent — the roster is built from
-an allow-list, not a deny-list (`telegramMatch.mjs`'s `buildRoster`). A
+an allow-list, not a deny-list (`documentMatch.mjs`'s `buildRoster`). A
 safety classifier misfiring on an ordinary letter reruns the request on a
 fallback model (`fallbacks: "default"`) instead of failing it.
 
@@ -446,6 +446,48 @@ router is 503 and the Settings card renders nothing — browser-only mode is
 unaffected, and there is nowhere in that mode to hold a chat-to-user link
 or a photo's bytes regardless, so this integration is DB-mode-only by
 construction, the same posture the client portal already has.
+
+## Shared intake — documents shared into the app
+
+Ray's ask from a client call: when clients send bank statements, letters or
+details on WhatsApp or by email, share them into the app and have it file
+them. `server/routes/intake.mjs` is the engine that phone sharing (and,
+later, an iPhone Shortcut and a forwarding address) feed into; it is the
+Telegram pipeline generalised, and replaces it.
+
+**One share, one read.** `POST /api/intake/batches` takes any mix of up to
+ten photos, PDFs and plain text (checked by their real bytes, not the label
+they arrive with; 10 MB a file, 20 MB a share). Every part is stored first
+(`intake_uploads`), then one Claude request reads the whole share
+(`intakeReader.mjs`) — one request because only seeing all of it lets the
+model tell five photos of one bank statement from five different letters.
+It answers with the documents it found, each naming the parts that make it
+up; `groupParts` makes sure every part lands in exactly one document even
+if the model's answer doesn't. Typed text is fenced as content, never read
+as instructions, and the answer is schema-bound either way.
+
+**What leaves the server** is the shared files and text, plus each client's
+name and non-sensitive identifiers — the same allow-list as Telegram
+(`documentMatch.mjs`'s `buildRoster`), never credentials. Matching is the
+same too: an identifier on the document that matches exactly one client
+wins over the model's own pick; otherwise it files at 85% confidence or
+above, and anything less is kept as a best guess for a person to confirm.
+
+**Held for the share screen.** Each document is queued (`intake_activity`)
+held back for ten minutes, so the share screen can say "Filing under X" and
+let Ray correct it (`/activity/:id/assign`, only by whoever shared it, only
+before the practice has it) or press Done (`/batches/:id/release`). An
+abandoned share simply releases when the hold runs out — no scheduler. An
+open tab then pulls it into Smart Inbox every minute (`useIntakeActivity`),
+exactly like the portal and Telegram: filed documents arrive attached to
+their client, the rest wait under To review, and every page stays one tap
+away (`GET /api/intake/uploads/:id`, signed in only, served inline with
+`nosniff`; text as `text/plain`). A bank statement from a client counts as
+the client getting in touch; an HMRC or Companies House letter does not.
+
+The same files shared twice in a week are recognised by their hashes and not
+read (or paid for) again. Without `ANTHROPIC_API_KEY`, shares are still
+stored and land in Smart Inbox unread. DB mode only, like the portal.
 
 ## Security notes
 

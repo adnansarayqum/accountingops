@@ -5,6 +5,7 @@ import type { AuthUser } from './auth';
 import type { CompanyPeopleResponse, CompanyProfile } from '../integrations/companiesHouseTypes';
 import type { PortalActivity } from '../integrations/portal';
 import type { TelegramActivity } from '../integrations/telegram';
+import type { IntakeActivity } from '../integrations/intake';
 import { AML_RATING_LABELS, AML_REVIEW_MONTHS } from '../domain/rules/aml';
 import { nowIso, todayIso } from '../domain/dates';
 import { normaliseCompanyNumber } from '../domain/companyNumber';
@@ -19,6 +20,7 @@ import {
   DEFAULT_WAITING_ON,
   generateNextJob,
   invoiceSubtotal,
+  isOfficialLetter,
   itemsForJob,
   nextInvoiceNumber,
   sanitizeThresholdPatch,
@@ -129,6 +131,14 @@ export interface AppState {
    * inbox (two tabs polling the same queue) is skipped, not duplicated.
    */
   receiveTelegramActivity(activity: TelegramActivity[]): { applied: string[]; skipped: string[] };
+  /**
+   * Documents shared into the app (from WhatsApp, email…), into Smart Inbox.
+   * The same rules as Telegram: one the AI filed — or the sharer picked the
+   * client for — is confirmed straight away; one without a client, or whose
+   * client has since gone, waits to be sorted. A document already in the
+   * inbox (two tabs polling one queue) is skipped, not duplicated.
+   */
+  receiveIntakeActivity(activity: IntakeActivity[]): { applied: string[]; skipped: string[] };
   markItemMissing(itemId: string): void;
   addRequestItem(jobId: string, label: string): void;
 
@@ -882,6 +892,53 @@ export const useAppStore = create<AppState>((set, get) => {
       return { applied, skipped };
     },
 
+    receiveIntakeActivity(activity) {
+      const applied: string[] = [];
+      const skipped: string[] = [];
+      for (const entry of activity) {
+        const firstUpload = entry.uploadIds[0];
+        if (!firstUpload || get().data.inboxItems.some((i) => i.intakeUploadIds?.includes(firstUpload))) {
+          skipped.push(entry.id);
+          continue;
+        }
+        const itemId = newId('inbox');
+        let fileNow = false;
+        mutate((d, ctx) => {
+          const clientKnown = Boolean(entry.clientId && d.clients.some((c) => c.id === entry.clientId));
+          fileNow = clientKnown && entry.filed;
+          d.inboxItems.push({
+            id: itemId,
+            practiceId: d.practice.id,
+            fileName: entry.fileName,
+            receivedAt: entry.createdAt,
+            source: 'share',
+            sender: 'Shared from phone',
+            sizeKb: entry.sizeKb,
+            intakeUploadIds: entry.uploadIds,
+            summary: entry.summary ?? undefined,
+            status: 'pending',
+            suggestion: {
+              // A best guess the AI wasn't sure of stays visible as the suggestion.
+              clientId: clientKnown ? (entry.clientId ?? undefined) : undefined,
+              documentType: entry.documentType,
+              period: entry.period ?? undefined,
+              extractedReference: entry.extractedReference ?? undefined,
+              extractedDate: entry.extractedDate ?? undefined,
+              confidence: clientKnown ? entry.confidence : 0,
+              rationale: clientKnown || !entry.clientId ? entry.rationale : 'Shared for a client that no longer exists.',
+            },
+          });
+          if (!fileNow) ctx.activity('document_received', `${entry.documentType} (${entry.fileName}) was shared in — check it in Smart Inbox.`);
+        });
+        // mutate refuses (and says so) while the practice's data failed to
+        // load; leaving the row unacknowledged keeps it queued.
+        if (!get().data.inboxItems.some((i) => i.id === itemId)) continue;
+        if (fileNow) get().confirmInboxItem(itemId);
+        applied.push(entry.id);
+      }
+      return { applied, skipped };
+    },
+
     addRequestItem(jobId, label) {
       mutate((d, ctx) => {
         const job = d.jobs.find((j) => j.id === jobId);
@@ -947,6 +1004,7 @@ export const useAppStore = create<AppState>((set, get) => {
           source: 'inbox',
           sizeKb: item.sizeKb,
           ...(item.telegramUploadId ? { telegramUploadId: item.telegramUploadId } : {}),
+          ...(item.intakeUploadIds?.length ? { intakeUploadIds: item.intakeUploadIds } : {}),
         };
         d.documents.push(doc);
         item.status = 'confirmed';
@@ -963,10 +1021,11 @@ export const useAppStore = create<AppState>((set, get) => {
             matched = true;
           }
         }
-        // A letter photographed into Telegram came from HMRC or Companies
-        // House, not the client — recording it as the client getting in touch
-        // would make them look responsive and quietly stop their chasing.
-        if (item.source !== 'telegram') {
+        // A letter from HMRC or Companies House — every Telegram photo, and
+        // any shared document the AI read as one — isn't the client getting
+        // in touch; recording it as such would make them look responsive and
+        // quietly stop their chasing. A bank statement shared from WhatsApp is.
+        if (item.source !== 'telegram' && !(item.source === 'share' && isOfficialLetter(documentType))) {
           d.communications.push({
             id: newId('cm'),
             practiceId: d.practice.id,

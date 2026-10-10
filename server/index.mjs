@@ -14,6 +14,7 @@ import companiesHouseStreamRouter from './routes/companiesHouseStream.mjs';
 import hmrcRouter from './routes/hmrc.mjs';
 import portalRouter from './routes/portal.mjs';
 import telegramRouter from './routes/telegram.mjs';
+import intakeRouter from './routes/intake.mjs';
 import briefingRouter from './routes/briefing.mjs';
 import { BriefingScheduler } from './lib/briefingScheduler.mjs';
 import authRouter from './routes/auth.mjs';
@@ -71,6 +72,7 @@ app.use('/api/companies-house', companiesHouseRouter);
 app.use('/api/hmrc', hmrcRouter);
 app.use('/api/portal', portalRouter);
 app.use('/api/telegram', telegramRouter);
+app.use('/api/intake', intakeRouter);
 app.use('/api/briefing', briefingRouter);
 app.use('/api/messages', messagesRouter);
 
