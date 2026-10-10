@@ -16,6 +16,7 @@ import practiceDataRouter from './server/routes/practiceData.mjs';
 import messagesRouter from './server/routes/messages.mjs';
 import { healthPayload } from './server/lib/health.mjs';
 import { securityHeaders } from './server/lib/securityHeaders.mjs';
+import { shareTargetFallback } from './server/lib/installable.mjs';
 import { isDatabaseConfigured } from './server/lib/db.mjs';
 import { ensureSeedUsers } from './server/lib/bootstrapUsers.mjs';
 
@@ -46,6 +47,7 @@ function apiMiddleware(): Plugin {
     const app = express();
     app.use(securityHeaders(options));
     app.get('/health', async (_req, res) => res.json(await healthPayload()));
+    app.post('/share-target', shareTargetFallback);
     app.use('/api/companies-house/stream', companiesHouseStreamRouter);
     app.use('/api/companies-house', companiesHouseRouter);
     app.use('/api/hmrc', hmrcRouter);

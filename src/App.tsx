@@ -29,6 +29,7 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage').then((module) => 
 const InvoicesPage = lazy(() => import('./pages/InvoicesPage').then((module) => ({ default: module.InvoicesPage })));
 const InvoiceDetailPage = lazy(() => import('./pages/InvoiceDetailPage').then((module) => ({ default: module.InvoiceDetailPage })));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then((module) => ({ default: module.NotFoundPage })));
+const SharePage = lazy(() => import('./pages/SharePage').then((module) => ({ default: module.SharePage })));
 const PortalPage = lazy(() => import('./pages/PortalPage').then((module) => ({ default: module.PortalPage })));
 
 type AuthPhase = 'checking' | 'local' | 'unauthenticated' | 'must_change_password' | 'authenticated' | 'unavailable';
@@ -137,6 +138,7 @@ function AuthenticatedApp() {
           <Route path="dashboard" element={<Navigate to="/" replace />} />
           <Route path="attention" element={<AttentionPage />} />
           <Route path="inbox" element={<InboxPage />} />
+          <Route path="share" element={<SharePage />} />
           <Route path="clients" element={<ClientsPage />} />
           <Route path="clients/new" element={<NewClientPage />} />
           <Route path="clients/import" element={<ImportClientsPage />} />
