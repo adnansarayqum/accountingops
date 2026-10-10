@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, X, FileText, Inbox, Mail, ScanLine, Globe, Pencil, Send, Smartphone, Image as ImageIcon } from 'lucide-react';
+import { Check, X, FileText, Inbox, Mail, ScanLine, Globe, Pencil, Send, Smartphone, Sparkles, Image as ImageIcon } from 'lucide-react';
 import { PageHeader } from '../ui/components/PageHeader';
-import { Card, CardBody } from '../ui/components/Card';
+import { Card, CardBody, CardHeader } from '../ui/components/Card';
 import { Badge } from '../ui/components/Badge';
 import { Button } from '../ui/components/Button';
 import { EmptyState } from '../ui/components/EmptyState';
@@ -12,7 +12,8 @@ import { Tabs } from '../ui/components/Tabs';
 import { useAppStore } from '../application/store';
 import { useData, useDerived, useToday } from '../application/selectors';
 import { formatAgo, formatDate, formatDateTime } from '../domain/dates';
-import type { InboxItem } from '../domain/types';
+import { describeProposal } from '../domain/rules';
+import type { InboxItem, Proposal } from '../domain/types';
 import { cn } from '../ui/cn';
 import { telegramUploadUrl } from '../integrations/telegram';
 import { intakeUploadUrl } from '../integrations/intake';
@@ -47,6 +48,7 @@ export function InboxPage() {
   return (
     <div className="animate-in">
       <PageHeader title="Smart Inbox" description="Incoming documents are matched to a client and job. The system suggests; you confirm. Nothing is attached without a human decision." />
+      <SuggestedUpdates />
       <Tabs
         value={tab}
         onChange={setTab}
@@ -192,6 +194,64 @@ export function InboxPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+/**
+ * Changes the filed documents propose — a deadline moved, a penalty, a
+ * checklist item, a client's new details. Nothing changes until Apply.
+ */
+function SuggestedUpdates() {
+  const data = useData();
+  const derived = useDerived();
+  const apply = useAppStore((s) => s.applyProposal);
+  const dismiss = useAppStore((s) => s.dismissProposal);
+  const toast = useAppStore((s) => s.toast);
+  const items = data.inboxItems.filter((i) => i.proposals?.some((p) => p.status === 'pending'));
+  if (items.length === 0) return null;
+
+  const onApply = (item: InboxItem, proposal: Proposal) => {
+    const what = describeProposal(proposal, data);
+    try {
+      apply(item.id, proposal.id);
+      toast({ title: 'Updated', description: `${what}.`, tone: 'success' });
+    } catch (err) {
+      toast({ title: "Couldn't apply that", description: (err as Error).message, tone: 'error' });
+    }
+  };
+
+  return (
+    <Card className="mb-4" data-testid="suggested-updates">
+      <CardHeader icon={<Sparkles />} title="Suggested updates" description="From documents just filed. Apply what's right; dismiss the rest." />
+      <ul className="divide-y divide-slate-100">
+        {items.map((item) => {
+          const client = derived.clientById.get(item.suggestion.clientId ?? '');
+          return (
+            <li key={item.id} className="px-5 py-3" data-testid={`suggested-for-${item.id}`}>
+              <p className="text-xs text-slate-500">
+                {client ? <Link to={`/clients/${client.id}`} className="font-medium text-slate-700 hover:text-primary-700">{client.name}</Link> : 'Unknown client'} · {item.suggestion.documentType} · {item.fileName}
+              </p>
+              <ViewFileLinks item={item} />
+              <ul className="mt-2 space-y-3">
+                {item.proposals!.filter((p) => p.status === 'pending').map((p) => (
+                  <li key={p.id} className="flex flex-col sm:flex-row sm:items-center gap-2" data-testid={`proposal-${p.id}`}>
+                    <p className="flex-1 min-w-0 text-sm text-slate-900 break-words">{describeProposal(p, data)}</p>
+                    <div className="flex gap-2 shrink-0">
+                      <Button size="sm" variant="success" icon={<Check />} onClick={() => onApply(item, p)} data-testid={`proposal-apply-${p.id}`}>
+                        Apply
+                      </Button>
+                      <Button size="sm" variant="ghost" icon={<X />} onClick={() => dismiss(item.id, p.id)} data-testid={`proposal-dismiss-${p.id}`}>
+                        Dismiss
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
   );
 }
 

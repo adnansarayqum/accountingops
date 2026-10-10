@@ -15,7 +15,7 @@ export function nextPeriod(ob: Obligation): { periodStart: string; periodEnd: st
   return { periodStart, periodEnd, dueDate, periodKey: periodKeyFor(ob, periodEnd) };
 }
 
-export function periodKeyFor(ob: Obligation, periodEnd: string): string {
+export function periodKeyFor(ob: Pick<Obligation, 'frequency'>, periodEnd: string): string {
   const [y, m] = periodEnd.split('-').map(Number);
   if (ob.frequency === 'annual') return `${y}`;
   if (ob.frequency === 'quarterly') return `${y}-Q${Math.ceil(m / 3)}`;
@@ -23,7 +23,7 @@ export function periodKeyFor(ob: Obligation, periodEnd: string): string {
   return `${y}-${m}`;
 }
 
-export function jobNameFor(ob: Obligation, periodKey: string): string {
+export function jobNameFor(ob: Pick<Obligation, 'serviceCode' | 'frequency'>, periodKey: string): string {
   const service = SERVICES[ob.serviceCode];
   switch (ob.frequency) {
     case 'quarterly':

@@ -423,6 +423,25 @@ away (`GET /api/intake/uploads/:id`, signed in only, served inline with
 `nosniff`; text as `text/plain`). A bank statement from a client counts as
 the client getting in touch; an HMRC or Companies House letter does not.
 
+**Suggested updates, never silent ones.** The same read also pulls out what
+each document *states*: a filing or payment deadline and what it's for, the
+period end, a penalty and its appeal date, and — only from a client's own
+message — a new email, phone, address or year end. The model copies facts;
+it decides nothing. The server keeps only well-formed values
+(`intakeReader.mjs` `sanitiseFacts`: real dates, a known service, a positive
+amount, a ten-digit UTR, a GB VAT number) in `intake_activity.facts`. When the
+document is attached to a client, the app compares those facts with its own
+records (`src/domain/rules/proposals.ts`) and proposes only what differs:
+move a job's due date (or add the job if there's none for that period),
+record a penalty (a timeline note and a deadline notification), tick off a
+checklist item the document satisfies, add a missing UTR or VAT number
+(changing one already on file only on the client's own word, and never to
+another client's number), update year end or the main contact's details,
+or save the client's message as a note. They wait under **Suggested updates**
+at the top of Smart Inbox; Apply re-checks each against the records as they
+are now and goes through an audited action (`job.due_date`, `job.create`,
+`penalty.record`, …); Dismiss drops it.
+
 The same files shared twice in a week are recognised by their hashes and not
 read (or paid for) again. Without `ANTHROPIC_API_KEY`, shares are still
 stored and land in Smart Inbox unread. DB mode only, like the portal.

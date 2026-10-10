@@ -40,7 +40,10 @@ function deps(overrides = {}) {
         queued.push(row);
         return `ina_${queued.length}`;
       }),
-      readBatch: vi.fn(async () => [read([0, 1], { identifiers: { companyNumber: '8654123' } }), read([2], { documentType: 'Message from the client', clientId: 'cl_khan', confidence: 0.5 })]),
+      readBatch: vi.fn(async () => [
+        read([0, 1], { identifiers: { companyNumber: '8654123', utr: '12345 67890' }, facts: { deadline: '2027-01-31', service: 'corporation_tax', penaltyAmount: null } }),
+        read([2], { documentType: 'Message from the client', clientId: 'cl_khan', confidence: 0.5, facts: { deadline: 'soon', clientDetails: { email: 'nope' } } }),
+      ]),
       readPracticeSnapshot: vi.fn(async () => snapshot),
       env: { ANTHROPIC_API_KEY: 'sk-test' },
       ...overrides,
@@ -65,6 +68,13 @@ describe('processBatch', () => {
     expect(queued[1]).toMatchObject({ filed: false, uploadIds: ['inu_2'] });
   });
 
+  it('queues each document’s facts sanitised, and none when nothing usable was said', async () => {
+    const { deps: d, queued } = deps();
+    await processBatch({ parts, userId: 'u_ray', source: 'share' }, d);
+    expect(queued[0].facts).toMatchObject({ deadline: '2027-01-31', service: 'corporation_tax', utr: '1234567890', penaltyAmount: null });
+    expect(queued[1].facts).toBeNull();
+  });
+
   it('refuses a share it has already had, before storing or reading anything', async () => {
     const { deps: d } = deps({ findDuplicateBatch: vi.fn(async () => 'inb_earlier') });
     expect(await processBatch({ parts, userId: 'u_ray', source: 'share' }, d)).toEqual({ duplicate: true });
@@ -78,7 +88,7 @@ describe('processBatch', () => {
     expect(d.readBatch).not.toHaveBeenCalled();
     expect(result.read).toBe(false);
     expect(queued.map((q) => q.uploadIds)).toEqual([['inu_0'], ['inu_1'], ['inu_2']]);
-    expect(queued.every((q) => q.filed === false && q.suggestion.clientId === null)).toBe(true);
+    expect(queued.every((q) => q.filed === false && q.suggestion.clientId === null && q.facts === null)).toBe(true);
   });
 
   it('when the read fails, still queues every part unread', async () => {

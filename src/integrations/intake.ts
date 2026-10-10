@@ -1,6 +1,7 @@
 /**
  * Documents shared into the app — the browser side of server/routes/intake.mjs.
  */
+import type { DocumentFacts } from '../domain/types';
 
 /** One document the server read from a share, waiting to be pulled into Smart Inbox. */
 export interface IntakeActivity {
@@ -20,6 +21,8 @@ export interface IntakeActivity {
   rationale: string;
   fileName: string;
   sizeKb: number;
+  /** What the document states, sanitised by the server; null when it said nothing usable or wasn't read. */
+  facts?: DocumentFacts | null;
   createdAt: string;
 }
 

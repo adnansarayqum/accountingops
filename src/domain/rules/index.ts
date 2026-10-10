@@ -9,6 +9,7 @@ export * from './masking';
 export * from './metrics';
 export * from './nextAction';
 export * from './penalties';
+export * from './proposals';
 export * from './readiness';
 export * from './recurrence';
 export * from './responsiveness';

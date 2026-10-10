@@ -6,7 +6,7 @@ import type { CompanyPeopleResponse, CompanyProfile } from '../integrations/comp
 import type { PortalActivity } from '../integrations/portal';
 import type { IntakeActivity } from '../integrations/intake';
 import { AML_RATING_LABELS, AML_REVIEW_MONTHS } from '../domain/rules/aml';
-import { nowIso, todayIso } from '../domain/dates';
+import { addDays, addMonths, formatDate, nowIso, todayIso } from '../domain/dates';
 import { normaliseCompanyNumber } from '../domain/companyNumber';
 import { birthMonthYearOf, isSamePerson, normalisePersonName, personNameKey } from '../domain/personNames';
 import { applyRetention } from '../domain/retention';
@@ -14,14 +14,18 @@ import { applyPeopleMerge, findDuplicatePeople, type PeopleMergeSummary } from '
 import { applyCorporationTaxBackfill, findMissingCorporationTax, type CorporationTaxBackfillSummary } from '../domain/corporationTax';
 import { CHANNEL_LABELS, JOB_STATUS_LABELS, SERVICES, FILING_DESTINATION } from '../domain/catalog';
 import {
+  buildProposals,
   canTransition,
   computeCompleteness,
   DEFAULT_WAITING_ON,
+  findMatchingRequestItem,
   generateNextJob,
   invoiceSubtotal,
   isOfficialLetter,
   itemsForJob,
   nextInvoiceNumber,
+  periodKeyFor,
+  jobNameFor,
   sanitizeThresholdPatch,
   suggestedTransitionOnCompleteness,
   timeEntryAmount,
@@ -50,6 +54,7 @@ import type { AmlRiskRating,
   PersonRoleKind,
   PracticeData,
   PracticeThresholds,
+  Proposal,
   RegisteredAddress,
   ServiceCode,
   TimeEntry,
@@ -147,6 +152,13 @@ export interface AppState {
 
   // inbox
   confirmInboxItem(itemId: string): void;
+  /** Apply one change a document proposed (see domain/rules/proposals.ts). Throws when it no longer fits the records. */
+  applyProposal(itemId: string, proposalId: string): void;
+  dismissProposal(itemId: string, proposalId: string): void;
+  setJobDueDate(jobId: string, dueDate: IsoDate, reason?: string): void;
+  /** A one-off job for a period the practice had no job for (not tied to a recurring obligation). */
+  createJob(clientId: string, input: { serviceCode: ServiceCode; dueDate: IsoDate; periodEnd: IsoDate }): void;
+  recordPenalty(clientId: string, input: { amount: number; appealBy?: IsoDate; reference?: string }, jobId?: string): void;
   dismissInboxItem(itemId: string): void;
   updateInboxSuggestion(itemId: string, patch: { clientId?: string; jobId?: string; documentType?: string }): void;
 
@@ -862,6 +874,7 @@ export const useAppStore = create<AppState>((set, get) => {
             sizeKb: entry.sizeKb,
             intakeUploadIds: entry.uploadIds,
             summary: entry.summary ?? undefined,
+            ...(entry.facts ? { facts: entry.facts } : {}),
             status: 'pending',
             suggestion: {
               // A best guess the AI wasn't sure of stays visible as the suggestion.
@@ -958,8 +971,7 @@ export const useAppStore = create<AppState>((set, get) => {
         // Match the request item on the job by document type (case-insensitive), else by label prefix.
         let matched = false;
         if (job) {
-          const target = d.requestItems.find((r) => r.jobId === job.id && r.status !== 'received' && r.documentType.toLowerCase() === documentType.toLowerCase())
-            ?? d.requestItems.find((r) => r.jobId === job.id && r.status !== 'received' && (documentType.toLowerCase().includes(r.label.toLowerCase()) || r.label.toLowerCase().includes(documentType.toLowerCase())));
+          const target = findMatchingRequestItem(d.requestItems, job.id, documentType);
           if (target) {
             target.status = 'received';
             target.receivedAt = nowIso();
@@ -988,11 +1000,61 @@ export const useAppStore = create<AppState>((set, get) => {
           });
           for (const c of d.communications.filter((c) => c.jobId === job?.id && c.direction === 'outbound' && c.responseStatus === 'awaiting')) c.responseStatus = 'responded';
         }
+        // What the document says, turned into changes for the practice to approve.
+        const proposals = buildProposals({
+          data: d,
+          clientId,
+          documentId: doc.id,
+          documentType,
+          facts: item.facts,
+          summary: item.summary,
+          extractedReference: item.suggestion.extractedReference,
+          requestAlreadyMatched: matched,
+          newId: () => newId('prop'),
+        });
+        if (proposals.length > 0) item.proposals = proposals;
+        const toReview = proposals.length > 0 ? ` ${proposals.length} suggested update${proposals.length === 1 ? '' : 's'} to review in Smart Inbox.` : '';
         ctx.activity('inbox_processed', `${documentType} (${item.fileName}) attached to ${client?.name}${job ? ` — ${job.name}` : ''}${matched ? ' and checklist updated' : ''}.`, job);
         ctx.audit('inbox.confirm', 'inbox_item', itemId, { status: 'pending' }, { status: 'confirmed', clientId, jobId: job?.id, documentId: doc.id });
-        ctx.notify('document', 'Document attached', `${documentType} attached to ${client?.name}.`, job);
+        ctx.notify('document', 'Document attached', `${documentType} attached to ${client?.name}.${toReview}`, job);
         if (job && matched) applyCompletenessEffects(d, ctx, job);
       });
+    },
+
+    applyProposal(itemId, proposalId) {
+      mutate((d, ctx) => {
+        const item = d.inboxItems.find((i) => i.id === itemId);
+        const proposal = item?.proposals?.find((p) => p.id === proposalId);
+        if (!item || !proposal || proposal.status !== 'pending') return;
+        applyProposalChange(d, ctx, proposal, item.fileName);
+        proposal.status = 'applied';
+        proposal.resolvedAt = nowIso();
+        ctx.audit('proposal.apply', 'inbox_item', itemId, { proposalId, status: 'pending' }, { proposalId, kind: proposal.kind, status: 'applied' });
+      });
+    },
+
+    dismissProposal(itemId, proposalId) {
+      mutate((d, ctx) => {
+        const proposal = d.inboxItems.find((i) => i.id === itemId)?.proposals?.find((p) => p.id === proposalId);
+        if (!proposal || proposal.status !== 'pending') return;
+        proposal.status = 'dismissed';
+        proposal.resolvedAt = nowIso();
+        ctx.audit('proposal.dismiss', 'inbox_item', itemId, { proposalId, status: 'pending' }, { proposalId, kind: proposal.kind, status: 'dismissed' });
+      });
+    },
+
+    setJobDueDate(jobId, dueDate, reason) {
+      mutate((d, ctx) => setJobDueDateIn(d, ctx, jobId, dueDate, reason));
+    },
+
+    createJob(clientId, input) {
+      mutate((d, ctx) => {
+        createJobIn(d, ctx, clientId, input);
+      });
+    },
+
+    recordPenalty(clientId, input, jobId) {
+      mutate((d, ctx) => recordPenaltyIn(d, ctx, clientId, input, jobId));
     },
 
     dismissInboxItem(itemId) {
@@ -1648,7 +1710,7 @@ class MutationContext {
     });
   }
 
-  notify(kind: Notification['kind'], title: string, body: string, job?: Job, userId?: string): void {
+  notify(kind: Notification['kind'], title: string, body: string, job?: Job, userId?: string, clientId?: string): void {
     this.notifications.unshift({
       id: newId('ntf'),
       practiceId: this.practiceId,
@@ -1656,11 +1718,142 @@ class MutationContext {
       title,
       body,
       kind,
-      clientId: job?.clientId,
+      clientId: clientId ?? job?.clientId,
       jobId: job?.id,
       createdAt: nowIso(),
       read: false,
     });
+  }
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const PERIOD_MONTHS = { annual: 12, quarterly: 3, monthly: 1, none: 12 } as const;
+
+function setJobDueDateIn(d: PracticeData, ctx: MutationContext, jobId: string, dueDate: IsoDate, reason?: string): void {
+  const job = d.jobs.find((j) => j.id === jobId);
+  if (!job) throw new Error('That job no longer exists.');
+  if (job.status === 'filed') throw new Error('That job has already been filed.');
+  if (!ISO_DATE.test(dueDate)) throw new Error('Enter a valid due date.');
+  if (job.dueDate === dueDate) return;
+  const before = job.dueDate;
+  job.dueDate = dueDate;
+  const client = d.clients.find((c) => c.id === job.clientId);
+  ctx.activity('note', `${client?.name} ${job.name} due date moved from ${formatDate(before)} to ${formatDate(dueDate)}${reason ? ` (${reason})` : ''}.`, job);
+  ctx.audit('job.due_date', 'job', job.id, { dueDate: before }, { dueDate, reason });
+}
+
+function createJobIn(d: PracticeData, ctx: MutationContext, clientId: string, input: { serviceCode: ServiceCode; dueDate: IsoDate; periodEnd: IsoDate }): Job {
+  const client = d.clients.find((c) => c.id === clientId);
+  if (!client) throw new Error('That client no longer exists.');
+  if (!ISO_DATE.test(input.dueDate) || !ISO_DATE.test(input.periodEnd)) throw new Error('Enter a valid period end and due date.');
+  const service = SERVICES[input.serviceCode];
+  const periodKey = periodKeyFor({ frequency: service.frequency }, input.periodEnd);
+  const name = jobNameFor({ serviceCode: input.serviceCode, frequency: service.frequency }, periodKey);
+  if (d.jobs.some((j) => j.clientId === clientId && j.serviceCode === input.serviceCode && j.periodKey === periodKey)) {
+    throw new Error(`${client.name} already has a ${name} job.`);
+  }
+  const job: Job = {
+    id: newId('job'),
+    practiceId: d.practice.id,
+    clientId,
+    serviceCode: input.serviceCode,
+    name,
+    periodKey,
+    periodStart: addDays(addMonths(input.periodEnd, -PERIOD_MONTHS[service.frequency]), 1),
+    periodEnd: input.periodEnd,
+    dueDate: input.dueDate,
+    status: 'waiting_for_records',
+    waitingOn: 'client',
+    estimatedHours: service.defaultEstimatedHours,
+    statusChangedAt: nowIso(),
+    createdAt: nowIso(),
+  };
+  d.jobs.push(job);
+  for (const label of service.defaultRequirements) {
+    d.requestItems.push({ id: newId('req'), practiceId: d.practice.id, jobId: job.id, clientId, label, documentType: label, status: 'missing', required: true });
+  }
+  ctx.activity('job_generated', `New job added: ${client.name} ${name}, due ${formatDate(input.dueDate)}.`, job);
+  ctx.audit('job.create', 'job', job.id, undefined, { serviceCode: input.serviceCode, periodKey, dueDate: input.dueDate });
+  return job;
+}
+
+function recordPenaltyIn(d: PracticeData, ctx: MutationContext, clientId: string, input: { amount: number; appealBy?: IsoDate; reference?: string }, jobId?: string): void {
+  const client = d.clients.find((c) => c.id === clientId);
+  if (!client) throw new Error('That client no longer exists.');
+  if (!(input.amount > 0)) throw new Error('Enter the penalty amount.');
+  const job = jobId ? d.jobs.find((j) => j.id === jobId && j.clientId === clientId) : undefined;
+  const message = `Penalty of £${input.amount.toLocaleString('en-GB')} charged to ${client.name}${job ? ` for ${job.name}` : ''}${input.reference ? ` (ref ${input.reference})` : ''}.${input.appealBy ? ` Appeal by ${formatDate(input.appealBy)}.` : ''}`;
+  ctx.activity('note', message, job, clientId);
+  ctx.notify('deadline', input.appealBy ? `Penalty — appeal by ${formatDate(input.appealBy)}` : 'Penalty charged', message, job, undefined, clientId);
+  ctx.audit('penalty.record', 'client', clientId, undefined, { amount: input.amount, appealBy: input.appealBy, reference: input.reference, jobId: job?.id });
+}
+
+/** The change itself, re-checked against the records as they are now — they may have moved on since it was proposed. */
+function applyProposalChange(d: PracticeData, ctx: MutationContext, p: Proposal, fileName: string): void {
+  const client = d.clients.find((c) => c.id === p.clientId);
+  if (!client) throw new Error('That client no longer exists.');
+  const reason = `from ${fileName}`;
+  switch (p.kind) {
+    case 'move_due_date': {
+      const job = d.jobs.find((j) => j.id === p.jobId);
+      if (job && job.dueDate !== p.from) throw new Error(`${job.name} is now due ${formatDate(job.dueDate)}, so this is out of date.`);
+      setJobDueDateIn(d, ctx, p.jobId, p.to, reason);
+      return;
+    }
+    case 'create_job':
+      createJobIn(d, ctx, p.clientId, { serviceCode: p.serviceCode, dueDate: p.dueDate, periodEnd: p.periodEnd });
+      return;
+    case 'record_penalty':
+      recordPenaltyIn(d, ctx, p.clientId, { amount: p.amount, appealBy: p.appealBy, reference: p.reference }, p.jobId);
+      return;
+    case 'tick_request': {
+      const item = d.requestItems.find((r) => r.id === p.requestItemId);
+      const doc = d.documents.find((x) => x.id === p.documentId);
+      if (!item || !doc) throw new Error('That document or checklist item no longer exists.');
+      if (item.status === 'received') throw new Error(`${item.label} is already ticked off.`);
+      const job = d.jobs.find((j) => j.id === item.jobId);
+      const before = item.status;
+      item.status = 'received';
+      item.receivedAt = nowIso();
+      item.documentId = doc.id;
+      doc.jobId ??= item.jobId;
+      ctx.activity('document_received', `${item.label} received from ${client.name}${job ? ` for ${job.name}` : ''}.`, job);
+      ctx.audit('request_item.receive', 'information_request_item', item.id, { status: before }, { status: 'received', documentId: doc.id });
+      if (job) applyCompletenessEffects(d, ctx, job);
+      return;
+    }
+    case 'set_identifier': {
+      const existing = d.identifiers.find((i) => i.clientId === p.clientId && i.kind === p.identifierKind);
+      if (existing) {
+        ctx.audit('identifier.update', 'client_identifier', existing.id, { value: '[redacted]' }, { value: '[redacted]' });
+        existing.value = p.value;
+      } else {
+        const rec: ClientIdentifier = { id: newId('idf'), practiceId: d.practice.id, clientId: p.clientId, kind: p.identifierKind, value: p.value, sensitive: true };
+        d.identifiers.push(rec);
+        ctx.audit('identifier.create', 'client_identifier', rec.id, undefined, { kind: p.identifierKind });
+      }
+      ctx.activity('client_updated', `${client.name} ${p.identifierKind === 'utr' ? 'UTR' : 'VAT number'} ${existing ? 'updated' : 'added'} ${reason}.`, undefined, p.clientId);
+      return;
+    }
+    case 'set_year_end': {
+      const before = client.yearEnd;
+      client.yearEnd = p.value;
+      ctx.activity('client_updated', `${client.name} year end set to ${p.value} ${reason}.`, undefined, p.clientId);
+      ctx.audit('client.update', 'client', p.clientId, { yearEnd: before }, { yearEnd: p.value });
+      return;
+    }
+    case 'update_contact': {
+      const contact = d.contacts.find((c) => c.id === p.contactId && c.clientId === p.clientId);
+      if (!contact) throw new Error('That contact no longer exists.');
+      const before = { ...contact };
+      contact[p.field] = p.value;
+      ctx.activity('client_updated', `${contact.name}'s ${p.field} updated for ${client.name} ${reason}.`, undefined, p.clientId);
+      ctx.audit('contact.update', 'contact', contact.id, before, { ...contact });
+      return;
+    }
+    case 'add_note':
+      ctx.activity('note', p.text, undefined, p.clientId);
+      return;
   }
 }
 

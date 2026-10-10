@@ -350,6 +350,10 @@ async function runMigrations() {
     )
   `);
   await query('create index if not exists intake_activity_pending_idx on intake_activity (created_at) where applied_at is null');
+  // What the document says (a deadline, a penalty, a client's new details),
+  // sanitised — see intakeReader.mjs sanitiseFacts. The app turns these into
+  // proposed changes; nothing here is applied on its own.
+  await query('alter table intake_activity add column if not exists facts jsonb');
 
   await query(`
     create table if not exists practice_snapshot_history (

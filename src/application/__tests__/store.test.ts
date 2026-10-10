@@ -7,6 +7,7 @@ import { computeDerived } from '../selectors';
 import { buildFixtureData } from '../../testing/fixtures';
 import type { CompanyPerson, CompanyProfile } from '../../integrations/companiesHouseTypes';
 import type { IntakeActivity } from '../../integrations/intake';
+import type { DocumentFacts } from '../../domain/types';
 
 const today = '2026-09-11';
 
@@ -926,6 +927,112 @@ describe('application store — receiving documents shared into the app', () => 
     expect(useAppStore.getState().receiveIntakeActivity([row({ id: 'ina_again' })])).toEqual({ applied: [], skipped: ['ina_again'] });
     useAppStore.setState({ loadFailed: true });
     expect(useAppStore.getState().receiveIntakeActivity([row({ id: 'ina_3', uploadIds: ['inu_3'] })])).toEqual({ applied: [], skipped: [] });
+  });
+});
+
+describe('application store — updates proposed by shared documents', () => {
+  beforeEach(() => {
+    configureRepository(new MemoryRepository());
+    useAppStore.setState({ data: structuredClone(buildFixtureData(today)), today, ready: true, currentUserId: 'u_adnan', toasts: [], loadFailed: false });
+  });
+
+  const noFacts: DocumentFacts = { deadline: null, service: null, periodEnd: null, penaltyAmount: null, appealBy: null, utr: null, vatNumber: null, email: null, phone: null, address: null, yearEnd: null };
+  const share = (documentType: string, facts: Partial<DocumentFacts> | null, overrides: Partial<IntakeActivity> = {}): IntakeActivity => ({
+    id: 'ina_p',
+    batchId: 'inb_p',
+    source: 'share',
+    uploadIds: ['inu_p'],
+    clientId: 'cl_abc',
+    filed: true,
+    documentType,
+    period: null,
+    extractedReference: 'CT/123',
+    extractedDate: null,
+    summary: 'A document',
+    confidence: 0.95,
+    rationale: 'Matched.',
+    fileName: 'letter.jpg',
+    sizeKb: 100,
+    facts: facts ? { ...noFacts, ...facts } : null,
+    createdAt: '2026-09-11T10:00:00.000Z',
+    ...overrides,
+  });
+  const item = () => useAppStore.getState().data.inboxItems.find((i) => i.intakeUploadIds?.includes('inu_p'))!;
+  const proposal = (kind: string) => item().proposals!.find((p) => p.kind === kind)!;
+  const apply = (kind: string) => useAppStore.getState().applyProposal(item().id, proposal(kind).id);
+  const job = (id: string) => useAppStore.getState().data.jobs.find((j) => j.id === id)!;
+
+  it('proposes moving a due date and recording a penalty, and changes nothing until each is applied', () => {
+    useAppStore.getState().receiveIntakeActivity([share('Penalty notice', { deadline: '2026-12-31', service: 'corporation_tax', periodEnd: '2025-12-31', penaltyAmount: 100, appealBy: '2026-10-09' })]);
+    expect(item().status).toBe('confirmed');
+    expect(item().proposals!.map((p) => [p.kind, p.status])).toEqual([['move_due_date', 'pending'], ['record_penalty', 'pending']]);
+    expect(job('job_abc_ct').dueDate).toBe('2026-12-22');
+    expect(useAppStore.getState().data.notifications[0].body).toContain('2 suggested updates to review');
+
+    apply('move_due_date');
+    expect(job('job_abc_ct').dueDate).toBe('2026-12-31');
+    expect(proposal('move_due_date').status).toBe('applied');
+    const audit = useAppStore.getState().data.auditEvents;
+    expect(audit.find((e) => e.action === 'job.due_date')).toMatchObject({ entityId: 'job_abc_ct', before: { dueDate: '2026-12-22' }, after: { dueDate: '2026-12-31' } });
+    expect(audit.find((e) => e.action === 'proposal.apply')).toBeTruthy();
+
+    apply('record_penalty');
+    const s = useAppStore.getState().data;
+    expect(s.notifications[0]).toMatchObject({ kind: 'deadline', clientId: 'cl_abc', jobId: 'job_abc_ct', title: 'Penalty — appeal by 9 Oct 2026' });
+    expect(s.activities[0].message).toBe('Penalty of £100 charged to ABC Construction Ltd for 2025 Corporation Tax (ref CT/123). Appeal by 9 Oct 2026.');
+    expect(s.auditEvents.find((e) => e.action === 'penalty.record')?.after).toMatchObject({ amount: 100, jobId: 'job_abc_ct' });
+  });
+
+  it('creates the job, with its checklist, when the practice has none for that period', () => {
+    useAppStore.getState().receiveIntakeActivity([share('Corporation Tax notice to deliver', { deadline: '2027-12-31', service: 'corporation_tax', periodEnd: '2026-12-31' })]);
+    apply('create_job');
+    const created = useAppStore.getState().data.jobs.find((j) => j.clientId === 'cl_abc' && j.serviceCode === 'corporation_tax' && j.periodKey === '2026')!;
+    expect(created).toMatchObject({ name: '2026 Corporation Tax', periodStart: '2026-01-01', periodEnd: '2026-12-31', dueDate: '2027-12-31', status: 'waiting_for_records' });
+    expect(useAppStore.getState().data.requestItems.filter((r) => r.jobId === created.id).map((r) => r.label)).toEqual(['Approved accounts', 'Capital allowances schedule', 'R&D summary']);
+    expect(useAppStore.getState().data.auditEvents[1]).toMatchObject({ action: 'job.create', entityId: created.id });
+    expect(() => useAppStore.getState().createJob('cl_abc', { serviceCode: 'corporation_tax', dueDate: '2027-12-31', periodEnd: '2026-12-31' })).toThrow('already has a 2026 Corporation Tax job');
+  });
+
+  it('ticks off the checklist item the document satisfies, linking the filed document and moving the job on', () => {
+    useAppStore.getState().receiveIntakeActivity([share('Approved accounts', null)]);
+    const doc = useAppStore.getState().data.documents.find((d) => d.intakeUploadIds?.includes('inu_p'))!;
+    expect(proposal('tick_request')).toMatchObject({ requestItemId: 'req_abc_ct_0', documentId: doc.id });
+    apply('tick_request');
+    const s = useAppStore.getState().data;
+    expect(s.requestItems.find((r) => r.id === 'req_abc_ct_0')).toMatchObject({ status: 'received', documentId: doc.id });
+    expect(s.documents.find((d) => d.id === doc.id)?.jobId).toBe('job_abc_ct');
+    expect(job('job_abc_ct').status).toBe('ready_to_start');
+  });
+
+  it('proposes the client’s own new details, and saves their message as a note', () => {
+    useAppStore.getState().receiveIntakeActivity([
+      share('Message from the client', { email: 'dave@new.example', phone: '07700 900123', yearEnd: '31 March', utr: '9999999999', address: '2 New Road, Leeds' }, { summary: 'New email and year end' }),
+    ]);
+    expect(item().proposals!.map((p) => p.kind)).toEqual(['set_identifier', 'set_year_end', 'update_contact', 'add_note']);
+    for (const kind of ['set_identifier', 'set_year_end', 'update_contact', 'add_note']) apply(kind);
+    const s = useAppStore.getState().data;
+    expect(s.identifiers.find((i) => i.clientId === 'cl_abc' && i.kind === 'utr')?.value).toBe('9999999999');
+    expect(s.clients.find((c) => c.id === 'cl_abc')?.yearEnd).toBe('31 March');
+    expect(s.contacts.find((c) => c.id === 'ct_abc_1')?.email).toBe('dave@new.example');
+    expect(s.activities[0]).toMatchObject({ kind: 'note', clientId: 'cl_abc', message: 'Client said: New email and year end New address given: 2 New Road, Leeds.' });
+    // The UTR itself is never written into the timeline.
+    expect(s.activities.some((a) => a.message.includes('9999999999'))).toBe(false);
+  });
+
+  it('refuses a proposal the records have moved on from, and lets one be dismissed instead', () => {
+    useAppStore.getState().receiveIntakeActivity([share('Penalty notice', { deadline: '2026-12-31', service: 'corporation_tax', periodEnd: '2025-12-31' })]);
+    useAppStore.getState().setJobDueDate('job_abc_ct', '2026-12-25');
+    expect(() => apply('move_due_date')).toThrow('now due 25 Dec 2026');
+    expect(proposal('move_due_date').status).toBe('pending');
+    useAppStore.getState().dismissProposal(item().id, proposal('move_due_date').id);
+    expect(proposal('move_due_date').status).toBe('dismissed');
+    apply('move_due_date');
+    expect(job('job_abc_ct').dueDate).toBe('2026-12-25');
+  });
+
+  it('proposes nothing for a document that says nothing new', () => {
+    useAppStore.getState().receiveIntakeActivity([share('Corporation Tax statement', { deadline: '2026-12-22', service: 'corporation_tax', periodEnd: '2025-12-31', utr: '1234567890' })]);
+    expect(item().proposals).toBeUndefined();
   });
 });
 
