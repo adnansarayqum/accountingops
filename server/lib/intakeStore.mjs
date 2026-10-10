@@ -56,12 +56,12 @@ export async function saveBatch({ batchId, userId, source, parts }) {
 }
 
 /** Queues one document for Smart Inbox. `holdMinutes` keeps it back while the share screen is open. */
-export async function queueDocument({ batchId, source, userId, uploadIds, fileName, sizeBytes, suggestion, filed, holdMinutes = 0 }) {
+export async function queueDocument({ batchId, source, userId, uploadIds, fileName, sizeBytes, suggestion, filed, facts = null, holdMinutes = 0 }) {
   await ensureSchema();
   const id = `ina_${randomUUID()}`;
   await query(
-    `insert into intake_activity (id, batch_id, source, user_id, upload_ids, client_id, document_type, period, extracted_reference, extracted_date, summary, confidence, rationale, file_name, size_kb, hold_until, filed)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, case when $16::int > 0 then now() + make_interval(mins => $16::int) end, $17)`,
+    `insert into intake_activity (id, batch_id, source, user_id, upload_ids, client_id, document_type, period, extracted_reference, extracted_date, summary, confidence, rationale, file_name, size_kb, hold_until, filed, facts)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, case when $16::int > 0 then now() + make_interval(mins => $16::int) end, $17, $18)`,
     [
       id,
       batchId,
@@ -80,6 +80,7 @@ export async function queueDocument({ batchId, source, userId, uploadIds, fileNa
       Math.max(1, Math.round(sizeBytes / 1024)),
       holdMinutes,
       Boolean(filed && suggestion.clientId),
+      facts ? JSON.stringify(facts) : null,
     ],
   );
   return id;
@@ -116,7 +117,7 @@ export async function pendingActivity(limit = 100) {
     // extracted_date as text: a pg `date` comes back as local midnight,
     // which toISOString() can shift a day east of UTC.
     `select id, batch_id, source, upload_ids, client_id, filed, document_type, period, extracted_reference, extracted_date::text as extracted_date,
-            summary, confidence, rationale, file_name, size_kb, created_at
+            summary, confidence, rationale, file_name, size_kb, facts, created_at
        from intake_activity
       where applied_at is null and (hold_until is null or hold_until <= now())
       order by created_at asc limit $1`,
@@ -138,6 +139,7 @@ export async function pendingActivity(limit = 100) {
     rationale: r.rationale,
     fileName: r.file_name,
     sizeKb: r.size_kb,
+    facts: r.facts ?? null,
     createdAt: new Date(r.created_at).toISOString(),
   }));
 }

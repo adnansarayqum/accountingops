@@ -87,7 +87,13 @@ describe.skipIf(!RUN)('shared intake store (PostgreSQL)', () => {
 
   it('never marks a document filed without a client', async () => {
     await store.queueDocument({ batchId: 'inb_1', source: 'share', userId: 'u_ray', uploadIds: [], fileName: 'x', sizeBytes: 1, suggestion: suggestion({ clientId: null }), filed: true });
-    expect((await store.pendingActivity())[0]).toMatchObject({ clientId: null, filed: false });
+    expect((await store.pendingActivity())[0]).toMatchObject({ clientId: null, filed: false, facts: null });
+  });
+
+  it('carries a document’s facts through to Smart Inbox unchanged', async () => {
+    const facts = { deadline: '2027-01-31', service: 'self_assessment', periodEnd: null, penaltyAmount: 100, appealBy: '2026-11-09', utr: '1234567890', vatNumber: null, email: null, phone: null, address: null, yearEnd: null };
+    await store.queueDocument({ batchId: 'inb_1', source: 'share', userId: 'u_ray', uploadIds: [], fileName: 'x', sizeBytes: 1, suggestion: suggestion(), filed: true, facts });
+    expect((await store.pendingActivity())[0].facts).toEqual(facts);
   });
 
   it('lets only the sharer change the client, and only before the practice has it', async () => {

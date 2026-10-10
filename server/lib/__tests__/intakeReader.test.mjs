@@ -1,11 +1,63 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Anthropic from '@anthropic-ai/sdk';
-import { DEFAULT_INTAKE_MODEL, DOCUMENT_TYPES, groupParts, INTAKE_SCHEMA, partBlocks, readBatch } from '../intakeReader.mjs';
+import { DEFAULT_INTAKE_MODEL, DOCUMENT_TYPES, groupParts, INTAKE_SCHEMA, partBlocks, readBatch, sanitiseFacts, SERVICE_CODES } from '../intakeReader.mjs';
 import { OFFICIAL_LETTER_TYPES } from '../../../src/domain/rules/intake.ts';
+import { SERVICES } from '../../../src/domain/catalog.ts';
 
 describe('document types', () => {
   it('include every type the app treats as an official letter, so that rule can never silently miss one', () => {
     for (const type of OFFICIAL_LETTER_TYPES) expect(DOCUMENT_TYPES).toContain(type);
+  });
+
+  it('offer exactly the practice’s own services as what a deadline can be for', () => {
+    expect([...SERVICE_CODES].sort()).toEqual(Object.keys(SERVICES).sort());
+  });
+});
+
+describe('sanitiseFacts', () => {
+  const none = { companyNumber: null, utr: null, vatNumber: null, payeReference: null };
+  const facts = (overrides = {}) => ({
+    deadline: null,
+    service: null,
+    periodEnd: null,
+    penaltyAmount: null,
+    appealBy: null,
+    clientDetails: { email: null, phone: null, address: null, yearEnd: null },
+    ...overrides,
+  });
+
+  it('keeps well-formed facts, tidied, and takes the UTR and VAT number from the identifiers', () => {
+    const clean = sanitiseFacts(
+      facts({ deadline: '2027-01-31', service: 'self_assessment', periodEnd: '2026-04-05', penaltyAmount: 100.004, appealBy: '2026-11-09', clientDetails: { email: ' ray@example.com ', phone: '07700 900123', address: '1  High St,\nLeeds', yearEnd: '31st march' } }),
+      { ...none, utr: '1234 56789 0', vatNumber: 'gb 123 4567 89' },
+    );
+    expect(clean).toEqual({
+      deadline: '2027-01-31',
+      service: 'self_assessment',
+      periodEnd: '2026-04-05',
+      penaltyAmount: 100,
+      appealBy: '2026-11-09',
+      utr: '1234567890',
+      vatNumber: 'GB123456789',
+      email: 'ray@example.com',
+      phone: '07700 900123',
+      address: '1 High St, Leeds',
+      yearEnd: '31 March',
+    });
+  });
+
+  it('drops anything malformed rather than storing a half-read value', () => {
+    const clean = sanitiseFacts(
+      facts({ deadline: '2027-02-30', service: 'tax_stuff', periodEnd: '31/03/2026', penaltyAmount: -5, appealBy: '1899-01-01', clientDetails: { email: 'not an email', phone: 'call me', address: 'x'.repeat(301), yearEnd: '45 Smarch' } }),
+      { ...none, utr: '12345', vatNumber: 'GB12' },
+    );
+    expect(clean).toBeNull();
+    expect(sanitiseFacts(undefined, undefined)).toBeNull();
+    expect(sanitiseFacts({ penaltyAmount: Number.POSITIVE_INFINITY, clientDetails: 'oops' }, none)).toBeNull();
+  });
+
+  it('returns the whole shape, nulls included, when anything survives', () => {
+    expect(sanitiseFacts(facts({ penaltyAmount: 100 }), none)).toMatchObject({ penaltyAmount: 100, deadline: null, email: null });
   });
 });
 
@@ -20,6 +72,7 @@ const doc = (parts, overrides = {}) => ({
   confidence: 0.9,
   rationale: 'Account name matches.',
   summary: 'Barclays statement, January 2026',
+  facts: null,
   ...overrides,
 });
 
@@ -60,7 +113,7 @@ describe('groupParts', () => {
   it('files any part nobody claimed on its own, unread, so nothing is lost', () => {
     const grouped = groupParts([doc([1])], 3);
     expect(grouped.map((d) => d.parts)).toEqual([[1], [0], [2]]);
-    expect(grouped[1]).toMatchObject({ documentType: 'Other', clientId: null, confidence: 0 });
+    expect(grouped[1]).toMatchObject({ documentType: 'Other', clientId: null, confidence: 0, facts: null });
     expect(groupParts('nonsense', 1).map((d) => d.parts)).toEqual([[0]]);
   });
 });

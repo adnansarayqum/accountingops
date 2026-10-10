@@ -567,7 +567,47 @@ export interface InboxItem {
   intakeUploadIds?: Id[];
   /** What the AI says this document is, in one line. */
   summary?: string;
+  /** What the document states — deadlines, a penalty, a client's new details — as read by the AI and checked by the server. */
+  facts?: DocumentFacts;
+  /** Changes the app suggests once the document is attached to a client; nothing is applied until someone approves it. */
+  proposals?: Proposal[];
 }
+
+/** Facts read from a shared document (server/lib/intakeReader.mjs sanitiseFacts). Every field is well-formed or null. */
+export interface DocumentFacts {
+  deadline: IsoDate | null;
+  service: ServiceCode | null;
+  periodEnd: IsoDate | null;
+  penaltyAmount: number | null;
+  appealBy: IsoDate | null;
+  utr: string | null;
+  vatNumber: string | null;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  /** e.g. "31 March", the same form as Client.yearEnd. */
+  yearEnd: string | null;
+}
+
+export type ProposalStatus = 'pending' | 'applied' | 'dismissed';
+
+/** One change to the practice's records, proposed from a document and applied only with a tap. */
+export type ProposalChange =
+  | { kind: 'move_due_date'; jobId: Id; from: IsoDate; to: IsoDate }
+  | { kind: 'create_job'; serviceCode: ServiceCode; dueDate: IsoDate; periodEnd: IsoDate }
+  | { kind: 'record_penalty'; amount: number; appealBy?: IsoDate; reference?: string; jobId?: Id }
+  | { kind: 'tick_request'; requestItemId: Id; documentId: Id }
+  | { kind: 'set_identifier'; identifierKind: 'utr' | 'vat_number'; value: string; replaces: boolean }
+  | { kind: 'set_year_end'; value: string; from?: string }
+  | { kind: 'update_contact'; contactId: Id; field: 'email' | 'phone'; value: string; from?: string }
+  | { kind: 'add_note'; text: string };
+
+export type Proposal = ProposalChange & {
+  id: Id;
+  clientId: Id;
+  status: ProposalStatus;
+  resolvedAt?: IsoDateTime;
+};
 
 export interface Notification {
   id: Id;

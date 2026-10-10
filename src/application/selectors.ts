@@ -121,7 +121,8 @@ export function computeDerived(data: PracticeData, today: string): Derived {
       30: computeCapacity(data.users, data.jobs, 30, today),
       60: computeCapacity(data.users, data.jobs, 60, today),
     },
-    pendingInbox: data.inboxItems.filter((i) => i.status === 'pending').length,
+    // Documents to review plus the updates they proposed — both wait on someone in Smart Inbox.
+    pendingInbox: data.inboxItems.reduce((n, i) => n + (i.status === 'pending' ? 1 : 0) + (i.proposals?.filter((p) => p.status === 'pending').length ?? 0), 0),
     unreadNotifications: data.notifications.filter((n) => !n.read).length,
     thresholds,
     penalties: summarisePenalties(data.jobs, today, thresholds.dueSoonDays, data.practice.timezone),

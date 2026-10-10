@@ -10,7 +10,7 @@
 import { randomUUID } from 'node:crypto';
 import { buildRoster, decideMatch } from './documentMatch.mjs';
 import { documentFileName } from './intake.mjs';
-import { unreadDocument } from './intakeReader.mjs';
+import { sanitiseFacts, unreadDocument } from './intakeReader.mjs';
 import { sha256 } from './intakeStore.mjs';
 
 /**
@@ -51,6 +51,7 @@ export async function processBatch({ parts, userId, source, holdMinutes = 0 }, d
       sizeBytes: docParts.reduce((sum, p) => sum + p.bytes.length, 0),
       suggestion,
       filed,
+      facts: read ? sanitiseFacts(doc.facts, doc.identifiers) : null,
       holdMinutes,
     });
     const candidates = filed ? [] : decision.candidates;
