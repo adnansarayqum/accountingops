@@ -26,6 +26,12 @@ describe('securityHeaders', () => {
     expect(csp).toContain('https://fonts.gstatic.com');
   });
 
+  it('lets the share screen preview shared photos (blob:) without allowing any remote image', () => {
+    const csp = run(securityHeaders())['Content-Security-Policy'];
+    const imgSrc = csp.split(';').map((s) => s.trim()).find((s) => s.startsWith('img-src'));
+    expect(imgSrc).toBe("img-src 'self' data: blob:");
+  });
+
   it('never allows inline or remote scripts', () => {
     const csp = run(securityHeaders())['Content-Security-Policy'];
     const scriptSrc = csp.split(';').map((s) => s.trim()).find((s) => s.startsWith('script-src'));

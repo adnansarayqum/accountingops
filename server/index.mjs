@@ -22,6 +22,7 @@ import practiceDataRouter from './routes/practiceData.mjs';
 import messagesRouter from './routes/messages.mjs';
 import { healthPayload } from './lib/health.mjs';
 import { securityHeaders } from './lib/securityHeaders.mjs';
+import { noCacheForAppShell, shareTargetFallback } from './lib/installable.mjs';
 import { spaFallback } from './lib/spaFallback.mjs';
 import { isDatabaseConfigured } from './lib/db.mjs';
 import { ensureSeedUsers } from './lib/bootstrapUsers.mjs';
@@ -82,7 +83,12 @@ app.use('/api/messages', messagesRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/practice-data', practiceDataRouter);
 
-app.use(express.static(dist, { index: false, maxAge: '1y', immutable: true, setHeaders: (res, filePath) => { if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache'); } }));
+// A share into the installed app is normally caught by the service worker
+// (public/sw.js) and never reaches here; this only answers one that arrives
+// before the worker is running, by sending the person somewhere useful.
+app.post('/share-target', shareTargetFallback);
+
+app.use(express.static(dist, { index: false, maxAge: '1y', immutable: true, setHeaders: noCacheForAppShell }));
 
 // SPA fallback for client-side routes; missing files and unknown API paths
 // fall through to the JSON 404 below (see lib/spaFallback.mjs).

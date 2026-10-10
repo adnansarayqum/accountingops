@@ -489,6 +489,24 @@ The same files shared twice in a week are recognised by their hashes and not
 read (or paid for) again. Without `ANTHROPIC_API_KEY`, shares are still
 stored and land in Smart Inbox unread. DB mode only, like the portal.
 
+**Getting there from a phone.** The app is installable
+(`public/manifest.webmanifest`, icons, `theme-color`). On **Android**, once
+installed from Chrome, "F&R Ops" appears in WhatsApp's and the mail app's
+share sheet: the manifest's `share_target` POSTs the files (and any text) to
+`/share-target`, where the service worker (`public/sw.js`) catches them —
+handled in the worker rather than the server, so no cross-app cookie or
+multipart parsing question arises — parks them in Cache Storage and opens
+`/share`. That page sends them to `POST /api/intake/batches`, shows "Filing
+under X" or a best guess for each document with a client picker, and Done
+releases the share; the parked copy is cleared once the server has it.
+Files the server can't read (a voice note, a spreadsheet) are left out and
+named. The worker intercepts nothing else and caches nothing, so a deploy
+is never hidden behind a stale copy; `index.html`, `sw.js` and the manifest
+are served `no-cache` (`server/lib/installable.mjs`). A share that somehow
+reaches the server instead is redirected to `/share` with an explanation.
+**iPhone** can install the app (Add to Home Screen) but Apple doesn't let
+web apps be share targets — sharing in from an iPhone is the Shortcut, next.
+
 ## Security notes
 
 - API keys live only in environment variables read server-side
