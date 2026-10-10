@@ -1,7 +1,7 @@
 /**
  * Reads a photographed letter with Claude — the only place this server
  * calls a language model. What leaves the server: the photo, and each
- * client's name plus the non-sensitive identifiers telegramMatch.mjs
+ * client's name plus the non-sensitive identifiers documentMatch.mjs
  * allow-lists. Never credentials.
  *
  * Returns null rather than throwing on anything short of a clean read

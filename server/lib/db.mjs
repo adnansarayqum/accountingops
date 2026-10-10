@@ -225,7 +225,7 @@ async function runMigrations() {
   `);
   await query('create index if not exists portal_activity_pending_idx on portal_activity (created_at) where applied_at is null');
 
-  // Telegram photo intake (see lib/telegramMatch.mjs, routes/telegram.mjs).
+  // Telegram photo intake (see lib/documentMatch.mjs, routes/telegram.mjs).
   // A chat is linked to exactly one practice user via a one-time code, never
   // via the practice snapshot — a stale browser tab's next save must not be
   // able to silently re-link or un-link who a chat acts as.
@@ -300,6 +300,56 @@ async function runMigrations() {
   // A letter Ray chose to sort in Smart Inbox rather than pick a client for
   // in Telegram arrives unassigned. Idempotent on an already-nullable column.
   await query('alter table telegram_activity alter column client_id drop not null');
+
+  // Shared intake (see lib/intakeReader.mjs, routes/intake.mjs): whatever
+  // is shared into the app from WhatsApp, email or an iPhone Shortcut. One
+  // row per file or piece of text; a batch is one share.
+  await query(`
+    create table if not exists intake_uploads (
+      id            text primary key,
+      batch_id      text not null,
+      user_id       text references practice_users(id) on delete set null,
+      source        text not null,
+      file_name     text not null,
+      content_type  text not null,
+      size_bytes    integer not null,
+      sha256        text not null,
+      content       bytea not null,
+      created_at    timestamptz not null default now()
+    )
+  `);
+  await query('create index if not exists intake_uploads_batch_idx on intake_uploads (batch_id)');
+  // One row per *document* the batch turned out to hold (several pages of a
+  // statement are one row), queued for the practice's open tab to pull into
+  // Smart Inbox like portal_activity. hold_until gives the share screen time
+  // to correct the client before a tab picks it up; an abandoned share is
+  // released when the hold runs out, no scheduler needed.
+  await query(`
+    create table if not exists intake_activity (
+      id                   text primary key,
+      batch_id             text not null,
+      source               text not null,
+      user_id              text,
+      upload_ids           jsonb not null,
+      client_id            text,
+      -- true: confident enough (or picked by a person) to attach to client_id
+      -- straight away; false: client_id is at most a best guess to review.
+      filed                boolean not null default false,
+      document_type        text not null,
+      period               text,
+      extracted_reference  text,
+      extracted_date       date,
+      summary              text,
+      confidence           real not null,
+      rationale            text not null,
+      file_name            text not null,
+      size_kb              integer not null,
+      hold_until           timestamptz,
+      created_at           timestamptz not null default now(),
+      applied_at           timestamptz
+    )
+  `);
+  await query('create index if not exists intake_activity_pending_idx on intake_activity (created_at) where applied_at is null');
 
   await query(`
     create table if not exists practice_snapshot_history (

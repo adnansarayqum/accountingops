@@ -1,8 +1,9 @@
 /**
- * Telegram letter matching — pure. Decides which client a letter belongs
- * to from what the vision model read, but never on the model's word alone:
- * an identifier printed on the letter that matches exactly one client is
- * closer to ground truth than a self-reported confidence score.
+ * Document matching — pure. Decides which client a document belongs to
+ * from what the model read, whichever way it arrived, but never on the
+ * model's word alone: an identifier printed on the document that matches
+ * exactly one client is closer to ground truth than a self-reported
+ * confidence score.
  */
 import { normaliseCompanyNumber } from './companyNumber.mjs';
 

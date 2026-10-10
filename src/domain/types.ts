@@ -331,6 +331,8 @@ export interface Document {
   portalUploadId?: Id;
   /** Set when the file came in via the Telegram intake and is held by the server, downloadable from /api/telegram/uploads/:id. */
   telegramUploadId?: Id;
+  /** Set when the document was shared into the app (one id per page), each downloadable from /api/intake/uploads/:id. */
+  intakeUploadIds?: Id[];
 }
 
 // ---------------------------------------------------------------------------
@@ -551,7 +553,7 @@ export interface InboxItem {
   practiceId: Id;
   fileName: string;
   receivedAt: IsoDateTime;
-  source: 'email' | 'portal' | 'scan' | 'telegram';
+  source: 'email' | 'portal' | 'scan' | 'telegram' | 'share';
   sender?: string;
   sizeKb: number;
   suggestion: InboxSuggestion;
@@ -561,6 +563,10 @@ export interface InboxItem {
   hidden?: boolean;
   /** Set when the file came in via the Telegram intake and is held by the server, downloadable from /api/telegram/uploads/:id. */
   telegramUploadId?: Id;
+  /** Set when the document was shared into the app (one id per page), each downloadable from /api/intake/uploads/:id. */
+  intakeUploadIds?: Id[];
+  /** What the AI says this document is, in one line. */
+  summary?: string;
 }
 
 export interface Notification {

@@ -14,6 +14,7 @@ import { useRefreshOnFocus, useUnsavedChangesWarning } from '../../application/u
 import { useLiveToday } from '../../application/useLiveToday';
 import { usePortalActivity } from '../../application/usePortalActivity';
 import { useTelegramActivity } from '../../application/useTelegramActivity';
+import { useIntakeActivity } from '../../application/useIntakeActivity';
 import { LoadFailedBanner } from '../components/LoadFailedBanner';
 
 export function AppShell() {
@@ -30,6 +31,7 @@ export function AppShell() {
   useLiveToday();
   usePortalActivity();
   useTelegramActivity();
+  useIntakeActivity();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

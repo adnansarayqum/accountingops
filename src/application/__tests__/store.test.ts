@@ -7,6 +7,7 @@ import { computeDerived } from '../selectors';
 import { buildFixtureData } from '../../testing/fixtures';
 import type { CompanyPerson, CompanyProfile } from '../../integrations/companiesHouseTypes';
 import type { TelegramActivity } from '../../integrations/telegram';
+import type { IntakeActivity } from '../../integrations/intake';
 
 const today = '2026-09-11';
 
@@ -913,6 +914,81 @@ describe('application store — receiving letters from Telegram', () => {
     const result = useAppStore.getState().receiveTelegramActivity([row()]);
     expect(result).toEqual({ applied: [], skipped: [] });
     expect(useAppStore.getState().data.inboxItems.some((i) => i.telegramUploadId === 'tgu_1')).toBe(false);
+  });
+});
+
+describe('application store — receiving documents shared into the app', () => {
+  beforeEach(() => {
+    configureRepository(new MemoryRepository());
+    useAppStore.setState({ data: structuredClone(buildFixtureData(today)), today, ready: true, currentUserId: 'u_adnan', toasts: [], loadFailed: false });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ loadFailed: false });
+  });
+
+  const row = (overrides: Partial<IntakeActivity> = {}): IntakeActivity => ({
+    id: 'ina_1',
+    batchId: 'inb_1',
+    source: 'share',
+    uploadIds: ['inu_1', 'inu_2'],
+    clientId: 'cl_abc',
+    filed: true,
+    documentType: 'Bank statement',
+    period: 'Jan 2026',
+    extractedReference: null,
+    extractedDate: '2026-01-31',
+    summary: 'Barclays statement, January 2026',
+    confidence: 0.95,
+    rationale: 'Account name matches.',
+    fileName: 'IMG_1.jpg (+1 more page)',
+    sizeKb: 640,
+    createdAt: '2026-09-11T10:00:00.000Z',
+    ...overrides,
+  });
+  const itemFor = (uploadId = 'inu_1') => useAppStore.getState().data.inboxItems.find((i) => i.intakeUploadIds?.includes(uploadId))!;
+
+  it('files a confident match straight onto the client, keeping every page of the original', () => {
+    const before = useAppStore.getState().data.documents.length;
+    expect(useAppStore.getState().receiveIntakeActivity([row()])).toEqual({ applied: ['ina_1'], skipped: [] });
+    expect(itemFor()).toMatchObject({ source: 'share', status: 'confirmed', summary: 'Barclays statement, January 2026', suggestion: { clientId: 'cl_abc', period: 'Jan 2026' } });
+    const docs = useAppStore.getState().data.documents;
+    expect(docs).toHaveLength(before + 1);
+    expect(docs.find((d) => d.intakeUploadIds?.includes('inu_1'))).toMatchObject({ clientId: 'cl_abc', documentType: 'Bank statement', intakeUploadIds: ['inu_1', 'inu_2'] });
+  });
+
+  it('counts a bank statement from the client as the client getting in touch', () => {
+    const before = useAppStore.getState().data.communications.length;
+    useAppStore.getState().receiveIntakeActivity([row()]);
+    const after = useAppStore.getState().data.communications;
+    expect(after).toHaveLength(before + 1);
+    expect(after.at(-1)).toMatchObject({ clientId: 'cl_abc', direction: 'inbound' });
+  });
+
+  it('does not count a shared HMRC letter as the client getting in touch', () => {
+    const before = useAppStore.getState().data.communications;
+    useAppStore.getState().receiveIntakeActivity([row({ documentType: 'Penalty notice' })]);
+    expect(useAppStore.getState().data.communications).toEqual(before);
+  });
+
+  it('keeps an unsure best guess as the suggestion, waiting for review', () => {
+    useAppStore.getState().receiveIntakeActivity([row({ filed: false, confidence: 0.5 })]);
+    expect(itemFor()).toMatchObject({ status: 'pending', suggestion: { clientId: 'cl_abc', confidence: 0.5 } });
+    expect(useAppStore.getState().data.documents.some((d) => d.intakeUploadIds?.includes('inu_1'))).toBe(false);
+  });
+
+  it('holds a document with no client, or whose client has gone, for review', () => {
+    useAppStore.getState().receiveIntakeActivity([row({ clientId: null, filed: false }), row({ id: 'ina_2', uploadIds: ['inu_9'], clientId: 'cl_gone' })]);
+    expect(itemFor().status).toBe('pending');
+    expect(itemFor().suggestion.clientId).toBeUndefined();
+    expect(itemFor('inu_9')).toMatchObject({ status: 'pending', suggestion: { confidence: 0, rationale: 'Shared for a client that no longer exists.' } });
+  });
+
+  it('skips a document already in the inbox, and leaves rows queued while changes are paused', () => {
+    useAppStore.getState().receiveIntakeActivity([row()]);
+    expect(useAppStore.getState().receiveIntakeActivity([row({ id: 'ina_again' })])).toEqual({ applied: [], skipped: ['ina_again'] });
+    useAppStore.setState({ loadFailed: true });
+    expect(useAppStore.getState().receiveIntakeActivity([row({ id: 'ina_3', uploadIds: ['inu_3'] })])).toEqual({ applied: [], skipped: [] });
   });
 });
 
