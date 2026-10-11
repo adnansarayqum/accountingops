@@ -312,8 +312,9 @@ Two separate reasons, not one:
    review process — four separate integrations, not one.
 2. **Product scope.** Pulling ledger or transaction data from these systems
    is bookkeeping, which this product is deliberately not (see
-   `docs/PRODUCT_DECISIONS.md`, decision #1). The moment this reads a bank
-   feed or a chart of accounts, it has become a different product.
+   `docs/PRODUCT_DECISIONS.md`, decisions #1 and #17). Reading the lines off a
+   bank statement a client *sends* is in scope (#19) — it ends in a CSV file the
+   accountant loads herself, never a connection to these systems.
 
 If a real need shows up later, the right shape is narrow and read-only —
 e.g. "does a client with this name already exist in Xero?" for onboarding
@@ -536,6 +537,38 @@ What it does, and where it deliberately stops:
   read and, if it matched a client confidently, filed. The address is the
   secret to protect; if it leaks, issue a new inbound address and update
   `INBOUND_EMAIL_ADDRESS`.
+
+### Bank statement transactions
+
+A shared document the read calls a **Bank statement** also has every
+transaction read off it (`server/lib/bankStatement.mjs`), stored in
+`bank_statements` / `bank_transactions` (DB mode only, outside the practice
+snapshot) and served by `POST /api/bank/statements/query`. A statement is keyed
+by its document's first upload id, so the app finds a client's statements
+through the client's own documents; one document is read once however often it
+is asked for, and a failed or lost read (older than 15 minutes) can be asked
+for again (`POST /api/bank/statements/read`, ten a minute per person).
+
+- **Model.** Sonnet (`TRANSACTIONS_MODEL`, default `claude-sonnet-5-5`; effort
+  `TRANSACTIONS_EFFORT`, default `medium`) rather than the Opus that reads and
+  sorts documents: transcribing lines is mechanical and statements are long.
+  One streamed request per statement with every page, the JSON schema, and the
+  same refusal fallbacks as the document read. Reads run one at a time through
+  an in-process queue (20 waiting at most) so a burst of statements is not a
+  burst of model requests. What is sent is the statement's pages — the
+  account holder's name, balances and every line — so this is the most
+  personal data the app sends Anthropic; nothing else is added.
+- **Checked before it is stored.** A line with a bad date or amount is dropped
+  and counted (`dropped_lines`) rather than guessed; categories outside the
+  fixed list become "Other / unsure"; a period that is missing or backwards is
+  taken from the lines; only the last four digits of an account number are
+  kept. The statement's own opening and closing balances are stored so the app
+  can show whether the lines add up. A statement too long for one answer
+  (about a thousand lines) fails with a clear message rather than storing half.
+- **Categories** are a small fixed chart (`BANK_CATEGORIES`) of suggestions for
+  the accountant's bookkeeping, correctable per line
+  (`PATCH /api/bank/transactions/:id`, marked as the person's own), never
+  accounts of record.
 
 ## Security notes
 

@@ -250,7 +250,7 @@ search and profile lookup, used to auto-fill company details during
 onboarding. HMRC and accounting-software integrations are deliberately not
 built the same way yet — they need vendor recognition, per-client OAuth, or
 (for accounting software) would cross into bookkeeping, which is out of
-scope. See `docs/INTEGRATIONS.md` for the full reasoning.
+scope (reading a client's *own* bank statement is the one narrow exception — decision #19). See `docs/INTEGRATIONS.md` for the full reasoning.
 
 ## Activity vs audit
 

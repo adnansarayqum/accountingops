@@ -6,6 +6,8 @@ A running log of decisions that shape the product. Newest at the bottom.
 Scope is deliberately: what's due, what's missing, what's blocked, chase it,
 what next. No ledgers, tax computations, reconciliations, filings or payment
 collection. This keeps the product explainable and focused.
+*(Amended by #19: bank statement transactions are now read, categorised and
+exported. Everything else here still holds.)*
 
 ### 2. Status and "waiting on" are separate fields
 A job's lifecycle position and who holds the next move are different
@@ -107,3 +109,29 @@ router is mounted in `npm run dev`, `vite preview`, and production — not a
 dev-only stub — so what's tested locally is what runs on Railway. Without a
 credential configured, the feature falls back to a labelled sample dataset
 rather than breaking.
+
+### 19. Bank statement transactions are in scope — read, view, correct, export; not a ledger
+Decision #1 ruled out bookkeeping. Ray, the practice's principal, asked for
+the opposite on one point: when a client sends a bank statement on WhatsApp
+or by email, he wants every transaction on it, viewable per client, with a
+suggested category he can correct, a check for missing months, and a CSV he
+can load into Xero or QuickBooks. That is worth reversing #1 for, narrowly.
+
+What is now in scope: every line of a *shared bank statement*, read by a
+model (Sonnet; the document-reading model stays Opus), stored in its own
+tables (`bank_statements`, `bank_transactions`) rather than the practice
+snapshot, shown per client, categorised against a fixed small chart that a
+person can correct, checked (do the lines add up to the closing balance? is a
+month missing between statements?), and exported as CSV.
+
+What is still out: a ledger, double entry, reconciliation against invoices,
+tax computation, anything that posts to or reads from Xero/QuickBooks/etc.
+(#17 stands — the export is a file the accountant loads herself). Categories
+are suggestions for the accountant's own bookkeeping, not accounts of record.
+
+Safeguards that come with it: the model's lines are checked before storage
+and anything it can't back up is dropped and counted rather than guessed; the
+statement's own opening and closing balances are kept so a bad read shows
+itself; only an account number's last four digits are stored; the data lives
+in DB mode only and is sent to Anthropic like every other shared document (see
+`docs/INTEGRATIONS.md`).

@@ -384,6 +384,49 @@ async function runMigrations() {
   `);
   await query('create index if not exists intake_senders_user_idx on intake_senders (user_id)');
 
+  // Bank statements read from shared documents, and every transaction on them
+  // (see lib/bankStatement.mjs). Deliberately outside the practice snapshot: a
+  // year of statements is far more rows than one JSON blob should carry. A
+  // statement is keyed by its document's first upload id, so the app finds a
+  // client's statements through the client's own documents rather than a
+  // client id the server would have to keep in step. Only the last four digits
+  // of an account number are ever kept.
+  await query(`
+    create table if not exists bank_statements (
+      id                text primary key,
+      source_upload_id  text not null unique,
+      upload_ids        jsonb not null,
+      status            text not null check (status in ('reading', 'extracted', 'failed')),
+      error             text,
+      bank_name         text,
+      account_name      text,
+      account_last4     text,
+      period_start      date,
+      period_end        date,
+      opening_balance   numeric(14,2),
+      closing_balance   numeric(14,2),
+      dropped_lines     integer not null default 0,
+      model             text,
+      created_at        timestamptz not null default now(),
+      updated_at        timestamptz not null default now()
+    )
+  `);
+  await query(`
+    create table if not exists bank_transactions (
+      id               text primary key,
+      statement_id     text not null references bank_statements(id) on delete cascade,
+      line_no          integer not null,
+      tx_date          date not null,
+      description      text not null,
+      amount           numeric(14,2) not null,
+      balance          numeric(14,2),
+      category         text not null,
+      category_source  text not null default 'ai' check (category_source in ('ai', 'user')),
+      updated_at       timestamptz not null default now()
+    )
+  `);
+  await query('create index if not exists bank_transactions_statement_idx on bank_transactions (statement_id, line_no)');
+
   await query(`
     create table if not exists practice_snapshot_history (
       id          bigserial primary key,
