@@ -1,7 +1,9 @@
 # Farhan & Raihan Accounting Operations Hub
 
-An operations layer for small UK accountancy practices. It is **not** bookkeeping,
-tax or filing software. It answers, continuously:
+An operations layer for small UK accountancy practices. It is **not** a ledger,
+tax or filing software — though it will read the transactions off a bank
+statement a client sends (see `docs/PRODUCT_DECISIONS.md` #19). It answers,
+continuously:
 
 > **Know what's due. Know what's missing. Know what's blocked. Chase it automatically. Know what to work on next.**
 

@@ -16,6 +16,7 @@ const fake = vi.hoisted(() => ({
   reads: 0,
   keys: new Map(),
   senders: new Map(),
+  statementReads: [],
 }));
 
 vi.mock('../auth.mjs', () => ({
@@ -74,6 +75,13 @@ vi.mock('../../lib/intakeSenders.mjs', async () => {
     }),
   };
 });
+
+vi.mock('../../lib/bankExtraction.mjs', () => ({
+  readStatementsIn: vi.fn(async (result) => {
+    fake.statementReads.push(result);
+  }),
+}));
+vi.mock('../../lib/bankStore.mjs', () => ({ claimStatement: vi.fn(), failStatement: vi.fn(), saveStatement: vi.fn() }));
 
 vi.mock('../../lib/briefingStore.mjs', () => ({
   readPracticeSnapshot: vi.fn(async () => ({ clients: [{ id: 'cl_acme', name: 'Acme Ltd' }], identifiers: [{ id: 'i1', clientId: 'cl_acme', kind: 'company_number', value: '08654123', sensitive: false }] })),
@@ -178,6 +186,7 @@ afterEach(() => {
   fake.reads = 0;
   fake.keys.clear();
   fake.senders.clear();
+  fake.statementReads.length = 0;
   for (const k of ENV_KEYS) {
     if (originalEnv[k] === undefined) delete process.env[k];
     else process.env[k] = originalEnv[k];
@@ -209,6 +218,14 @@ describe('POST /batches', () => {
     ]);
     expect(fake.uploads.map((u) => u.userId)).toEqual(['u_ray', 'u_ray']);
     expect(fake.activity[0]).toMatchObject({ source: 'share', userId: 'u_ray', holdMinutes: 10 });
+  });
+
+  it('hands what it found to the bank statement reader, so a statement’s transactions are read too', async () => {
+    fake.read = [{ parts: [0], documentType: 'Bank statement', reference: null, letterDate: null, period: null, identifiers: { companyNumber: null, utr: null, vatNumber: null, payeReference: null }, clientId: null, confidence: 0, rationale: 'x', summary: 'Statement' }];
+    const res = await share([jpeg()]);
+    expect(res.status).toBe(201);
+    expect(fake.statementReads).toHaveLength(1);
+    expect(fake.statementReads[0].documents[0]).toMatchObject({ documentType: 'Bank statement', uploadIds: [expect.any(String)] });
   });
 
   it('rejects a bad share before storing anything', async () => {

@@ -33,6 +33,9 @@ import { listSenders, MAX_SENDERS, setSenders, userForSender } from '../lib/inta
 import { assignDocument, findDuplicateBatch, markActivityApplied, pendingActivity, queueDocument, readUpload, releaseBatch, saveBatch } from '../lib/intakeStore.mjs';
 import { readBatch } from '../lib/intakeReader.mjs';
 import { readPracticeSnapshot } from '../lib/briefingStore.mjs';
+import { extractStatement } from '../lib/bankStatement.mjs';
+import { claimStatement, failStatement, saveStatement } from '../lib/bankStore.mjs';
+import { readStatementsIn } from '../lib/bankExtraction.mjs';
 import { processBatch } from '../lib/intakePipeline.mjs';
 
 const router = express.Router();
@@ -42,6 +45,9 @@ router.get('/status', (_req, res) => {
 });
 
 router.use((req, res, next) => (isDatabaseConfigured() ? next() : res.status(503).json({ error: 'not_configured' })));
+
+// A share that turns out to hold a bank statement also has its transactions read, queued behind any others.
+const bankDeps = { claimStatement, failStatement, saveStatement, readUpload, extractStatement };
 
 const fail = (res, status, error) => res.status(status).json({ error, message: ERROR_MESSAGES[error] });
 
@@ -88,6 +94,7 @@ router.post('/batches', keyAttemptLimiter, uploadAuth, batchLimiter, batchBody, 
     { saveBatch, findDuplicateBatch, queueDocument, readBatch, readPracticeSnapshot },
   );
   if (result.duplicate) return fail(res, 409, 'already_shared');
+  await readStatementsIn(result, bankDeps);
   res.status(201).json({ ...result, message: shareMessage(result) });
 });
 
@@ -138,7 +145,10 @@ router.post(
     res.json({ ok: true });
     // Nothing waits on this: a failure is logged, and every part was stored before any read could fail.
     processBatch({ parts: checked.parts, userId: req.emailUser.id, source: 'email', holdMinutes: 0 }, emailDeps).then(
-      (result) => logInbound(result.duplicate ? 'Skipped a repeat of an email' : 'Filed an email', { documents: result.documents?.length ?? 0 }),
+      async (result) => {
+        logInbound(result.duplicate ? 'Skipped a repeat of an email' : 'Filed an email', { documents: result.documents?.length ?? 0 });
+        await readStatementsIn(result, bankDeps);
+      },
       (err) => console.error(JSON.stringify({ level: 'error', at: new Date().toISOString(), source: 'inbound-email', message: `Could not process an email: ${err?.message ?? err}` })),
     );
   },
