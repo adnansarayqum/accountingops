@@ -569,6 +569,29 @@ for again (`POST /api/bank/statements/read`, ten a minute per person).
   the accountant's bookkeeping, correctable per line
   (`PATCH /api/bank/transactions/:id`, marked as the person's own), never
   accounts of record.
+- **Where it shows.** A client's page has a "Bank transactions" card linking to
+  `/clients/:id/transactions`: the client's statements (reading… / adds up / off
+  by £x / failed with a retry), the **checks**, the lines with a category a
+  person can change, totals by category, and the export. The page finds the
+  statements through the client's own bank-statement documents, and while one
+  is being read it asks again every few seconds. A document the model typed
+  differently can be changed to "Bank statement" in Smart Inbox; it then shows
+  on this page with a "Read transactions" button.
+- **Checks** are plain arithmetic, in `src/domain/rules/bankStatements.ts`: does
+  opening balance plus every line come to the closing balance (to the penny);
+  does any day between a statement and the next of the same account go
+  uncovered (a missing month); do two statements overlap (lines then appear
+  twice); does a statement open at a different balance than the last one closed
+  at; were lines left out. Accounts are told apart by bank and last four digits.
+- **Export** is a CSV the accountant loads herself — never a connection to
+  Xero or QuickBooks. *Xero*: `*Date,*Amount,Payee,Description,Reference,Check
+  Number` (day-first dates, signed amounts); *QuickBooks*: `Date,Description,
+  Amount`; *Everything*: every field including the category and who set it. It
+  exports the lines currently shown (so filter first to export one account or
+  category). A description that starts with `=`, `+`, `-` or `@` is prefixed
+  with an apostrophe so a spreadsheet can't run it as a formula; the layouts
+  follow the products' documented bank-statement imports but have not been
+  loaded into either one.
 
 ## Security notes
 

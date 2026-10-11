@@ -12,6 +12,7 @@ import { UnavailablePage } from './pages/UnavailablePage';
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })));
 const AttentionPage = lazy(() => import('./pages/AttentionPage').then((module) => ({ default: module.AttentionPage })));
 const ClientsPage = lazy(() => import('./pages/ClientsPage').then((module) => ({ default: module.ClientsPage })));
+const ClientTransactionsPage = lazy(() => import('./pages/ClientTransactionsPage').then((module) => ({ default: module.ClientTransactionsPage })));
 const ClientDetailPage = lazy(() => import('./pages/ClientDetailPage').then((module) => ({ default: module.ClientDetailPage })));
 const NewClientPage = lazy(() => import('./pages/NewClientPage').then((module) => ({ default: module.NewClientPage })));
 const ImportClientsPage = lazy(() => import('./pages/ImportClientsPage').then((module) => ({ default: module.ImportClientsPage })));
@@ -143,6 +144,7 @@ function AuthenticatedApp() {
           <Route path="clients/new" element={<NewClientPage />} />
           <Route path="clients/import" element={<ImportClientsPage />} />
           <Route path="clients/:clientId" element={<ClientDetailPage />} />
+          <Route path="clients/:clientId/transactions" element={<ClientTransactionsPage />} />
           <Route path="jobs" element={<JobsPage />} />
           <Route path="jobs/:jobId" element={<JobDetailPage />} />
           <Route path="chasing" element={<ChasingPage />} />
