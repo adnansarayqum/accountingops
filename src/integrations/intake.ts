@@ -175,3 +175,36 @@ export async function revokeUploadKey(id: string): Promise<boolean> {
     return false;
   }
 }
+
+/** Where to forward emails, and which sender addresses are accepted for this user. */
+export interface EmailForwarding {
+  /** The address to forward to; null until the server's inbound email is fully set up. */
+  address: string | null;
+  ready: boolean;
+  senders: string[];
+  maxSenders: number;
+}
+
+export async function getEmailForwarding(): Promise<EmailForwarding | null> {
+  try {
+    const res = await fetch('/api/intake/email');
+    return res.ok ? await safeJson<EmailForwarding>(res) : null;
+  } catch {
+    return null;
+  }
+}
+
+export type SaveSendersResult = { ok: true; senders: string[] } | { ok: false; error: 'invalid' | 'too_many' | 'taken' | 'failed'; email?: string };
+
+export async function saveEmailSenders(senders: string[]): Promise<SaveSendersResult> {
+  try {
+    const res = await fetch('/api/intake/email/senders', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ senders }) });
+    const body = await safeJson<{ senders?: string[]; error?: string; email?: string }>(res);
+    if (res.ok && body?.senders) return { ok: true, senders: body.senders };
+    const error = body?.error;
+    if (error === 'invalid' || error === 'too_many' || error === 'taken') return { ok: false, error, email: body?.email };
+    return { ok: false, error: 'failed' };
+  } catch {
+    return { ok: false, error: 'failed' };
+  }
+}

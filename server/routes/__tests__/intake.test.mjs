@@ -15,6 +15,7 @@ const fake = vi.hoisted(() => ({
   read: null,
   reads: 0,
   keys: new Map(),
+  senders: new Map(),
 }));
 
 vi.mock('../auth.mjs', () => ({
@@ -46,6 +47,30 @@ vi.mock('../../lib/intakeTokens.mjs', async () => {
       const key = [...fake.keys.values()].find((k) => k.id === id && k.userId === userId && !k.revoked);
       if (key) key.revoked = true;
       return Boolean(key);
+    }),
+  };
+});
+
+vi.mock('../../lib/intakeSenders.mjs', async () => {
+  const inbound = await vi.importActual('../../lib/inboundEmail.mjs');
+  return {
+    MAX_SENDERS: 5,
+    userForSender: vi.fn(async (email) => {
+      const userId = fake.senders.get(inbound.normaliseEmail(email));
+      return userId ? { id: userId, username: userId, role: 'owner' } : null;
+    }),
+    listSenders: vi.fn(async (userId) => [...fake.senders].filter(([, id]) => id === userId).map(([email]) => email)),
+    setSenders: vi.fn(async (userId, emails) => {
+      const wanted = [];
+      for (const raw of emails ?? []) {
+        const email = inbound.normaliseEmail(raw);
+        if (!email) return { error: 'invalid', email: String(raw) };
+        wanted.push(email);
+      }
+      for (const email of wanted) if (fake.senders.has(email) && fake.senders.get(email) !== userId) return { error: 'taken', email };
+      for (const [email, id] of [...fake.senders]) if (id === userId) fake.senders.delete(email);
+      for (const email of wanted) fake.senders.set(email, userId);
+      return { senders: wanted };
     }),
   };
 });
@@ -106,7 +131,7 @@ const { default: router } = await import('../intake.mjs');
 
 let server;
 let baseUrl;
-const ENV_KEYS = ['DATABASE_URL', 'ANTHROPIC_API_KEY'];
+const ENV_KEYS = ['DATABASE_URL', 'ANTHROPIC_API_KEY', 'INBOUND_EMAIL_USERNAME', 'INBOUND_EMAIL_PASSWORD', 'INBOUND_EMAIL_ADDRESS', 'INBOUND_EMAIL_REQUIRE_SPF'];
 const originalEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 const asRay = { 'x-test-user': 'u_ray' };
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
@@ -152,6 +177,7 @@ afterEach(() => {
   fake.read = null;
   fake.reads = 0;
   fake.keys.clear();
+  fake.senders.clear();
   for (const k of ENV_KEYS) {
     if (originalEnv[k] === undefined) delete process.env[k];
     else process.env[k] = originalEnv[k];
@@ -363,5 +389,114 @@ describe('upload keys for the iPhone Shortcut', () => {
     for (let i = 0; i < 11; i += 1) statuses.push((await upload([], withKey(token))).status);
     expect(statuses.slice(0, 10).every((s) => s === 400)).toBe(true);
     expect(statuses[10]).toBe(429);
+  });
+});
+
+const JPEG_ATTACHMENT = (name = 'statement.jpg') => ({ Name: name, Content: JPEG.toString('base64'), ContentType: 'application/octet-stream', ContentLength: JPEG.length });
+
+function inboundEmail(overrides = {}) {
+  return {
+    FromFull: { Email: 'Ray@Example.com', Name: 'Ray' },
+    From: 'Ray <ray@example.com>',
+    Subject: 'Statement from Acme',
+    TextBody: 'Forwarding this from the client.',
+    Headers: [{ Name: 'Received-SPF', Value: 'Pass (sender SPF authorized)' }],
+    Attachments: [JPEG_ATTACHMENT()],
+    ...overrides,
+  };
+}
+
+const postEmail = (payload, headers = {}) =>
+  request('POST', '/api/intake/email/inbound', payload, { Authorization: `Basic ${Buffer.from('postmark:s3cret').toString('base64')}`, ...headers });
+
+describe('forwarded emails', () => {
+  beforeEach(() => {
+    process.env.INBOUND_EMAIL_USERNAME = 'postmark';
+    process.env.INBOUND_EMAIL_PASSWORD = 's3cret';
+    fake.senders.set('ray@example.com', 'u_mail1');
+  });
+
+  it('is refused without the webhook credentials, and says so when none are configured', async () => {
+    expect((await request('POST', '/api/intake/email/inbound', inboundEmail())).status).toBe(401);
+    expect((await postEmail(inboundEmail(), { Authorization: `Basic ${Buffer.from('postmark:wrong').toString('base64')}` })).status).toBe(401);
+    expect((await request('POST', '/api/intake/email/inbound', inboundEmail(), asRay)).status).toBe(401); // a signed-in session is not the webhook
+    delete process.env.INBOUND_EMAIL_PASSWORD;
+    expect((await postEmail(inboundEmail())).status).toBe(503);
+    expect(fake.uploads).toEqual([]);
+  });
+
+  it('files an email from a listed sender: attachments and its own text, straight to Smart Inbox, answered at once', async () => {
+    const res = await postEmail(inboundEmail());
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+    await vi.waitFor(() => expect(fake.activity.length).toBeGreaterThan(0));
+    expect(fake.uploads.map((u) => [u.userId, u.contentType, u.fileName])).toEqual([
+      ['u_mail1', 'image/jpeg', 'statement.jpg'],
+      ['u_mail1', 'text/plain', 'Shared text.txt'],
+    ]);
+    expect(fake.uploads[1].bytes.toString()).toContain('Email forwarded by ray@example.com\nSubject: Statement from Acme');
+    expect(fake.activity[0]).toMatchObject({ source: 'email', userId: 'u_mail1', holdMinutes: 0, held: false });
+  });
+
+  it('names an attachment it cannot read in the email’s text', async () => {
+    await postEmail(inboundEmail({ Attachments: [{ Name: 'accounts.xlsx', Content: Buffer.from('PK').toString('base64'), ContentType: 'application/vnd.ms-excel' }] }));
+    await vi.waitFor(() => expect(fake.uploads.length).toBe(1));
+    expect(fake.uploads[0].bytes.toString()).toContain('Attachments that could not be read: accounts.xlsx');
+  });
+
+  it('ignores — with a 200, so Postmark does not retry — an email nobody lists, or whose SPF did not pass', async () => {
+    const unknown = await postEmail(inboundEmail({ FromFull: { Email: 'stranger@example.com' }, From: 'stranger@example.com' }));
+    expect(unknown.body).toEqual({ ok: true, ignored: 'unknown_sender' });
+    const spoofed = await postEmail(inboundEmail({ Headers: [{ Name: 'Received-SPF', Value: 'Fail (not designated)' }] }));
+    expect(spoofed.body).toEqual({ ok: true, ignored: 'spf_failed' });
+    const unsigned = await postEmail(inboundEmail({ Headers: [] }));
+    expect(unsigned.body.ignored).toBe('spf_failed');
+    expect(fake.uploads).toEqual([]);
+    expect(fake.reads).toBe(0);
+  });
+
+  it('can be told not to require SPF', async () => {
+    process.env.INBOUND_EMAIL_REQUIRE_SPF = '0';
+    expect((await postEmail(inboundEmail({ Headers: [] }))).body).toEqual({ ok: true });
+    await vi.waitFor(() => expect(fake.activity.length).toBeGreaterThan(0));
+  });
+
+  it('does not read the same email twice', async () => {
+    fake.duplicate = 'inb_earlier';
+    expect((await postEmail(inboundEmail())).body).toEqual({ ok: true });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fake.uploads).toEqual([]);
+    expect(fake.reads).toBe(0);
+  });
+
+  it('answers 429 once a person has sent twenty in a minute, so Postmark tries again later', async () => {
+    fake.duplicate = 'inb_earlier'; // nothing to process — only the limit is under test
+    fake.senders.set('ray@example.com', 'u_mail_limit');
+    const statuses = [];
+    for (let i = 0; i < 21; i += 1) statuses.push((await postEmail(inboundEmail())).status);
+    expect(statuses.slice(0, 20).every((s) => s === 200)).toBe(true);
+    expect(statuses[20]).toBe(429);
+  });
+});
+
+describe('where to forward emails', () => {
+  it('shows the address only when the webhook is fully set up, and lists the user’s senders', async () => {
+    fake.senders.set('ray@example.com', 'u_mail2');
+    expect((await request('GET', '/api/intake/email', undefined, { 'x-test-user': 'u_mail2' })).body).toEqual({ address: null, ready: false, senders: ['ray@example.com'], maxSenders: 5 });
+    process.env.INBOUND_EMAIL_ADDRESS = 'abc123@inbound.example.com';
+    expect((await request('GET', '/api/intake/email', undefined, { 'x-test-user': 'u_mail2' })).body.ready).toBe(false);
+    process.env.INBOUND_EMAIL_USERNAME = 'postmark';
+    process.env.INBOUND_EMAIL_PASSWORD = 's3cret';
+    expect((await request('GET', '/api/intake/email', undefined, { 'x-test-user': 'u_mail2' })).body).toMatchObject({ address: 'abc123@inbound.example.com', ready: true });
+    expect((await request('GET', '/api/intake/email')).status).toBe(401);
+  });
+
+  it('saves the addresses to forward from, refusing a bad one or one another person already has', async () => {
+    const as = { 'x-test-user': 'u_mail3' };
+    expect((await request('PUT', '/api/intake/email/senders', { senders: ['Ray@Example.com', 'ray@work.co.uk'] }, as)).body).toEqual({ senders: ['ray@example.com', 'ray@work.co.uk'] });
+    expect((await request('PUT', '/api/intake/email/senders', { senders: ['nope'] }, as))).toMatchObject({ status: 400, body: { error: 'invalid' } });
+    expect((await request('PUT', '/api/intake/email/senders', { senders: ['ray@example.com'] }, { 'x-test-user': 'u_mail4' }))).toMatchObject({ status: 409, body: { error: 'taken', email: 'ray@example.com' } });
+    expect((await request('PUT', '/api/intake/email/senders', { senders: [] }, as)).body).toEqual({ senders: [] });
+    expect((await request('PUT', '/api/intake/email/senders', { senders: [] })).status).toBe(401);
   });
 });
