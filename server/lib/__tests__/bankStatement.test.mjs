@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Anthropic from '@anthropic-ai/sdk';
+import { BANK_CATEGORIES as APP_CATEGORIES } from '../../../src/domain/rules/bankStatements.ts';
 import { BANK_CATEGORIES, DEFAULT_TRANSACTIONS_MODEL, extractStatement, sanitiseStatement, STATEMENT_SCHEMA } from '../bankStatement.mjs';
 
 const line = (overrides = {}) => ({ date: '2026-01-05', description: 'ACME LTD  FASTER PAYMENT', amount: 1250, balance: 3250.5, category: 'Sales / income', ...overrides });
@@ -58,6 +59,10 @@ describe('sanitiseStatement', () => {
 });
 
 describe('the schema', () => {
+  it('offers the same categories the app lets a person choose from, in the same order', () => {
+    expect([...APP_CATEGORIES]).toEqual(BANK_CATEGORIES);
+  });
+
   it('offers exactly the categories the app knows, and requires every field so nothing is silently left out', () => {
     expect(STATEMENT_SCHEMA.properties.transactions.items.properties.category.enum).toEqual(BANK_CATEGORIES);
     expect(new Set(BANK_CATEGORIES).size).toBe(BANK_CATEGORIES.length);

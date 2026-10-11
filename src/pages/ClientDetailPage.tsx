@@ -26,6 +26,7 @@ import { ContactsCard } from '../ui/components/ContactsCard';
 import { AmlReviewCard, TurnoverCard } from '../ui/components/ComplianceCards';
 import { TimeTrackingCard, WipCard } from '../ui/components/WorkRecordCards';
 import { InvoicesCard } from '../ui/components/InvoicesCard';
+import { BankStatementsCard } from '../ui/components/BankStatementsCard';
 import { getCompaniesHouseStatus, getCompanyPeople, getCompanyProfile } from '../integrations/companiesHouse';
 
 const ID_ORDER: IdentifierKind[] = ['utr', 'nino', 'company_number', 'vat_number', 'paye_reference', 'accounts_office_ref', 'ch_auth_code', 'personal_code', 'gateway_credentials'];
@@ -364,6 +365,7 @@ export function ClientDetailPage() {
             <WipCard clientId={client.id} />
             <TimeTrackingCard clientId={client.id} />
             <InvoicesCard clientId={client.id} />
+            <BankStatementsCard clientId={client.id} />
 
             <Card>
               <CardHeader title="Identifiers" description="Masked by default. Reveals are recorded in the audit log." />
