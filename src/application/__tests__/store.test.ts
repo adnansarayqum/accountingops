@@ -895,6 +895,16 @@ describe('application store — receiving documents shared into the app', () => 
     expect(docs.find((d) => d.intakeUploadIds?.includes('inu_1'))).toMatchObject({ clientId: 'cl_abc', documentType: 'Bank statement', intakeUploadIds: ['inu_1', 'inu_2'] });
   });
 
+  it('says how a document reached the server: the phone app, the iPhone Shortcut, or a forwarded email', () => {
+    useAppStore.getState().receiveIntakeActivity([
+      row({ filed: false }),
+      row({ id: 'ina_s', uploadIds: ['inu_s'], source: 'shortcut', filed: false }),
+      row({ id: 'ina_e', uploadIds: ['inu_e'], source: 'email', filed: false }),
+      row({ id: 'ina_x', uploadIds: ['inu_x'], source: 'something-new', filed: false }),
+    ]);
+    expect(['inu_1', 'inu_s', 'inu_e', 'inu_x'].map((id) => itemFor(id).sender)).toEqual(['Shared from phone', 'Shared from iPhone', 'Forwarded email', 'Shared from phone']);
+  });
+
   it('counts a bank statement from the client as the client getting in touch', () => {
     const before = useAppStore.getState().data.communications.length;
     useAppStore.getState().receiveIntakeActivity([row()]);

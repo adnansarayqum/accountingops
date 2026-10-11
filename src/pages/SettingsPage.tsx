@@ -11,6 +11,7 @@ import { DuplicatePeopleCard } from '../ui/components/DuplicatePeopleCard';
 import { CorporationTaxCard } from '../ui/components/CorporationTaxCard';
 import { HmrcConnectionCard } from '../ui/components/HmrcConnectionCard';
 import { InstallAppCard } from '../ui/components/InstallAppCard';
+import { UploadKeysCard } from '../ui/components/UploadKeysCard';
 import { BriefingEmailCard } from '../ui/components/BriefingEmailCard';
 import { useAppStore } from '../application/store';
 import { useData } from '../application/selectors';
@@ -125,6 +126,7 @@ export function SettingsPage() {
       <ThresholdsCard />
       <HmrcConnectionCard />
       <InstallAppCard />
+      {authMode === 'server' && <UploadKeysCard />}
       <MessagingStatusCard />
       <DuplicatePeopleCard />
       <CorporationTaxCard />

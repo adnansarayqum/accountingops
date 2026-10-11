@@ -870,7 +870,7 @@ export const useAppStore = create<AppState>((set, get) => {
             fileName: entry.fileName,
             receivedAt: entry.createdAt,
             source: 'share',
-            sender: 'Shared from phone',
+            sender: SHARE_SENDER[entry.source] ?? 'Shared from phone',
             sizeKb: entry.sizeKb,
             intakeUploadIds: entry.uploadIds,
             summary: entry.summary ?? undefined,
@@ -1725,6 +1725,9 @@ class MutationContext {
     });
   }
 }
+
+/** Who a document came from, by how it reached the server (intake_activity.source). */
+const SHARE_SENDER: Record<string, string> = { share: 'Shared from phone', shortcut: 'Shared from iPhone', email: 'Forwarded email' };
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const PERIOD_MONTHS = { annual: 12, quarterly: 3, monthly: 1, none: 12 } as const;

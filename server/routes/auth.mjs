@@ -19,6 +19,7 @@ import { createRateLimiter } from '../lib/rateLimit.mjs';
 import { clearSessionCookie, parseCookies, SESSION_COOKIE, setSessionCookie } from '../lib/cookies.mjs';
 import { permissionsFor } from '../lib/authorization.mjs';
 import { recordSecurityEvent } from '../lib/securityAudit.mjs';
+import { revokeAllTokens } from '../lib/intakeTokens.mjs';
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
 
@@ -169,6 +170,7 @@ router.post('/logout-everywhere', async (req, res) => {
   const user = await currentUser(req);
   if (!user) return res.status(401).json({ error: 'not_authenticated' });
   await query('delete from practice_sessions where user_id = $1', [user.id]);
+  await revokeAllTokens(user.id);
   await auditBestEffort({ req, actor: user, action: 'auth.logout_everywhere', targetType: 'user', targetId: user.id });
   clearSessionCookie(res);
   res.json({ ok: true });
@@ -200,6 +202,7 @@ router.post('/change-password', async (req, res) => {
   // has access — make it actually lock the others out, not just the
   // account. Keeps the session making this request signed in.
   await query('delete from practice_sessions where user_id = $1 and token != $2', [user.id, hashSessionToken(token)]);
+  await revokeAllTokens(user.id);
   await auditBestEffort({ req, actor: user, action: 'auth.password_changed', targetType: 'user', targetId: user.id, details: { wasTemporary: user.mustChangePassword } });
   res.json({ ok: true });
 });

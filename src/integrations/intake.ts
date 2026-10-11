@@ -137,3 +137,41 @@ export async function releaseShare(batchId: string): Promise<void> {
     // The hold runs out on its own; nothing is lost.
   }
 }
+
+/** A personal upload key, for the iPhone Shortcut. The key itself is only ever shown once, when made. */
+export interface UploadKey {
+  id: string;
+  label: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export async function listUploadKeys(): Promise<UploadKey[] | null> {
+  try {
+    const res = await fetch('/api/intake/tokens');
+    if (!res.ok) return null;
+    return (await safeJson<{ tokens: UploadKey[] }>(res))?.tokens ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function createUploadKey(label: string): Promise<{ ok: true; key: UploadKey; token: string } | { ok: false; error: 'too_many' | 'failed' }> {
+  try {
+    const res = await fetch('/api/intake/tokens', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label }) });
+    if (res.status === 409) return { ok: false, error: 'too_many' };
+    const made = res.ok ? await safeJson<{ id: string; label: string; token: string }>(res) : null;
+    if (!made) return { ok: false, error: 'failed' };
+    return { ok: true, key: { id: made.id, label: made.label, createdAt: new Date().toISOString(), lastUsedAt: null }, token: made.token };
+  } catch {
+    return { ok: false, error: 'failed' };
+  }
+}
+
+export async function revokeUploadKey(id: string): Promise<boolean> {
+  try {
+    return (await fetch(`/api/intake/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' })).ok;
+  } catch {
+    return false;
+  }
+}
