@@ -372,6 +372,18 @@ async function runMigrations() {
   `);
   await query('create index if not exists intake_tokens_user_idx on intake_tokens (user_id) where revoked_at is null');
 
+  // The addresses a person forwards documents from. A forwarded email is
+  // filed for whichever user lists its sender, so an address belongs to at
+  // most one person (see lib/intakeSenders.mjs).
+  await query(`
+    create table if not exists intake_senders (
+      email       text primary key,
+      user_id     text not null references practice_users(id) on delete cascade,
+      created_at  timestamptz not null default now()
+    )
+  `);
+  await query('create index if not exists intake_senders_user_idx on intake_senders (user_id)');
+
   await query(`
     create table if not exists practice_snapshot_history (
       id          bigserial primary key,

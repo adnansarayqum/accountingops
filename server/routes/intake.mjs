@@ -10,6 +10,11 @@
  * the share screen can correct a client (POST /activity/:id/assign) before
  * anyone sees it; Done (POST /batches/:id/release) lets it through at once.
  *
+ * Emails forwarded to the practice's inbound address arrive at
+ * POST /email/inbound — a Postmark webhook, authenticated by the Basic
+ * credentials in its URL rather than a session. The sender must be an
+ * address a user has listed (GET/PUT /email), and its SPF must have passed.
+ *
  * POST /batches is also what the iPhone Shortcut calls, with a personal
  * upload key (Authorization: Bearer frk_…) and a multipart form instead of
  * JSON. That key opens this one route and nothing else, and a Shortcut
@@ -21,8 +26,10 @@ import express from 'express';
 import { isDatabaseConfigured } from '../lib/db.mjs';
 import { createRateLimiter } from '../lib/rateLimit.mjs';
 import { requireAuth } from './auth.mjs';
-import { BODY_LIMIT_BYTES, ERROR_MESSAGES, readMultipart, SHARE_HOLD_MINUTES, shareMessage, validateBatch } from '../lib/intake.mjs';
+import { BODY_LIMIT_BYTES, ERROR_MESSAGES, readMultipart, SHARE_HOLD_MINUTES, shareMessage, validateBatch, validateParts } from '../lib/intake.mjs';
 import { createToken, listTokens, parseBearer, revokeToken, userForToken } from '../lib/intakeTokens.mjs';
+import { checkBasicAuth, emailToBatch, senderOf, spfPassed } from '../lib/inboundEmail.mjs';
+import { listSenders, MAX_SENDERS, setSenders, userForSender } from '../lib/intakeSenders.mjs';
 import { assignDocument, findDuplicateBatch, markActivityApplied, pendingActivity, queueDocument, readUpload, releaseBatch, saveBatch } from '../lib/intakeStore.mjs';
 import { readBatch } from '../lib/intakeReader.mjs';
 import { readPracticeSnapshot } from '../lib/briefingStore.mjs';
@@ -84,6 +91,59 @@ router.post('/batches', keyAttemptLimiter, uploadAuth, batchLimiter, batchBody, 
   res.status(201).json({ ...result, message: shareMessage(result) });
 });
 
+// A forwarded email, from Postmark. Everything that can refuse it does so
+// before a byte is parsed or a model asked anything; once it passes, Postmark
+// gets its 200 at once and the (slow) read carries on, so a long statement
+// never makes Postmark time out and send the same email again.
+const MAX_EMAIL_BODY = '50mb';
+const emailDeps = { saveBatch, findDuplicateBatch, queueDocument, readBatch, readPracticeSnapshot };
+const emailLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 20, keyFor: (req) => req.emailUser?.id, name: 'rate_limited' });
+const inboundAttemptLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 120, keyFor: (req) => req.ip, name: 'rate_limited' });
+
+function logInbound(message, extra = {}) {
+  console.log(JSON.stringify({ level: 'info', at: new Date().toISOString(), source: 'inbound-email', message, ...extra }));
+}
+
+router.post(
+  '/email/inbound',
+  inboundAttemptLimiter,
+  (req, res, next) => {
+    const credentials = { username: process.env.INBOUND_EMAIL_USERNAME, password: process.env.INBOUND_EMAIL_PASSWORD };
+    if (!credentials.username || !credentials.password) return res.status(503).json({ error: 'not_configured' });
+    if (!checkBasicAuth(req.get('authorization'), credentials)) return res.status(401).json({ error: 'not_authenticated' });
+    next();
+  },
+  express.json({ limit: MAX_EMAIL_BODY }),
+  async (req, res, next) => {
+    // Always 200 for an email we choose not to file: Postmark retries anything else, and a retry changes nothing.
+    const ignore = (reason) => {
+      logInbound('Ignored an email', { reason });
+      res.json({ ok: true, ignored: reason });
+    };
+    const sender = senderOf(req.body);
+    const user = sender ? await userForSender(sender) : null;
+    if (!user) return ignore('unknown_sender');
+    if (process.env.INBOUND_EMAIL_REQUIRE_SPF !== '0' && !spfPassed(req.body)) return ignore('spf_failed');
+    req.emailUser = user;
+    next();
+  },
+  emailLimiter,
+  async (req, res) => {
+    const batch = emailToBatch(req.body);
+    const checked = validateParts(batch.files, batch.text);
+    if (checked.error) {
+      logInbound('Ignored an email', { reason: checked.error });
+      return res.json({ ok: true, ignored: checked.error });
+    }
+    res.json({ ok: true });
+    // Nothing waits on this: a failure is logged, and every part was stored before any read could fail.
+    processBatch({ parts: checked.parts, userId: req.emailUser.id, source: 'email', holdMinutes: 0 }, emailDeps).then(
+      (result) => logInbound(result.duplicate ? 'Skipped a repeat of an email' : 'Filed an email', { documents: result.documents?.length ?? 0 }),
+      (err) => console.error(JSON.stringify({ level: 'error', at: new Date().toISOString(), source: 'inbound-email', message: `Could not process an email: ${err?.message ?? err}` })),
+    );
+  },
+);
+
 router.use(requireAuth);
 
 router.use(express.json({ limit: '16kb' }));
@@ -111,6 +171,20 @@ router.post('/tokens', async (req, res) => {
 router.delete('/tokens/:id', async (req, res) => {
   if (!(await revokeToken(String(req.params.id), req.user.id))) return res.status(404).json({ error: 'not_found' });
   res.json({ ok: true });
+});
+
+// Where to forward emails, and which addresses to accept them from.
+router.get('/email', async (req, res) => {
+  const address = process.env.INBOUND_EMAIL_ADDRESS || null;
+  const ready = Boolean(address && process.env.INBOUND_EMAIL_USERNAME && process.env.INBOUND_EMAIL_PASSWORD);
+  res.json({ address: ready ? address : null, ready, senders: await listSenders(req.user.id), maxSenders: MAX_SENDERS });
+});
+
+router.put('/email/senders', async (req, res) => {
+  const result = await setSenders(req.user.id, req.body?.senders);
+  if (result.error === 'taken') return res.status(409).json({ error: 'taken', email: result.email });
+  if (result.error) return res.status(400).json({ error: result.error, email: result.email });
+  res.json({ senders: result.senders });
 });
 
 router.post('/batches/:id/release', async (req, res) => {

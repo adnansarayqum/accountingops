@@ -494,6 +494,49 @@ of URL" action sends `Authorization: Bearer frk_…` and a multipart **Form**
 The Shortcut itself is built by hand from the steps Settings lists — Apple
 only accepts Shortcut files it has signed, so there is no file to download.
 
+**Forwarding an email.** Forward any email — attachments and all — to the
+practice's inbound address and it is read and filed like a share. Set up
+once, in Postmark (the same account that sends reminders, or its own):
+
+1. Create an **Inbound** stream (or a server with one) and note its inbound
+   address (`<hash>@inbound.postmarkapp.com`), or point an MX record for a
+   subdomain at Postmark to use a friendlier address. Set the address in
+   `INBOUND_EMAIL_ADDRESS` so Settings can show it.
+2. Set the stream's webhook URL to
+   `https://<user>:<password>@<your-host>/api/intake/email/inbound` and put the
+   same pair in `INBOUND_EMAIL_USERNAME` / `INBOUND_EMAIL_PASSWORD` (Postmark
+   sends them as HTTP Basic). With either unset the route answers 503 and the
+   Settings card says it isn't set up.
+3. Each person lists the addresses they forward from in Settings → "Email
+   documents in" (`intake_senders`; up to five, each belonging to one person).
+
+What it does, and where it deliberately stops:
+
+- **Believed only after four checks:** the webhook credentials, a sender that
+  a user has listed, an SPF `pass` in the `Received-SPF` header Postmark adds
+  (`INBOUND_EMAIL_REQUIRE_SPF=0` turns that one off), and the per-person limit
+  of twenty a minute (429, so Postmark tries again later). An email that fails
+  a check gets a 200 and is dropped — Postmark retries anything else, and a
+  retry changes nothing — with the reason logged, never the content.
+- **One email, one share:** every readable attachment (same types and limits
+  as everywhere) plus the email's own text — sender, subject, date and body
+  (HTML-only mail is reduced to text) — as a text part. Attachments that can't
+  be read (a spreadsheet, a zip) are named in that text, so it's visible that
+  something came with it; small inline images such as signature logos are
+  ignored.
+- **Answered at once, read afterwards:** Postmark gets its 200 as soon as the
+  email passes the checks and the read carries on, so a long statement can't
+  make Postmark time out and resend. Everything is stored before the read, a
+  repeat is recognised by its hashes, and a failed read still lands in Smart
+  Inbox unread. Documents go straight there (`source: email`, "Forwarded
+  email"), with the same filing rules and suggested updates as any share.
+- **Residual risk, stated plainly:** SPF checks the server that sent the
+  message, not that its "From" is honest, so a determined spoofer who knew both
+  the (unguessable) inbound address and a listed sender could get a document
+  read and, if it matched a client confidently, filed. The address is the
+  secret to protect; if it leaks, issue a new inbound address and update
+  `INBOUND_EMAIL_ADDRESS`.
+
 ## Security notes
 
 - API keys live only in environment variables read server-side

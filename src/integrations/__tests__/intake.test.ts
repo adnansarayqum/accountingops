@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { assignSharedDocument, createUploadKey, listUploadKeys, revokeUploadKey, sendShare } from '../intake';
+import { assignSharedDocument, createUploadKey, getEmailForwarding, listUploadKeys, revokeUploadKey, saveEmailSenders, sendShare } from '../intake';
 
 function respond(status: number, body: unknown) {
   const spy = vi.fn(async () => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -78,5 +78,35 @@ describe('upload keys', () => {
     expect((spy.mock.calls[0] as unknown as [string, RequestInit])[1].method).toBe('DELETE');
     respond(404, {});
     expect(await revokeUploadKey('ink_9')).toBe(false);
+  });
+});
+
+describe('email forwarding', () => {
+  it('reads where to forward and the saved senders, or null without a server', async () => {
+    const body = { address: 'abc@inbound.example.com', ready: true, senders: ['ray@example.com'], maxSenders: 5 };
+    const spy = respond(200, body);
+    expect(await getEmailForwarding()).toEqual(body);
+    expect((spy.mock.calls[0] as unknown as [string])[0]).toBe('/api/intake/email');
+    respond(503, { error: 'not_configured' });
+    expect(await getEmailForwarding()).toBeNull();
+    vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('offline'))));
+    expect(await getEmailForwarding()).toBeNull();
+  });
+
+  it('saves senders, and says which address was refused and why', async () => {
+    const spy = respond(200, { senders: ['ray@example.com'] });
+    expect(await saveEmailSenders(['Ray@Example.com'])).toEqual({ ok: true, senders: ['ray@example.com'] });
+    const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.method).toBe('PUT');
+    expect(JSON.parse(String(init.body))).toEqual({ senders: ['Ray@Example.com'] });
+
+    respond(400, { error: 'invalid', email: 'nope' });
+    expect(await saveEmailSenders(['nope'])).toEqual({ ok: false, error: 'invalid', email: 'nope' });
+    respond(409, { error: 'taken', email: 'shared@example.com' });
+    expect(await saveEmailSenders(['shared@example.com'])).toEqual({ ok: false, error: 'taken', email: 'shared@example.com' });
+    respond(400, { error: 'too_many' });
+    expect(await saveEmailSenders([])).toEqual({ ok: false, error: 'too_many', email: undefined });
+    respond(500, {});
+    expect(await saveEmailSenders([])).toEqual({ ok: false, error: 'failed' });
   });
 });
