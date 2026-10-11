@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bytesMatchType, documentFileName, MAX_BATCH_BYTES, MAX_FILE_BYTES, MAX_FILES_PER_BATCH, MAX_TEXT_CHARS, validateBatch } from '../intake.mjs';
+import { bytesMatchType, documentFileName, ERROR_MESSAGES, MAX_BATCH_BYTES, MAX_FILE_BYTES, MAX_FILES_PER_BATCH, MAX_TEXT_CHARS, shareMessage, sniffType, validateBatch, validateParts } from '../intake.mjs';
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
 const PDF = Buffer.from('%PDF-1.7\n...');
@@ -64,5 +64,47 @@ describe('documentFileName', () => {
     expect(documentFileName([{ fileName: 'a.jpg' }])).toBe('a.jpg');
     expect(documentFileName([{ fileName: 'a.jpg' }, { fileName: 'b.jpg' }])).toBe('a.jpg (+1 more page)');
     expect(documentFileName([{ fileName: 'a.jpg' }, { fileName: 'b.jpg' }, { fileName: 'c.jpg' }])).toBe('a.jpg (+2 more pages)');
+  });
+});
+
+describe('sniffType', () => {
+  it('trusts the bytes over a Shortcut’s loose label', () => {
+    expect(sniffType(JPEG, 'application/octet-stream', 'IMG_1.JPG')).toBe('image/jpeg');
+    expect(sniffType(PDF, '', 'statement')).toBe('application/pdf');
+    expect(sniffType(PNG, 'image/jpeg', 'x.jpg')).toBe('image/png');
+  });
+
+  it('calls something text only when it was said to be, and otherwise passes the label on to be refused', () => {
+    expect(sniffType(Buffer.from('hello'), 'text/plain; charset=utf-8')).toBe('text/plain');
+    expect(sniffType(Buffer.from('hello'), 'application/octet-stream', 'note.txt')).toBe('text/plain');
+    expect(sniffType(Buffer.from('hello'), 'application/octet-stream', 'note')).toBe('application/octet-stream');
+    expect(sniffType(Buffer.from('....ftypheic'), 'image/heic', 'IMG.HEIC')).toBe('image/heic');
+  });
+});
+
+describe('validateParts', () => {
+  it('applies the same limits as the JSON path to files already decoded', () => {
+    expect(validateParts([], '')).toEqual({ error: 'empty' });
+    expect(validateParts([{ fileName: 'a', contentType: 'image/heic', bytes: JPEG }])).toEqual({ error: 'unsupported_type' });
+    expect(validateParts([{ fileName: 'a', contentType: 'image/jpeg', bytes: Buffer.alloc(0) }])).toEqual({ error: 'missing_content' });
+    expect(validateParts([{ fileName: 'a', contentType: 'application/pdf', bytes: JPEG }])).toEqual({ error: 'content_mismatch' });
+    const { parts } = validateParts([{ fileName: 'IMG_1.JPG', contentType: 'image/jpeg', bytes: JPEG }], ' note ');
+    expect(parts.map((p) => p.fileName)).toEqual(['IMG_1.jpg', 'Shared text.txt']);
+  });
+});
+
+describe('shareMessage', () => {
+  const doc = (overrides) => ({ filed: false, clientName: null, documentType: 'Bank statement', ...overrides });
+
+  it('says where each document went, one line each', () => {
+    expect(shareMessage({ read: true, documents: [doc({ filed: true, clientName: 'Acme Ltd' }), doc({ clientName: 'Khan Consulting', documentType: 'VAT notice' }), doc({ documentType: 'Other' })] })).toBe(
+      'Filed under Acme Ltd: Bank statement\nVAT notice: best guess Khan Consulting — confirm in Smart Inbox\nOther: choose a client in Smart Inbox',
+    );
+  });
+
+  it('says so when nothing was read, or the share was a repeat', () => {
+    expect(shareMessage({ read: false, documents: [doc(), doc()] })).toBe('Saved 2 documents. Not read automatically — sort them in Smart Inbox.');
+    expect(shareMessage({ read: false, documents: [doc()] })).toBe('Saved 1 document. Not read automatically — sort it in Smart Inbox.');
+    expect(shareMessage({ duplicate: true })).toBe(ERROR_MESSAGES.already_shared);
   });
 });

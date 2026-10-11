@@ -14,6 +14,7 @@ const fake = vi.hoisted(() => ({
   duplicate: null,
   read: null,
   reads: 0,
+  keys: new Map(),
 }));
 
 vi.mock('../auth.mjs', () => ({
@@ -24,6 +25,30 @@ vi.mock('../auth.mjs', () => ({
     next();
   },
 }));
+
+vi.mock('../../lib/intakeTokens.mjs', async () => {
+  const actual = await vi.importActual('../../lib/intakeTokens.mjs');
+  return {
+    parseBearer: actual.parseBearer,
+    userForToken: vi.fn(async (token) => {
+      const key = fake.keys.get(token);
+      return key && !key.revoked ? { id: key.userId, username: key.userId, role: 'owner' } : null;
+    }),
+    createToken: vi.fn(async (userId, label) => {
+      if ([...fake.keys.values()].filter((k) => k.userId === userId && !k.revoked).length >= 5) return { error: 'too_many' };
+      const id = `ink_${fake.keys.size + 1}`;
+      const token = `frk_test_${id}`;
+      fake.keys.set(token, { id, userId, label: label || 'iPhone', revoked: false });
+      return { id, label: label || 'iPhone', token };
+    }),
+    listTokens: vi.fn(async (userId) => [...fake.keys.values()].filter((k) => k.userId === userId && !k.revoked).map((k) => ({ id: k.id, label: k.label, createdAt: '2026-10-10T10:00:00.000Z', lastUsedAt: null }))),
+    revokeToken: vi.fn(async (id, userId) => {
+      const key = [...fake.keys.values()].find((k) => k.id === id && k.userId === userId && !k.revoked);
+      if (key) key.revoked = true;
+      return Boolean(key);
+    }),
+  };
+});
 
 vi.mock('../../lib/briefingStore.mjs', () => ({
   readPracticeSnapshot: vi.fn(async () => ({ clients: [{ id: 'cl_acme', name: 'Acme Ltd' }], identifiers: [{ id: 'i1', clientId: 'cl_acme', kind: 'company_number', value: '08654123', sensitive: false }] })),
@@ -126,6 +151,7 @@ afterEach(() => {
   fake.duplicate = null;
   fake.read = null;
   fake.reads = 0;
+  fake.keys.clear();
   for (const k of ENV_KEYS) {
     if (originalEnv[k] === undefined) delete process.env[k];
     else process.env[k] = originalEnv[k];
@@ -160,8 +186,8 @@ describe('POST /batches', () => {
   });
 
   it('rejects a bad share before storing anything', async () => {
-    expect((await share([])).body).toEqual({ error: 'empty' });
-    expect((await share([{ fileName: 'x.pdf', contentType: 'application/pdf', contentBase64: JPEG.toString('base64') }])).body).toEqual({ error: 'content_mismatch' });
+    expect((await share([])).body).toMatchObject({ error: 'empty', message: expect.any(String) });
+    expect((await share([{ fileName: 'x.pdf', contentType: 'application/pdf', contentBase64: JPEG.toString('base64') }])).body).toMatchObject({ error: 'content_mismatch' });
     expect(fake.uploads).toEqual([]);
     expect(fake.reads).toBe(0);
   });
@@ -170,7 +196,7 @@ describe('POST /batches', () => {
     fake.duplicate = 'inb_earlier';
     const res = await share([jpeg()]);
     expect(res.status).toBe(409);
-    expect(res.body).toEqual({ error: 'already_shared' });
+    expect(res.body).toMatchObject({ error: 'already_shared' });
     expect(fake.reads).toBe(0);
   });
 
@@ -218,5 +244,124 @@ describe('GET /uploads/:id', () => {
     expect(note.headers['content-type']).toBe('text/plain; charset=utf-8');
     expect((await request('GET', '/api/intake/uploads/inu_missing', undefined, asRay)).status).toBe(404);
     expect((await request('GET', `/api/intake/uploads/${image.id}`)).status).toBe(401);
+  });
+});
+
+/** A multipart/form-data body, as the iPhone Shortcut's "Form" request sends one. */
+function multipart(fields) {
+  const boundary = '----ShortcutBoundary7MA4YWxk';
+  const chunks = [];
+  for (const f of fields) {
+    const disposition = `Content-Disposition: form-data; name="${f.name}"${f.fileName ? `; filename="${f.fileName}"` : ''}`;
+    chunks.push(Buffer.from(`--${boundary}\r\n${disposition}\r\n${f.contentType ? `Content-Type: ${f.contentType}\r\n` : ''}\r\n`), Buffer.isBuffer(f.value) ? f.value : Buffer.from(f.value), Buffer.from('\r\n'));
+  }
+  chunks.push(Buffer.from(`--${boundary}--\r\n`));
+  const body = Buffer.concat(chunks);
+  return { body, headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': body.length } };
+}
+
+function upload(fields, headers) {
+  const { body, headers: formHeaders } = multipart(fields);
+  return new Promise((resolve, reject) => {
+    const req = http.request(`${baseUrl}/api/intake/batches`, { method: 'POST', headers: { ...formHeaders, ...headers } }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(Buffer.concat(chunks).toString() || '{}') }));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
+const makeKey = async (userId = 'u_ray') => (await request('POST', '/api/intake/tokens', { label: 'My iPhone' }, { 'x-test-user': userId })).body;
+const withKey = (token) => ({ Authorization: `Bearer ${token}` });
+const photo = (extra = {}) => ({ name: 'file', fileName: 'IMG_0001.JPG', contentType: 'application/octet-stream', value: JPEG, ...extra });
+
+describe('upload keys for the iPhone Shortcut', () => {
+  it('make a key shown once, list without it, and revoke it — only by the person who made it', async () => {
+    const made = await makeKey();
+    expect(made).toMatchObject({ id: expect.any(String), label: 'My iPhone', token: expect.stringMatching(/^frk_/) });
+    const listed = (await request('GET', '/api/intake/tokens', undefined, asRay)).body.tokens;
+    expect(listed).toEqual([expect.objectContaining({ id: made.id, label: 'My iPhone' })]);
+    expect(JSON.stringify(listed)).not.toContain(made.token);
+
+    expect((await request('DELETE', `/api/intake/tokens/${made.id}`, undefined, { 'x-test-user': 'u_farhan' })).status).toBe(404);
+    expect((await request('DELETE', `/api/intake/tokens/${made.id}`, undefined, asRay)).body).toEqual({ ok: true });
+    expect((await request('GET', '/api/intake/tokens', undefined, asRay)).body.tokens).toEqual([]);
+  });
+
+  it('are made from a signed-in session only, and at most five at a time', async () => {
+    expect((await request('POST', '/api/intake/tokens', { label: 'x' })).status).toBe(401);
+    const key = await makeKey();
+    expect((await request('POST', '/api/intake/tokens', { label: 'x' }, withKey(key.token))).status).toBe(401);
+    expect((await request('GET', '/api/intake/tokens', undefined, withKey(key.token))).status).toBe(401);
+    for (let i = 0; i < 4; i += 1) expect((await request('POST', '/api/intake/tokens', {}, asRay)).status).toBe(201);
+    expect((await request('POST', '/api/intake/tokens', {}, asRay)).status).toBe(409);
+  });
+
+  it('send a multipart form straight in — no share screen to wait for, and a message saying where it went', async () => {
+    const { token } = await makeKey('u_k1');
+    fake.read = [{ parts: [0], documentType: 'Bank statement', reference: null, letterDate: null, period: null, identifiers: { companyNumber: '8654123', utr: null, vatNumber: null, payeReference: null }, clientId: null, confidence: 0, rationale: 'x', summary: 'Statement' }];
+    const res = await upload([photo()], withKey(token));
+    expect(res.status).toBe(201);
+    expect(res.body.message).toBe('Filed under Acme Ltd: Bank statement');
+    expect(fake.uploads).toEqual([expect.objectContaining({ userId: 'u_k1', contentType: 'image/jpeg', fileName: 'IMG_0001.jpg' })]);
+    expect(fake.activity[0]).toMatchObject({ source: 'shortcut', userId: 'u_k1', holdMinutes: 0, held: false });
+  });
+
+  it('read the type from the bytes, take text from a text field, and accept several files', async () => {
+    const { token } = await makeKey('u_k2');
+    const pdf = Buffer.from('%PDF-1.7 statement');
+    const res = await upload([photo(), { name: 'file', fileName: 'statement', contentType: 'application/octet-stream', value: pdf }, { name: 'text', value: 'new UTR 1234567890' }], withKey(token));
+    expect(res.status).toBe(201);
+    expect(fake.uploads.map((u) => u.contentType)).toEqual(['image/jpeg', 'application/pdf', 'text/plain']);
+    expect(fake.uploads[2].bytes.toString()).toBe('new UTR 1234567890');
+  });
+
+  it('refuse what cannot be read, with a message a Shortcut can show', async () => {
+    const { token } = await makeKey('u_k3');
+    const heic = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypheic')]);
+    const unsupported = await upload([{ name: 'file', fileName: 'IMG.HEIC', contentType: 'image/heic', value: heic }], withKey(token));
+    expect(unsupported.status).toBe(400);
+    expect(unsupported.body).toMatchObject({ error: 'unsupported_type', message: expect.stringContaining('JPEG') });
+
+    expect((await upload([], withKey(token))).body).toMatchObject({ error: 'empty' });
+    expect((await upload([photo({ value: Buffer.alloc(0) })], withKey(token))).body).toMatchObject({ error: 'empty' });
+    const many = Array.from({ length: 11 }, () => photo());
+    expect((await upload(many, withKey(token))).body).toMatchObject({ error: 'too_many_files' });
+    const big = Buffer.concat([JPEG, Buffer.alloc(10 * 1024 * 1024)]);
+    expect((await upload([photo({ value: big })], withKey(token))).body).toMatchObject({ error: 'file_too_large' });
+    expect(fake.uploads).toEqual([]);
+    expect(fake.reads).toBe(0);
+  });
+
+  it('never fall back to the cookie: a bad or revoked key is refused even beside a signed-in session', async () => {
+    const { id, token } = await makeKey('u_k4');
+    const asK4 = { 'x-test-user': 'u_k4' };
+    expect((await upload([photo()], { ...withKey('frk_nope'), ...asK4 })).status).toBe(401);
+    expect((await upload([photo()], { Authorization: 'Basic abc', ...asK4 })).status).toBe(401);
+    await request('DELETE', `/api/intake/tokens/${id}`, undefined, asK4);
+    expect((await upload([photo()], withKey(token))).status).toBe(401);
+  });
+
+  it('keep multipart for keys: a form upload on a session cookie alone is refused', async () => {
+    const res = await upload([photo()], { 'x-test-user': 'u_k5' });
+    expect(res.status).toBe(415);
+    expect(res.body.error).toBe('use_json');
+    expect(fake.uploads).toEqual([]);
+  });
+
+  it('open nothing but uploading: a key cannot read activity, files or the other routes', async () => {
+    const { token } = await makeKey('u_k6');
+    for (const path of ['/api/intake/activity', '/api/intake/uploads/inu_1']) expect((await request('GET', path, undefined, withKey(token))).status).toBe(401);
+    expect((await request('POST', '/api/intake/activity/ack', { ids: [] }, withKey(token))).status).toBe(401);
+  });
+
+  it('share the per-user rate limit with the app', async () => {
+    const { token } = await makeKey('u_keylimit');
+    const statuses = [];
+    for (let i = 0; i < 11; i += 1) statuses.push((await upload([], withKey(token))).status);
+    expect(statuses.slice(0, 10).every((s) => s === 400)).toBe(true);
+    expect(statuses[10]).toBe(429);
   });
 });

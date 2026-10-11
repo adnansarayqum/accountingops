@@ -24,6 +24,7 @@
 import { createHash } from 'node:crypto';
 import { ensureSchema, query } from './db.mjs';
 import { generateTempPassword, hashPassword } from './passwords.mjs';
+import { revokeAllTokens } from './intakeTokens.mjs';
 
 const SEED_USERS = [
   { id: 'u_adnan', username: 'adnan', name: 'Adnan Sarayqum', role: 'owner', envVar: 'ADNAN_TEMP_PASSWORD', resetVar: 'ADNAN_RESET_PASSWORD' },
@@ -91,6 +92,7 @@ async function applyPasswordResets() {
     const { hash, salt } = await hashPassword(value);
     await query('update practice_users set password_hash = $1, password_salt = $2, must_change_password = true, password_reset_applied = $3 where id = $4', [hash, salt, marker, row.id]);
     await query('delete from practice_sessions where user_id = $1', [row.id]);
+    await revokeAllTokens(row.id);
     console.log(JSON.stringify({ level: 'info', at: new Date().toISOString(), message: `Password for "${spec.username}" reset from ${spec.resetVar}; every session for the account was signed out and a new password must be set on the next sign-in — remove the variable once they are back in` }));
   }
 }

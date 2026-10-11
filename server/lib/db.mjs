@@ -355,6 +355,23 @@ async function runMigrations() {
   // proposed changes; nothing here is applied on its own.
   await query('alter table intake_activity add column if not exists facts jsonb');
 
+  // Personal upload keys for the iPhone Shortcut, which can't sign in with a
+  // cookie. Only a hash is kept; the key itself is shown once, when made. A
+  // key can do one thing (POST /api/intake/batches) and is revoked by the
+  // person, by "sign out everywhere", or by a password reset (intakeTokens.mjs).
+  await query(`
+    create table if not exists intake_tokens (
+      id            text primary key,
+      user_id       text not null references practice_users(id) on delete cascade,
+      token_hash    text not null unique,
+      label         text not null,
+      created_at    timestamptz not null default now(),
+      last_used_at  timestamptz,
+      revoked_at    timestamptz
+    )
+  `);
+  await query('create index if not exists intake_tokens_user_idx on intake_tokens (user_id) where revoked_at is null');
+
   await query(`
     create table if not exists practice_snapshot_history (
       id          bigserial primary key,

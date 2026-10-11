@@ -147,6 +147,25 @@ describe.skipIf(!RUN)('auth + practice-data routers', () => {
       expect(loginNewPassword.status).toBe(200);
     });
 
+    it('revokes upload keys when an account signs out everywhere, or changes its password — and not before', async () => {
+      const { hash, salt } = await hashPassword('KeyHolderPass1');
+      await query('insert into practice_users (id, username, name, role, password_hash, password_salt, must_change_password) values ($1,$2,$3,$4,$5,$6,false)', ['u_key_holder', 'key_holder', 'Key Holder', 'owner', hash, salt]);
+      const cookie = extractCookie(await postLogin(baseUrl, 'key_holder', 'KeyHolderPass1'));
+      const { createToken, userForToken } = await import('../../lib/intakeTokens.mjs');
+      const first = await createToken('u_key_holder', 'iPhone');
+      expect(await userForToken(first.token)).not.toBeNull();
+
+      const post = (path, body) => fetch(`${baseUrl}/api/auth/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify(body ?? {}) });
+      expect((await post('change-password', { currentPassword: 'wrong', newPassword: 'NewKeyHolder1' })).status).toBe(401);
+      expect(await userForToken(first.token)).not.toBeNull();
+      expect((await post('change-password', { currentPassword: 'KeyHolderPass1', newPassword: 'NewKeyHolder1' })).status).toBe(200);
+      expect(await userForToken(first.token)).toBeNull();
+
+      const second = await createToken('u_key_holder', 'iPad');
+      expect((await post('logout-everywhere')).status).toBe(200);
+      expect(await userForToken(second.token)).toBeNull();
+    });
+
     it('also seeds farhan and rayhan accounts', async () => {
       const { rows } = await query("select username from practice_users where username in ('adnan','farhan','rayhan') order by username");
       expect(rows.map((r) => r.username)).toEqual(['adnan', 'farhan', 'rayhan']);

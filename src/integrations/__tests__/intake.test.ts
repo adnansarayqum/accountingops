@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { assignSharedDocument, sendShare } from '../intake';
+import { assignSharedDocument, createUploadKey, listUploadKeys, revokeUploadKey, sendShare } from '../intake';
 
 function respond(status: number, body: unknown) {
   const spy = vi.fn(async () => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -45,5 +45,38 @@ describe('assignSharedDocument', () => {
     expect(await assignSharedDocument('ina_1', null)).toBe(true);
     respond(404, { error: 'not_found' });
     expect(await assignSharedDocument('ina_1', 'cl_abc')).toBe(false);
+  });
+});
+
+describe('upload keys', () => {
+  it('lists keys, and says nothing is available (null) when there is no server to ask', async () => {
+    const spy = respond(200, { tokens: [{ id: 'ink_1', label: 'iPhone', createdAt: '2026-10-10T10:00:00.000Z', lastUsedAt: null }] });
+    expect(await listUploadKeys()).toEqual([{ id: 'ink_1', label: 'iPhone', createdAt: '2026-10-10T10:00:00.000Z', lastUsedAt: null }]);
+    expect((spy.mock.calls[0] as unknown as [string])[0]).toBe('/api/intake/tokens');
+    respond(503, { error: 'not_configured' });
+    expect(await listUploadKeys()).toBeNull();
+    vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('offline'))));
+    expect(await listUploadKeys()).toBeNull();
+  });
+
+  it('makes a key, handing back the secret once, and explains a refusal', async () => {
+    const spy = respond(201, { id: 'ink_2', label: 'Ray’s iPhone', token: 'frk_secret' });
+    const made = await createUploadKey('Ray’s iPhone');
+    expect(made).toMatchObject({ ok: true, token: 'frk_secret', key: { id: 'ink_2', label: 'Ray’s iPhone', lastUsedAt: null } });
+    const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({ label: 'Ray’s iPhone' });
+    respond(409, { error: 'too_many' });
+    expect(await createUploadKey('x')).toEqual({ ok: false, error: 'too_many' });
+    respond(500, {});
+    expect(await createUploadKey('x')).toEqual({ ok: false, error: 'failed' });
+  });
+
+  it('removes a key by id', async () => {
+    const spy = respond(200, { ok: true });
+    expect(await revokeUploadKey('ink_1/../x')).toBe(true);
+    expect((spy.mock.calls[0] as unknown as [string])[0]).toBe('/api/intake/tokens/ink_1%2F..%2Fx');
+    expect((spy.mock.calls[0] as unknown as [string, RequestInit])[1].method).toBe('DELETE');
+    respond(404, {});
+    expect(await revokeUploadKey('ink_9')).toBe(false);
   });
 });

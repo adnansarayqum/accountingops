@@ -462,7 +462,37 @@ is never hidden behind a stale copy; `index.html`, `sw.js` and the manifest
 are served `no-cache` (`server/lib/installable.mjs`). A share that somehow
 reaches the server instead is redirected to `/share` with an explanation.
 **iPhone** can install the app (Add to Home Screen) but Apple doesn't let
-web apps be share targets — sharing in from an iPhone is the Shortcut, next.
+web apps be share targets — sharing in from an iPhone is a Shortcut.
+
+**The iPhone Shortcut and upload keys.** A Shortcut has no signed-in
+session, so each person makes a personal **upload key** in Settings → "Send
+from an iPhone" (`intake_tokens`; `frk_` + 256 random bits, shown once, only a
+SHA-256 kept, at most five live per person). The Shortcut's one "Get Contents
+of URL" action sends `Authorization: Bearer frk_…` and a multipart **Form**
+(file fields, and an optional `text` field) to the same
+`POST /api/intake/batches`. What a key can and can't do:
+
+- It opens that one route and nothing else — not the activity queue, not the
+  files, not the key routes (a key can't mint another). A bad or revoked key is
+  refused outright, never falling back to a cookie sent alongside it.
+- A multipart form is refused on a cookie alone (415): a multipart POST is a
+  "simple" cross-site request, so only a key — which a browser never attaches
+  by itself — may send one. The app itself keeps sending JSON.
+- The bytes decide a file's type (the Shortcut labels files loosely, often
+  `application/octet-stream`), then the same signature checks and limits as the
+  JSON path apply, enforced while streaming (`busboy`). iPhone photos are HEIC
+  by default and can't be read, so the setup says to add Convert Image → JPEG
+  when sharing from Photos; WhatsApp already sends JPEG.
+- It shares the per-user rate limit, and a flood of bad keys is limited by
+  address. Nothing is held for a share screen: the document goes straight to
+  Smart Inbox (`source: shortcut`, shown as "Shared from iPhone").
+- The response carries a one-line `message` (where each document went, or
+  what was wrong), which the Shortcut shows as a notification.
+- Keys are revoked one at a time in Settings, and all at once on "sign out
+  everywhere", a password change or an operator password reset.
+
+The Shortcut itself is built by hand from the steps Settings lists — Apple
+only accepts Shortcut files it has signed, so there is no file to download.
 
 ## Security notes
 
