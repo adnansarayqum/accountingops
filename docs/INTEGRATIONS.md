@@ -465,6 +465,19 @@ reaches the server instead is redirected to `/share` with an explanation.
 **iPhone** can install the app (Add to Home Screen) but Apple doesn't let
 web apps be share targets — sharing in from an iPhone is a Shortcut.
 
+**From inside the app.** On any phone or computer, the camera button in the
+header ("Add a document") needs no share sheet at all: *Take a photo* opens
+the back camera (`<input capture="environment">`; a desktop browser opens its
+file picker), once per page, and *Choose photos or files* picks from the
+phone. Pages stay in order, any can be removed, and a pasted client message
+can go with them. It then opens the same `/share` page as a share from
+WhatsApp — handed over in memory (`application/pendingShare.ts`) rather than
+through the service worker's cache — so the reading, the "Filing under X"
+check and the client picker are the same, and there is still only one way a
+document gets in. Only offered with the signed-in server. A photo taken in
+HEIC is converted by the phone's browser for this kind of picker; if one ever
+arrives unconverted, the page names it as unreadable rather than losing it.
+
 **The iPhone Shortcut and upload keys.** A Shortcut has no signed-in
 session, so each person makes a personal **upload key** in Settings → "Send
 from an iPhone" (`intake_tokens`; `frk_` + 256 random bits, shown once, only a

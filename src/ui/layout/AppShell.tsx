@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
-import { Menu, Search } from 'lucide-react';
+import { Camera, Menu, Search } from 'lucide-react';
 import { Sidebar } from './Sidebar';
 import { CommandPalette } from './CommandPalette';
 import { NotificationCenter } from './NotificationCenter';
@@ -15,10 +15,13 @@ import { useLiveToday } from '../../application/useLiveToday';
 import { usePortalActivity } from '../../application/usePortalActivity';
 import { useIntakeActivity } from '../../application/useIntakeActivity';
 import { LoadFailedBanner } from '../components/LoadFailedBanner';
+import { AddDocumentModal } from '../components/AddDocumentModal';
 
 export function AppShell() {
   const [navOpen, setNavOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const authMode = useAppStore((s) => s.authMode);
   const location = useLocation();
   const data = useData();
   const currentUserId = useAppStore((s) => s.currentUserId);
@@ -67,6 +70,13 @@ export function AppShell() {
             <kbd className="ml-auto hidden sm:inline text-[10px] text-slate-400 border border-slate-200 bg-surface rounded px-1.5 py-0.5 shrink-0">⌘K</kbd>
           </button>
           <div className="ml-auto flex items-center gap-0.5 sm:gap-1 shrink-0">
+            {/* Documents are read and filed by the server, so there is nowhere for one to go in the browser-only mode. */}
+            {authMode === 'server' && (
+              <button type="button" onClick={() => setAddOpen(true)} className="rounded-lg p-2 text-primary-700 hover:bg-primary-50 shrink-0 inline-flex items-center gap-1.5" aria-label="Add a document" data-testid="add-document-open">
+                <Camera className="h-5 w-5" />
+                <span className="hidden md:inline text-[13px] font-semibold">Add a document</span>
+              </button>
+            )}
             <ThemeToggle />
             <NotificationCenter />
             <div className="flex items-center gap-2 pl-1.5 sm:pl-2 ml-0.5 sm:ml-1 border-l border-slate-200">
@@ -81,6 +91,7 @@ export function AppShell() {
         </main>
       </div>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <AddDocumentModal open={addOpen} onClose={() => setAddOpen(false)} />
       <Toaster />
     </div>
   );
