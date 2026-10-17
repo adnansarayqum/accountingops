@@ -44,6 +44,11 @@ export function ChasingPage() {
 
       {view !== 'sequences' && (
         <>
+          {data.practice.automation?.autoReminders === true && (
+            <p className="mb-3 rounded-lg border border-primary-100 bg-primary-50 px-3 py-2 text-[13px] text-primary-800" data-testid="chasing-auto-on">
+              Automatic reminders are on: an email step that falls due is sent to the client by itself on weekdays in working hours. A phone, WhatsApp or text step, or a client who prefers another channel, stays here for you to send. Change this in Settings.
+            </p>
+          )}
           <Card>
             {list.length === 0 ? (
               <EmptyState icon={<BellOff />} title="No reminders due" description="Every client has been chased on schedule. Nothing to send right now." />

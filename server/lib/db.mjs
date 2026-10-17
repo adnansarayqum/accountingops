@@ -427,6 +427,36 @@ async function runMigrations() {
   `);
   await query('create index if not exists bank_transactions_statement_idx on bank_transactions (statement_id, line_no)');
 
+  // Reminders the server sent on its own (lib/automation*.mjs). One row per
+  // (job, step): the unique key IS the guarantee that a step is never sent
+  // twice, whatever restarts, retries or second instances do. The row is
+  // claimed before the provider is called, so a crash mid-send leaves a
+  // 'sending' row that is never retried — at most once, and a person is told.
+  // 'sent' rows wait here until an open tab records them in the practice's
+  // data (applied_at), the same hand-off the client portal and shared
+  // documents use; until then they still count as reminders sent.
+  await query(`
+    create table if not exists auto_reminders (
+      id                   text primary key,
+      job_id               text not null,
+      step_no              integer not null,
+      client_id            text not null,
+      status               text not null check (status in ('sending', 'sent', 'unknown')),
+      recipient            text not null,
+      subject              text,
+      body                 text,
+      stage                text,
+      documents_requested  jsonb,
+      provider_name        text,
+      provider_message_id  text,
+      created_at           timestamptz not null default now(),
+      sent_at              timestamptz,
+      applied_at           timestamptz,
+      unique (job_id, step_no)
+    )
+  `);
+  await query('create index if not exists auto_reminders_pending_idx on auto_reminders (created_at) where applied_at is null');
+
   await query(`
     create table if not exists practice_snapshot_history (
       id          bigserial primary key,

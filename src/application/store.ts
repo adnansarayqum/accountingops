@@ -5,6 +5,7 @@ import type { AuthUser } from './auth';
 import type { CompanyPeopleResponse, CompanyProfile } from '../integrations/companiesHouseTypes';
 import type { PortalActivity } from '../integrations/portal';
 import type { IntakeActivity } from '../integrations/intake';
+import type { AutoReminderActivity } from '../integrations/automation';
 import { AML_RATING_LABELS, AML_REVIEW_MONTHS } from '../domain/rules/aml';
 import { addDays, addMonths, formatDate, nowIso, todayIso } from '../domain/dates';
 import { normaliseCompanyNumber } from '../domain/companyNumber';
@@ -134,6 +135,14 @@ export interface AppState {
    * inbox (two tabs polling one queue) is skipped, not duplicated.
    */
   receiveIntakeActivity(activity: IntakeActivity[]): { applied: string[]; skipped: string[] };
+  /**
+   * Reminders the server emailed on its own, recorded in the practice's data
+   * the way a person's Send would record them — same communication, same
+   * outstanding items marked as requested — flagged as automatic. One
+   * already recorded (two tabs polling one queue) is skipped, not doubled;
+   * one for a job since deleted is skipped so it isn't offered forever.
+   */
+  receiveAutoReminders(activity: AutoReminderActivity[]): { applied: string[]; skipped: string[] };
   markItemMissing(itemId: string): void;
   addRequestItem(jobId: string, label: string): void;
 
@@ -234,6 +243,8 @@ export interface AppState {
   // practice configuration
   /** Merges into the practice's timing thresholds (Settings → Timing thresholds) — only the fields present in `patch` change. */
   updatePracticeThresholds(patch: Partial<PracticeThresholds>): void;
+  /** Switches the server's automatic client reminders on or off (Settings → Automatic reminders). Off is the default. */
+  updateAutomationSettings(patch: { autoReminders: boolean }): void;
 
   // onboarding
   toggleOnboardingItem(caseId: string, key: string): void;
@@ -893,6 +904,57 @@ export const useAppStore = create<AppState>((set, get) => {
         // load; leaving the row unacknowledged keeps it queued.
         if (!get().data.inboxItems.some((i) => i.id === itemId)) continue;
         if (fileNow) get().confirmInboxItem(itemId);
+        applied.push(entry.id);
+      }
+      return { applied, skipped };
+    },
+
+    receiveAutoReminders(activity) {
+      const applied: string[] = [];
+      const skipped: string[] = [];
+      for (const entry of activity) {
+        const known = get().data.communications.some((c) => c.autoReminderId === entry.id);
+        const jobExists = get().data.jobs.some((j) => j.id === entry.jobId);
+        if (known || !jobExists) {
+          skipped.push(entry.id);
+          continue;
+        }
+        mutate((d, ctx) => {
+          const job = d.jobs.find((j) => j.id === entry.jobId);
+          if (!job) return;
+          const client = d.clients.find((c) => c.id === job.clientId);
+          d.communications.push({
+            id: newId('cm'),
+            practiceId: d.practice.id,
+            clientId: job.clientId,
+            jobId: job.id,
+            direction: 'outbound',
+            channel: 'email',
+            recipient: entry.recipient,
+            subject: entry.subject ?? undefined,
+            body: entry.body,
+            sentAt: entry.sentAt,
+            reminderStage: entry.stage,
+            documentsRequested: entry.documentsRequested,
+            responseStatus: 'awaiting',
+            simulated: false,
+            deliveryStatus: 'sent',
+            providerName: entry.providerName ?? undefined,
+            providerMessageId: entry.providerMessageId ?? undefined,
+            automated: true,
+            autoReminderId: entry.id,
+          });
+          for (const item of d.requestItems.filter((i) => i.jobId === job.id && i.status === 'missing')) {
+            item.status = 'requested';
+            item.requestedAt = entry.sentAt;
+          }
+          const what = entry.documentsRequested.length > 0 ? ` (${entry.documentsRequested.map((s) => s.toLowerCase()).join(', ')})` : '';
+          ctx.activity('reminder_sent', `Email reminder sent automatically to ${client?.name} for ${job.name}${what}.`, job);
+          ctx.audit('communication.send', 'communication', job.id, undefined, { channel: 'email', stage: entry.stage, delivery: 'sent', provider: entry.providerName, automatic: true });
+        });
+        // mutate refuses while the practice's data failed to load; leaving
+        // the row unacknowledged keeps it queued.
+        if (!get().data.communications.some((c) => c.autoReminderId === entry.id)) continue;
         applied.push(entry.id);
       }
       return { applied, skipped };
@@ -1614,6 +1676,17 @@ export const useAppStore = create<AppState>((set, get) => {
         d.practice.thresholds = { ...d.practice.thresholds, ...clean };
         ctx.activity('note', 'Timing thresholds updated.');
         ctx.audit('practice.thresholds', 'practice', d.practice.id, before, { ...d.practice.thresholds });
+      });
+    },
+
+    updateAutomationSettings(patch) {
+      mutate((d, ctx) => {
+        const before = { autoReminders: d.practice.automation?.autoReminders === true };
+        const after = { autoReminders: patch.autoReminders === true };
+        if (before.autoReminders === after.autoReminders) return;
+        d.practice.automation = { ...d.practice.automation, ...after };
+        ctx.activity('note', after.autoReminders ? 'Automatic client reminders switched on.' : 'Automatic client reminders switched off.');
+        ctx.audit('practice.automation', 'practice', d.practice.id, before, after);
       });
     },
 

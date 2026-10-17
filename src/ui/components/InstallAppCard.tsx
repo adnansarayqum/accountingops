@@ -77,7 +77,7 @@ export function InstallAppCard() {
               <span className="font-medium">Android:</span> open this page in Chrome, tap the ⋮ menu, then “Install app”. “F&R Ops” then appears when you share from WhatsApp or email.
             </p>
             <p>
-              <span className="font-medium">iPhone:</span> in Safari, tap Share, then “Add to Home Screen”. Sharing in from an iPhone uses a Shortcut, coming next.
+              <span className="font-medium">iPhone:</span> in Safari, tap Share, then “Add to Home Screen”. Sharing in from an iPhone uses a Shortcut — see “Send from an iPhone” below.
             </p>
           </>
         )}

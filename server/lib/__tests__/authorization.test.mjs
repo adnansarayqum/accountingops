@@ -90,6 +90,15 @@ describe('protectedChanges — what a snapshot write changes beyond ordinary wor
     expect(requiredPermissions(changes).map((n) => n.permission)).toEqual([PERMISSIONS.PRACTICE_CONFIGURE]);
   });
 
+  it('flags switching automatic client reminders on or off as practice.configure', () => {
+    const stored = base();
+    const next = base();
+    next.practice.automation = { autoReminders: true };
+    const changes = protectedChanges(stored, next, 'u_sarah');
+    expect(changes.practice).toEqual({ fields: ['automation'] });
+    expect(requiredPermissions(changes).map((n) => n.permission)).toEqual([PERMISSIONS.PRACTICE_CONFIGURE]);
+  });
+
   it('flags a role change, an added member and a removed member as team.manage, and reports roles but not names', () => {
     const stored = base();
     const next = base();

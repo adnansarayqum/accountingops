@@ -519,6 +519,7 @@ export function ClientDetailPage() {
                           <span>{formatDateTime(c.sentAt, timeZone)}</span>
                           {job && <span>· {job.name}</span>}
                           {c.reminderStage && <Badge tone="blue">{c.reminderStage}</Badge>}
+                          {c.automated && <Badge tone="violet">Automatic</Badge>}
                           {c.direction === 'outbound' && c.reminderStage && <Badge tone={c.responseStatus === 'responded' ? 'green' : 'amber'}>{c.responseStatus === 'responded' ? 'Responded' : 'Awaiting reply'}</Badge>}
                           {c.direction === 'outbound' && <span className="text-slate-400">{deliveryLabel(c)}</span>}
                         </div>
@@ -569,9 +570,9 @@ function HandoverRow({ label, value, tone }: { label: string; value: string; ton
 }
 
 /** How an outbound message left — older records without a delivery status were all simulated. */
-function deliveryLabel(c: { simulated: boolean; deliveryStatus?: 'sent' | 'handed_off' | 'simulated'; providerName?: string }): string {
+function deliveryLabel(c: { simulated: boolean; deliveryStatus?: 'sent' | 'handed_off' | 'simulated'; providerName?: string; automated?: boolean }): string {
   const status = c.deliveryStatus ?? (c.simulated ? 'simulated' : 'sent');
   if (status === 'handed_off') return 'opened in WhatsApp';
-  if (status === 'sent') return c.providerName ? `sent via ${c.providerName}` : 'sent';
+  if (status === 'sent') return `${c.automated ? 'sent automatically' : 'sent'}${c.providerName ? ` via ${c.providerName}` : ''}`;
   return 'simulated';
 }

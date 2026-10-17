@@ -11,6 +11,7 @@ import portalRouter from './server/routes/portal.mjs';
 import telegramRouter from './server/routes/telegram.mjs';
 import intakeRouter from './server/routes/intake.mjs';
 import bankRouter from './server/routes/bank.mjs';
+import automationRouter from './server/routes/automation.mjs';
 import briefingRouter from './server/routes/briefing.mjs';
 import authRouter from './server/routes/auth.mjs';
 import practiceDataRouter from './server/routes/practiceData.mjs';
@@ -56,6 +57,7 @@ function apiMiddleware(): Plugin {
     app.use('/api/telegram', telegramRouter);
     app.use('/api/intake', intakeRouter);
     app.use('/api/bank', bankRouter);
+    app.use('/api/automation', automationRouter);
     app.use('/api/briefing', briefingRouter);
     app.use('/api/messages', messagesRouter);
     app.use('/api/auth', authRouter);

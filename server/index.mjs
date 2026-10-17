@@ -16,6 +16,8 @@ import portalRouter from './routes/portal.mjs';
 import telegramRouter from './routes/telegram.mjs';
 import intakeRouter from './routes/intake.mjs';
 import bankRouter from './routes/bank.mjs';
+import automationRouter from './routes/automation.mjs';
+import { AutomationScheduler } from './lib/automationScheduler.mjs';
 import briefingRouter from './routes/briefing.mjs';
 import { BriefingScheduler } from './lib/briefingScheduler.mjs';
 import authRouter from './routes/auth.mjs';
@@ -76,6 +78,7 @@ app.use('/api/portal', portalRouter);
 app.use('/api/telegram', telegramRouter);
 app.use('/api/intake', intakeRouter);
 app.use('/api/bank', bankRouter);
+app.use('/api/automation', automationRouter);
 app.use('/api/briefing', briefingRouter);
 app.use('/api/messages', messagesRouter);
 
@@ -154,6 +157,20 @@ if (isDatabaseConfigured()) {
   }
 }
 
+// Automatic client reminders: nothing is sent unless the practice switched
+// them on in Settings, a real email provider is configured, and it is a
+// weekday working hour (lib/automation.mjs). Same footing as the briefing:
+// needs the database, and cannot stop the server.
+let automationScheduler = null;
+if (isDatabaseConfigured()) {
+  try {
+    automationScheduler = new AutomationScheduler();
+    automationScheduler.start();
+  } catch (err) {
+    console.error(JSON.stringify({ level: 'error', at: new Date().toISOString(), source: 'automation', message: `Could not start scheduler: ${err?.message ?? err}` }));
+  }
+}
+
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(JSON.stringify({ level: 'info', at: new Date().toISOString(), message: `accountingops web listening on ${port}` }));
 });
@@ -164,6 +181,7 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
     console.log(JSON.stringify({ level: 'info', at: new Date().toISOString(), message: `${signal} received, shutting down` }));
     void streamListener?.stop();
     briefingScheduler?.stop();
+    automationScheduler?.stop();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(1), 8000).unref();
   });

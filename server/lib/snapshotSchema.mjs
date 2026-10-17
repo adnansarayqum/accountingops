@@ -264,6 +264,7 @@ const practiceSchema = {
     }
   }),
   thresholds: optional(thresholds),
+  automation: optional((v) => (isObject(v) && (v.autoReminders === undefined || typeof v.autoReminders === 'boolean') ? null : 'invalid')),
 };
 
 /**

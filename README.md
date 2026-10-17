@@ -118,8 +118,9 @@ e2e/               Playwright specs
 
 ## What's simulated
 
-There is no live messaging or filing integration yet: sending a reminder and
-marking a job as filed are both simulated and clearly labelled as such —
-nothing leaves the application. Display masking of identifiers is a UX
+Filing a job is simulated and clearly labelled as such — nothing is
+submitted to HMRC or Companies House. Email reminders are real when a Postmark
+provider is configured (and can be sent automatically once a practice switches
+that on); without one they are simulated, nothing leaves the application. Display masking of identifiers is a UX
 convenience, not a security control — see the security section in
 `docs/ARCHITECTURE.md`.
