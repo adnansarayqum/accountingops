@@ -10,6 +10,7 @@ import { Badge } from '../ui/components/Badge';
 import { useAppStore } from '../application/store';
 import { useData } from '../application/selectors';
 import { clearParkedShare, prepareFiles, readParkedShare, type ParkedShare } from '../application/sharedFiles';
+import { takePendingShare } from '../application/pendingShare';
 import { assignSharedDocument, releaseShare, sendShare, type ShareError, type ShareResult, type SharedDocument } from '../integrations/intake';
 
 type Phase =
@@ -94,7 +95,9 @@ export function SharePage() {
       setPhase({ kind: 'nothing', reason: 'missing' });
       return;
     }
-    void readParkedShare(shareId)
+    // Started inside the app (the Add a document button), or handed over by the service worker from Android's share sheet.
+    const inApp = takePendingShare(shareId);
+    void (inApp ? Promise.resolve(inApp) : readParkedShare(shareId))
       .then((share) => {
         if (!share || (share.files.length === 0 && !share.text.trim())) {
           setPhase({ kind: 'nothing', reason: 'missing' });
