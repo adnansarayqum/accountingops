@@ -7,6 +7,7 @@ import { computeDerived } from '../selectors';
 import { buildFixtureData } from '../../testing/fixtures';
 import type { CompanyPerson, CompanyProfile } from '../../integrations/companiesHouseTypes';
 import type { IntakeActivity } from '../../integrations/intake';
+import type { AutoReminderActivity } from '../../integrations/automation';
 import type { DocumentFacts } from '../../domain/types';
 
 const today = '2026-09-11';
@@ -1167,5 +1168,98 @@ describe('application store — timing thresholds (Settings)', () => {
     expect(useAppStore.getState().data.practice.thresholds).toEqual({ dueSoonDays: 10 });
     expect(useAppStore.getState().data.activities.length).toBe(activitiesBefore);
     expect(useAppStore.getState().unsaved).toBe(false);
+  });
+});
+
+describe('automatic client reminders', () => {
+  beforeEach(() => {
+    configureRepository(new MemoryRepository());
+    useAppStore.setState({ data: structuredClone(buildFixtureData(today)), today, ready: true, currentUserId: 'u_adnan', toasts: [], loadFailed: false });
+  });
+
+  afterEach(() => {
+    useAppStore.setState({ loadFailed: false });
+  });
+
+  const row = (overrides: Partial<AutoReminderActivity> = {}): AutoReminderActivity => ({
+    id: 'arm_1',
+    jobId: 'job_abc_accounts',
+    clientId: 'cl_abc',
+    recipient: 'a@example.com',
+    subject: 'ABC — Accounts: documents still needed',
+    body: 'Hi Alex,\n\nWe are still waiting.',
+    stage: 'Email (30 days)',
+    documentsRequested: ['Loan statement'],
+    providerName: 'postmark',
+    providerMessageId: 'pm-1',
+    sentAt: '2026-09-11T09:30:00.000Z',
+    ...overrides,
+  });
+
+  it('is off until a person switches it on, and the switch is audited', () => {
+    expect(useAppStore.getState().data.practice.automation).toBeUndefined();
+    const audits = useAppStore.getState().data.auditEvents.length;
+    useAppStore.getState().updateAutomationSettings({ autoReminders: true });
+    expect(useAppStore.getState().data.practice.automation).toEqual({ autoReminders: true });
+    expect(useAppStore.getState().data.auditEvents[0]).toMatchObject({ action: 'practice.automation', before: { autoReminders: false }, after: { autoReminders: true } });
+    useAppStore.getState().updateAutomationSettings({ autoReminders: true });
+    expect(useAppStore.getState().data.auditEvents.length).toBe(audits + 1);
+    useAppStore.getState().updateAutomationSettings({ autoReminders: false });
+    expect(useAppStore.getState().data.practice.automation).toEqual({ autoReminders: false });
+  });
+
+  it('records a reminder the server sent as the same communication a person sending it would leave', () => {
+    const before = useAppStore.getState().data.communications.length;
+    expect(useAppStore.getState().receiveAutoReminders([row()])).toEqual({ applied: ['arm_1'], skipped: [] });
+    const comms = useAppStore.getState().data.communications;
+    expect(comms).toHaveLength(before + 1);
+    expect(comms.at(-1)).toMatchObject({
+      clientId: 'cl_abc',
+      jobId: 'job_abc_accounts',
+      direction: 'outbound',
+      channel: 'email',
+      recipient: 'a@example.com',
+      reminderStage: 'Email (30 days)',
+      documentsRequested: ['Loan statement'],
+      responseStatus: 'awaiting',
+      simulated: false,
+      deliveryStatus: 'sent',
+      providerName: 'postmark',
+      providerMessageId: 'pm-1',
+      automated: true,
+      autoReminderId: 'arm_1',
+      sentAt: '2026-09-11T09:30:00.000Z',
+    });
+    expect(comms.at(-1)?.sentByUserId).toBeUndefined();
+    expect(useAppStore.getState().data.activities[0]?.message).toContain('automatically');
+  });
+
+  it('counts toward the sequence on the Chasing page, so the next one is the next step', () => {
+    const jobView = () => computeDerived(useAppStore.getState().data, today).jobViews.find((v) => v.job.id === 'job_abc_accounts')!;
+    const sent = jobView().chasing.remindersSent;
+    useAppStore.getState().receiveAutoReminders([row()]);
+    expect(jobView().chasing.remindersSent).toBe(sent + 1);
+  });
+
+  it('marks what was missing as requested, like a manual reminder', () => {
+    const data = structuredClone(useAppStore.getState().data);
+    for (const item of data.requestItems.filter((i) => i.jobId === 'job_abc_accounts')) item.status = 'missing';
+    useAppStore.setState({ data });
+    useAppStore.getState().receiveAutoReminders([row()]);
+    const items = useAppStore.getState().data.requestItems.filter((i) => i.jobId === 'job_abc_accounts');
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.every((i) => i.status === 'requested')).toBe(true);
+  });
+
+  it('skips a reminder already recorded, or for a job that has since gone — never doubling or queueing it forever', () => {
+    useAppStore.getState().receiveAutoReminders([row()]);
+    const count = useAppStore.getState().data.communications.length;
+    expect(useAppStore.getState().receiveAutoReminders([row(), row({ id: 'arm_2', jobId: 'job_gone' })])).toEqual({ applied: [], skipped: ['arm_1', 'arm_2'] });
+    expect(useAppStore.getState().data.communications).toHaveLength(count);
+  });
+
+  it('leaves a reminder queued when the practice data failed to load', () => {
+    useAppStore.setState({ loadFailed: true });
+    expect(useAppStore.getState().receiveAutoReminders([row()])).toEqual({ applied: [], skipped: [] });
   });
 });

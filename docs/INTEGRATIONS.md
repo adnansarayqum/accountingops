@@ -338,6 +338,44 @@ Delivery goes through the same email provider as reminders, so with
 Postmark configured it is sent and without it is simulated and logged.
 "Send me one now" in Settings avoids waiting until tomorrow for the first.
 
+## Automatic client reminders — live, needs a database and a real email provider
+
+Off by default. An owner or manager switches it on in Settings → Automatic
+reminders (decision #20 in PRODUCT_DECISIONS.md has the reasoning and every
+limit). When on, the server checks every ten minutes and emails each client
+the next step of their reminder sequence when it falls due.
+
+How it is built:
+
+- `server/lib/chasingRules.mjs` is the server's copy of the chasing rules
+  (`assessChasing`, `draftReminder`, the sequence choice). The server is plain
+  Node and can't import the TypeScript, so a parity test runs both over every
+  job in the fixture practice on several days and fails if they disagree.
+  Change one, change both.
+- `server/lib/automation.mjs` plans a pass from the stored snapshot: what is
+  due, what is waiting for its day, what is left for a person and why.
+  `automationRunner.mjs` sends, `automationScheduler.mjs` owns the ten-minute
+  timer (not run in the first moments after a deploy).
+- `auto_reminders` is the ledger. A step is *claimed* (unique on job + step)
+  before the email goes, so a double tick, two server instances or a crash can
+  never send it twice. If the provider definitely refused, the claim is freed;
+  if the outcome is unknowable it is kept as *unknown* and reported in
+  Settings — never silently retried.
+- The server does not write the practice's data. `GET /api/automation/activity`
+  queues what was sent; the next open tab (`useAutoReminderActivity`) records
+  it as an ordinary communication flagged *Automatic* and acknowledges it.
+  Until acknowledged, a sent reminder still counts toward the sequence, so the
+  next step waits its 48 hours.
+- Email only, to the client's main contact, through the same Postmark provider
+  as manual reminders. Without `MESSAGING_EMAIL_PROVIDER=postmark` the card
+  says nothing can be sent and the scheduler sends nothing.
+
+Settings has **Preview what would be sent now** (the exact emails, and the
+jobs left for a person) and **Send due reminders now** (rate-limited; audited
+as `automation.run_now`). What is not covered: WhatsApp and SMS steps (a
+person sends them), and a tab has to be opened for the record to appear on the
+client's timeline — the email itself goes regardless.
+
 ## Client portal — live, needs a database
 
 The practice's biggest number is *client-blocked jobs*, and until now the

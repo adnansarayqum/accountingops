@@ -190,8 +190,14 @@ to invalidate and no manual refresh.
 
 ## Background automation
 
-This build has no worker. The interfaces automation will need already exist
-as pure functions that take `today`:
+There is no separate worker service. Two things run inside the web server on
+timers: the morning briefing email and the **automatic client reminders**
+(`server/lib/automation*.mjs`, see docs/INTEGRATIONS.md and decision #20). The
+reminders use a server copy of the chasing rules held to the TypeScript by a
+parity test, and a ledger table so a step is sent at most once; the server
+queues what it sent and the browser records it, rather than writing the
+practice snapshot itself. The rest of the interfaces automation will need
+already exist as pure functions that take `today`:
 
 - deadline / recurring job generation → `generateNextJob`
 - reminder scheduling → `assessChasing` + `nextReminderStep`

@@ -35,6 +35,21 @@ export interface Practice {
    * Absent means time can't be billed yet — never guess a price.
    */
   defaultHourlyRate?: number;
+  /**
+   * What the server may do without anyone opening the app. Absent means
+   * nothing: every automatic behaviour is opt-in, and a practice that has
+   * never visited Settings → Automatic reminders has none of it.
+   */
+  automation?: PracticeAutomation;
+}
+
+export interface PracticeAutomation {
+  /**
+   * Send a client the next reminder in its sequence by email when it falls
+   * due, with no one clicking — only email steps, only to the client's main
+   * contact, weekday working hours, and never more than the sequence holds.
+   */
+  autoReminders?: boolean;
 }
 
 /**
@@ -446,6 +461,10 @@ export interface Communication {
   deliveryStatus?: 'sent' | 'handed_off' | 'simulated';
   providerName?: string;
   providerMessageId?: string;
+  /** True when the server sent it on a schedule rather than a person pressing Send. */
+  automated?: boolean;
+  /** The server's own id for an automatic send, so applying it to the practice's data twice is harmless. */
+  autoReminderId?: string;
 }
 
 export interface ReminderStep {

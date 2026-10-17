@@ -135,3 +135,38 @@ statement's own opening and closing balances are kept so a bad read shows
 itself; only an account number's last four digits are stored; the data lives
 in DB mode only and is sent to Anthropic like every other shared document (see
 `docs/INTEGRATIONS.md`).
+
+### 20. Automatic client reminders are opt-in, email-only, and never silent
+Until now every message to a client was a person pressing Send. Ray asked
+for the follow-ups to happen on their own: the deadline approaches, the
+client is emailed. That is a real change — the app speaking to a client in
+the practice's name with nobody watching — so it is bounded tightly.
+
+It is **off** until an owner or manager switches it on in Settings → Automatic
+reminders (a practice setting, so only `practice.configure` can change it, and
+the change is audited). When on, the server sends a client the next step of
+the reminder sequence the Chasing page already shows, and only when:
+
+- the step is an **email** step and the client's main contact has an email
+  address and doesn't prefer another channel — phone, WhatsApp and text steps
+  are left on the Chasing page for a person;
+- it is a weekday between 08:00 and 18:00 in the practice's timezone;
+- the job is genuinely waiting on the client (the same `assessChasing` the
+  Chasing page uses, ported to the server and held to the original by a
+  parity test), not paused, not filed;
+- at least 48 hours have passed since the last reminder, the deadline isn't
+  more than 30 days gone, and the sequence hasn't run out — after which it is
+  a person's move, shown in Settings as "left for you".
+
+A step is sent **at most once**: it is claimed in a database table with a
+unique (job, step) key before anything is sent, and a send whose outcome is
+unknowable (connection lost mid-send) is never retried — a person is told.
+Every send is recorded on the client's timeline flagged *Automatic*, counts
+toward the sequence, and shows in the activity feed. Nothing is sent without a
+real email provider; the simulated provider never "sends" automatically.
+Settings can preview the exact emails first.
+
+The server never writes the practice snapshot itself (that would bypass
+permissions and the audit trail); it queues what it sent and the next open
+tab records it, the same hand-off as portal uploads and shared documents.
+

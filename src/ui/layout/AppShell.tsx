@@ -14,6 +14,7 @@ import { useRefreshOnFocus, useUnsavedChangesWarning } from '../../application/u
 import { useLiveToday } from '../../application/useLiveToday';
 import { usePortalActivity } from '../../application/usePortalActivity';
 import { useIntakeActivity } from '../../application/useIntakeActivity';
+import { useAutoReminderActivity } from '../../application/useAutoReminderActivity';
 import { LoadFailedBanner } from '../components/LoadFailedBanner';
 import { AddDocumentModal } from '../components/AddDocumentModal';
 
@@ -33,6 +34,7 @@ export function AppShell() {
   useLiveToday();
   usePortalActivity();
   useIntakeActivity();
+  useAutoReminderActivity();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

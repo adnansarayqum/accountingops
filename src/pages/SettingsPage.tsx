@@ -14,6 +14,7 @@ import { InstallAppCard } from '../ui/components/InstallAppCard';
 import { UploadKeysCard } from '../ui/components/UploadKeysCard';
 import { ForwardEmailCard } from '../ui/components/ForwardEmailCard';
 import { BriefingEmailCard } from '../ui/components/BriefingEmailCard';
+import { AutoRemindersCard } from '../ui/components/AutoRemindersCard';
 import { useAppStore } from '../application/store';
 import { useData } from '../application/selectors';
 import { changePassword, hasPermission, logout, logoutEverywhere } from '../application/auth';
@@ -123,6 +124,7 @@ export function SettingsPage() {
 
       {authMode === 'server' && <AccountCard />}
       {authMode === 'server' && <BriefingEmailCard />}
+      {authMode === 'server' && <AutoRemindersCard />}
       {authMode === 'server' && <SnapshotHistoryCard />}
       <ThresholdsCard />
       <HmrcConnectionCard />
